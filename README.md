@@ -4,6 +4,12 @@ One loop: **pin a real address on a live map → walk over → tell Otto what
 you found.** Otto transcribes and structures the voice message, files it
 against the destination, and the pin flips to reported.
 
+On top of that loop sits a second surface,
+[`dashboard.html`](dashboard.html): define **Otto trigger scenarios**
+(straight out of the deck's "Otto triggers" sheet), give each one a clear
+Google-Maps address, send a tester out to act it out, and compare what
+Otto understood with what the scenario said should happen.
+
 This is the original
 [driversense_rewards](https://github.com/zappa36/driversense_rewards)
 challenge flow with the economy removed. Kept and dropped, deliberately:
@@ -35,6 +41,52 @@ python3 -m http.server 8000
 Zero configuration runs the whole loop on-device: grid map backdrop,
 address search via OpenStreetMap (or pasted coordinates), destinations in
 localStorage, and Otto as the scripted demo — clearly labelled as such.
+Open `http://localhost:8000/dashboard.html` for the scenarios dashboard —
+in this mode both pages share the browser's localStorage and keep each
+other fresh across tabs, so the whole define → test → compare loop can be
+felt on one machine.
+
+## The trigger-scenarios dashboard
+
+`dashboard.html` is the test designer's surface; the phone app is the
+tester's. One scenario is one row of the "Otto triggers" sheet — same
+columns, same wording:
+
+| # | Trigger scenario | Trigger rule (testable) | Activity Recognition states | Other signals needed | Timing to talk | Otto says | What Otto learns (tip type) | How to test it |
+|---|---|---|---|---|---|---|---|---|
+
+The loop:
+
+1. **Define** — "+ New scenario", or copy rows straight out of the Excel
+   sheet and use "Paste from Excel" (tab-separated clipboard rows, quoted
+   multi-line cells and the header row both handled).
+2. **Pin** — every scenario gets a clear Google-Maps address: search one,
+   or paste coordinates ("52.5346, 13.4109"). The dashboard shows the
+   address, its exact coordinates, and keyless **Open in Google Maps** /
+   **Street View** links; the pin lands on the live map and on every
+   tester's phone. A scenario without an address is flagged loudly —
+   it cannot be tested.
+3. **Test** — on the phone, the destination card carries the scenario's
+   "how to test it" steps, and Otto opens the debrief with the scenario's
+   own question (the "Otto says" column). Scenario pins are managed from
+   the dashboard, so the phone card hides "Remove destination" for them.
+4. **Compare** — the dashboard puts the definition (**defined — what
+   should happen**) next to the messages Otto filed (**what Otto
+   understood**: category, structured title, raw transcript). A category
+   that matches the expected tip type is flagged `= EXPECTED TYPE`. Close
+   the case with a **PASS / PARTIAL / FAIL** verdict per scenario.
+
+Statuses roll up in the header and colour the pins: *needs address* →
+*awaiting test* (red, like the phone) → *debriefed · n* (cyan) → verdict
+(green / amber / orange).
+
+Going live is the same story as the rest of the app: re-run
+[`supabase/schema.sql`](supabase/schema.sql) (safe to re-run) to add the
+`scenarios` table, and every phone sees the dashboard's pins. Worth doing
+at the same time: set the voice function's `NOTE_CATEGORIES` secret to
+your tip types (e.g. `PARKING,ACCESS,HAZARD,HOURS,INFO`) so Otto's
+categories can line up with the "What Otto learns" column, and point
+`ASSISTANT_BRIEF` at trigger debriefs.
 
 ## On your phone
 
@@ -91,6 +143,14 @@ which is the point of having extracted them:
 | `voice-notes-kit` | `voice-note.js`, `voice-note.css`, `supabase/functions/voice-note/` | The Otto debrief |
 | `field-map-kit` | `geolocate.js`, `field-map.js`, `field-map.css`, `supabase/functions/geocode/` | Position + live map |
 | new | `app.js`, `index.html`, `backend.js`, `config.js`, `supabase/schema.sql` | Destinations, the card, the wiring |
+| new | `dashboard.html`, `dashboard.js` | Trigger scenarios: define, pin, compare, verdict |
+
+The dashboard composes through the same seams: `FieldMap.mount` draws the
+scenario pins (status as `color`/`icon`), `Geo.simulate` centres the
+desktop map on the scenarios (flagged, as always, as not a real fix), and
+`Backend` gains the `scenarios` table alongside destinations and
+messages. The scenario's destination is the join point — the messages
+Otto files against it ARE "what Otto understood".
 
 The composition happens entirely through the kits' public seams:
 
@@ -127,9 +187,11 @@ The composition happens entirely through the kits' public seams:
 |---|---|
 | `index.html` | Phone shell: map, HUD, add-sheet, card, Otto screen |
 | `app.js` | Destinations, messages, the card, Otto wiring |
+| `dashboard.html` | Desktop shell: scenario list, map, form / address / import sheets |
+| `dashboard.js` | Trigger scenarios: CRUD, Excel paste-import, address pinning, compare + verdict |
 | `backend.js` | Merged Supabase client for both kits + this app's tables |
 | `config.js` | Keys — all optional |
 | `voice-note.js/.css` | verbatim from voice-notes-kit |
 | `geolocate.js`, `field-map.js/.css` | verbatim from field-map-kit |
-| `supabase/schema.sql` | `destinations` + `messages`, RLS |
+| `supabase/schema.sql` | `destinations` + `messages` + `scenarios`, RLS |
 | `supabase/functions/` | `voice-note` + `geocode`, verbatim from the kits |

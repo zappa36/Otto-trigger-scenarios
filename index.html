@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Destination debrief</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='%23ff6b6b'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="field-map.css">
 <link rel="stylesheet" href="voice-note.css">
 <style>
@@ -70,6 +71,7 @@
   }
   .chip.warn { border-color: rgba(255,204,0,.4); color: #ffd95e; }
   .chip.plain { cursor: default; border-color: rgba(140,165,200,.22); color: #94a1b2; }
+  a.chip { text-decoration: none; cursor: pointer; }
 
   /* ---------- add destination ---------- */
   #add-fab {
@@ -167,6 +169,27 @@
     letter-spacing: .1em;
     color: #ffd95e;
   }
+  /* a destination that belongs to a trigger scenario carries its brief */
+  #card-scenario {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(255,217,94,.35);
+    background: rgba(255,217,94,.07);
+  }
+  #card-scenario[hidden] { display: none; }
+  .sc-chip {
+    display: block;
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 9px;
+    letter-spacing: .13em;
+    color: #ffd95e;
+    margin-bottom: 4px;
+  }
+  #card-sc-name { display: block; font-size: 13.5px; }
+  #card-sc-steps { margin: 4px 0 0; font-size: 12.5px; color: #c9d2de; }
+  #card-sc-steps[hidden] { display: none; }
+
   .card-msgs { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; max-height: 132px; overflow: auto; }
   .msg {
     display: flex;
@@ -272,6 +295,7 @@
 
   <div class="hud">
     <span class="chip" id="gps">LOCATION OFF · TAP TO LOCATE</span>
+    <a class="chip plain" id="dash-link" href="dashboard.html" title="Trigger-scenarios dashboard">TESTS</a>
     <span class="chip plain" id="backend">GRID</span>
   </div>
 
@@ -300,6 +324,11 @@
     <h3 id="card-title"></h3>
     <p id="card-addr"></p>
     <span id="card-dist"></span>
+    <div id="card-scenario" hidden>
+      <span class="sc-chip">TEST SCENARIO</span>
+      <b id="card-sc-name"></b>
+      <p id="card-sc-steps"></p>
+    </div>
     <div class="card-msgs" id="card-msgs"></div>
     <p id="card-empty" hidden>No messages yet — go have a look, then tell Otto what you found.</p>
     <div class="card-actions">

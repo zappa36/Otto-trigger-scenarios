@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Otto · Trigger scenarios</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='%233cc0e0'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="field-map.css">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: #05080e;
+    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    color: #eef2f7;
+  }
+  button { font-family: inherit; }
+
+  /* ---------- top bar ---------- */
+  .top {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 14px 18px;
+    background: linear-gradient(180deg, rgba(5,10,9,.97), rgba(5,10,9,.88));
+    border-bottom: 1px solid rgba(140,165,200,.14);
+    backdrop-filter: blur(6px);
+  }
+  .brand h1 {
+    margin: 0;
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 14px;
+    letter-spacing: .18em;
+    color: #7fd6ea;
+  }
+  .brand .stats {
+    display: block;
+    margin-top: 3px;
+    font-size: 11.5px;
+    color: #94a1b2;
+  }
+  .top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 13px;
+    border-radius: 999px;
+    border: 1px solid rgba(140,165,200,.25);
+    background: rgba(8,18,16,.8);
+    color: #cfe9f2;
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 10px;
+    letter-spacing: .1em;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .chip.plain { color: #94a1b2; }
+  button.chip { cursor: pointer; }
+  button.chip:hover { border-color: rgba(60,192,224,.5); color: #cfe9f2; }
+  .chip.primary {
+    border-color: rgba(124,140,255,.5);
+    background: linear-gradient(180deg, rgba(124,140,255,.28), rgba(68,88,216,.28));
+    color: #dbe2ff;
+  }
+
+  /* ---------- layout ---------- */
+  .wrap {
+    display: grid;
+    grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+    gap: 16px;
+    padding: 16px 18px 40px;
+    max-width: 1440px;
+    margin: 0 auto;
+  }
+  .map-panel { position: sticky; top: 78px; height: calc(100vh - 120px); min-height: 380px; }
+  #map {
+    position: relative;
+    height: calc(100% - 26px);
+    border-radius: 18px;
+    overflow: hidden;
+    border: 1px solid rgba(140,165,200,.2);
+    background: #0e1b17;
+  }
+  .map-note { margin: 8px 2px 0; font-size: 11.5px; color: #6d7a8c; }
+  @media (max-width: 940px) {
+    .wrap { grid-template-columns: 1fr; }
+    .map-panel { position: relative; top: 0; height: 320px; min-height: 320px; }
+  }
+
+  /* ---------- scenario list ---------- */
+  .list { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+  .sc {
+    border-radius: 16px;
+    border: 1px solid rgba(140,165,200,.18);
+    background: rgba(9,17,26,.92);
+    overflow: hidden;
+  }
+  .sc-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 13px 16px;
+    cursor: pointer;
+  }
+  .sc-header:hover { background: rgba(140,165,200,.05); }
+  .sc-num {
+    flex: none;
+    width: 38px; height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 11px;
+    border: 1px solid rgba(60,192,224,.35);
+    background: rgba(60,192,224,.08);
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    color: #7fd6ea;
+  }
+  .sc-head { flex: 1; min-width: 0; }
+  .sc-head h3 { margin: 0; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sc-addr-line {
+    margin-top: 2px;
+    font-size: 12px;
+    color: #94a1b2;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .sc-addr-line.warn { color: #ffd95e; }
+
+  .badge {
+    flex: none;
+    padding: 5px 10px;
+    border-radius: 999px;
+    font-family: ui-monospace, monospace;
+    font-size: 9.5px;
+    letter-spacing: .09em;
+    border: 1px solid transparent;
+  }
+  .badge-nopin    { color: #ffd95e; border-color: rgba(255,217,94,.4);  background: rgba(255,217,94,.08); }
+  .badge-ready    { color: #ff9b9b; border-color: rgba(255,107,107,.4); background: rgba(255,107,107,.08); }
+  .badge-debriefed{ color: #7fd6ea; border-color: rgba(60,192,224,.4);  background: rgba(60,192,224,.08); }
+  .badge-pass     { color: #7ce0b8; border-color: rgba(70,211,154,.45); background: rgba(70,211,154,.09); }
+  .badge-partial  { color: #ffd95e; border-color: rgba(255,217,94,.45); background: rgba(255,217,94,.09); }
+  .badge-fail     { color: #ffab8a; border-color: rgba(255,120,69,.5);  background: rgba(255,120,69,.1); }
+
+  .sc-body { padding: 2px 16px 16px; border-top: 1px solid rgba(140,165,200,.12); }
+  .sc-body[hidden] { display: none; }
+
+  /* the address block — deliberately loud: this is where the test happens */
+  .addr-block {
+    margin-top: 13px;
+    padding: 12px 14px;
+    border-radius: 13px;
+    border: 1px solid rgba(60,192,224,.3);
+    background: rgba(60,192,224,.06);
+  }
+  .addr-block.warn { border-color: rgba(255,217,94,.4); background: rgba(255,217,94,.06); }
+  .addr-tag {
+    display: block;
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: .14em;
+    color: #7fd6ea;
+    margin-bottom: 4px;
+  }
+  .addr-block.warn .addr-tag { color: #ffd95e; }
+  .addr-text { font-size: 14.5px; }
+  .addr-coords {
+    display: block;
+    margin-top: 3px;
+    font-family: ui-monospace, monospace;
+    font-size: 10.5px;
+    letter-spacing: .06em;
+    color: #94a1b2;
+  }
+  .addr-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+  .mini-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 7px 11px;
+    border-radius: 9px;
+    border: 1px solid rgba(140,165,200,.28);
+    background: transparent;
+    color: #cfe9f2;
+    font-size: 12px;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .mini-btn:hover { border-color: rgba(60,192,224,.5); }
+  .mini-btn.accent { border-color: rgba(60,192,224,.45); background: rgba(60,192,224,.09); }
+
+  /* definition grid */
+  .def-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 9px;
+    margin-top: 13px;
+  }
+  .def {
+    padding: 9px 11px;
+    border-radius: 11px;
+    background: rgba(140,165,200,.06);
+    border: 1px solid rgba(140,165,200,.12);
+  }
+  .def dt {
+    margin: 0;
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: .12em;
+    color: #8b97a8;
+    text-transform: uppercase;
+  }
+  .def dd { margin: 4px 0 0; font-size: 12.5px; color: #d7dfe9; white-space: pre-wrap; }
+
+  /* compare: defined vs understood */
+  .compare {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 10px;
+    margin-top: 13px;
+  }
+  .cmp-col {
+    padding: 12px 13px;
+    border-radius: 13px;
+    border: 1px solid rgba(140,165,200,.14);
+    background: rgba(140,165,200,.04);
+  }
+  .cmp-col h4 {
+    margin: 0 0 9px;
+    font-family: ui-monospace, monospace;
+    font-size: 9.5px;
+    letter-spacing: .13em;
+    color: #8b97a8;
+  }
+  .cmp-defined { border-color: rgba(124,140,255,.3); }
+  .cmp-defined h4 { color: #aab6ff; }
+  .cmp-heard { border-color: rgba(70,211,154,.28); }
+  .cmp-heard h4 { color: #7ce0b8; }
+  .cmp-row { margin-bottom: 9px; }
+  .cmp-row:last-child { margin-bottom: 0; }
+  .cmp-k {
+    display: block;
+    font-size: 10.5px;
+    color: #8b97a8;
+    margin-bottom: 2px;
+  }
+  .cmp-v { font-size: 13px; white-space: pre-wrap; }
+  .cmp-v.say { color: #dbe2ff; font-style: italic; }
+  .tip-chip {
+    display: inline-block;
+    padding: 4px 9px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,217,94,.4);
+    background: rgba(255,217,94,.07);
+    color: #ffd95e;
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    letter-spacing: .08em;
+  }
+
+  .msg {
+    padding: 9px 11px;
+    border-radius: 11px;
+    background: rgba(140,165,200,.06);
+    border: 1px solid rgba(140,165,200,.13);
+    margin-bottom: 8px;
+    font-size: 13px;
+  }
+  .msg:last-child { margin-bottom: 0; }
+  .msg-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+  .msg-cat {
+    font-family: ui-monospace, monospace;
+    font-size: 9.5px;
+    letter-spacing: .1em;
+    color: #5fe0b0;
+  }
+  .msg-cat.match {
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(70,211,154,.45);
+    background: rgba(70,211,154,.1);
+  }
+  .msg-demo { font-family: ui-monospace, monospace; font-size: 9px; letter-spacing: .1em; color: #ffd95e; }
+  .msg-time { margin-left: auto; font-size: 10.5px; color: #6d7a8c; }
+  .msg-title { font-weight: 600; }
+  .msg-tr { margin: 3px 0 0; color: #aeb9c8; font-size: 12.5px; }
+  .cmp-empty { font-size: 12.5px; color: #94a1b2; }
+
+  /* verdict + row actions */
+  .verdict-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 13px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(140,165,200,.12);
+  }
+  .verdict-label { font-size: 12px; color: #8b97a8; margin-right: 2px; }
+  .v-btn {
+    padding: 7px 13px;
+    border-radius: 999px;
+    border: 1px solid rgba(140,165,200,.28);
+    background: transparent;
+    color: #aeb9c8;
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    letter-spacing: .1em;
+    cursor: pointer;
+  }
+  .v-btn.on-pass    { color: #7ce0b8; border-color: rgba(70,211,154,.6);  background: rgba(70,211,154,.12); }
+  .v-btn.on-partial { color: #ffd95e; border-color: rgba(255,217,94,.6);  background: rgba(255,217,94,.12); }
+  .v-btn.on-fail    { color: #ffab8a; border-color: rgba(255,120,69,.65); background: rgba(255,120,69,.13); }
+  .row-links { margin-left: auto; display: flex; gap: 12px; }
+  .row-link { background: none; border: none; padding: 0; font-size: 11.5px; color: #8b97a8; cursor: pointer; }
+  .row-link:hover { color: #cfe9f2; }
+  .row-link.danger:hover { color: #ff9b9b; }
+
+  /* ---------- empty state ---------- */
+  .empty {
+    padding: 34px 22px;
+    border-radius: 16px;
+    border: 1px dashed rgba(140,165,200,.3);
+    text-align: center;
+  }
+  .empty b { display: block; font-size: 15.5px; margin-bottom: 6px; }
+  .empty p { margin: 0 0 14px; font-size: 13px; color: #94a1b2; }
+  .empty .top-actions { justify-content: center; }
+
+  /* ---------- overlay sheets ---------- */
+  .overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 18px;
+    background: rgba(4,8,7,.68);
+    backdrop-filter: blur(3px);
+  }
+  .overlay[hidden] { display: none; }
+  .panel {
+    width: 100%;
+    max-width: 680px;
+    max-height: 88vh;
+    overflow: auto;
+    background: #0a141d;
+    border: 1px solid rgba(140,165,200,.22);
+    border-radius: 18px;
+    padding: 18px 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .panel h2 { margin: 0; font-size: 16px; }
+  .panel .sub { font-size: 12px; color: #94a1b2; }
+  .frm { display: grid; grid-template-columns: 86px 1fr; gap: 9px; }
+  .frm .full { grid-column: 1 / -1; }
+  .frm label {
+    display: block;
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    color: #8b97a8;
+    margin-bottom: 4px;
+  }
+  .frm input, .frm textarea, .panel input[type=text], .panel textarea {
+    width: 100%;
+    padding: 10px 11px;
+    border-radius: 10px;
+    border: 1px solid rgba(140,165,200,.25);
+    background: rgba(7,13,22,.7);
+    color: #eef2f7;
+    font-size: 13.5px;
+    font-family: inherit;
+    outline: none;
+  }
+  .frm textarea { resize: vertical; min-height: 52px; }
+  .frm input:focus, .frm textarea:focus, .panel input[type=text]:focus, .panel textarea:focus { border-color: rgba(60,192,224,.55); }
+  .panel-foot { display: flex; gap: 8px; justify-content: flex-end; align-items: center; margin-top: 4px; }
+  .panel-foot .spacer { margin-right: auto; }
+  .sheet-btn {
+    padding: 10px 16px;
+    border-radius: 11px;
+    border: 1px solid rgba(140,165,200,.25);
+    background: transparent;
+    color: #cfe9f2;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .sheet-btn.primary {
+    border-color: rgba(124,140,255,.5);
+    background: linear-gradient(180deg, rgba(124,140,255,.25), rgba(68,88,216,.25));
+    color: #dbe2ff;
+  }
+  .form-hint { font-size: 12px; color: #ffd95e; min-height: 1em; }
+
+  /* address picker */
+  #addr-results { display: flex; flex-direction: column; gap: 7px; max-height: 260px; overflow: auto; }
+  .cand {
+    text-align: left;
+    padding: 11px 12px;
+    border-radius: 11px;
+    border: 1px solid rgba(60,192,224,.3);
+    background: rgba(60,192,224,.07);
+    color: #cfe9f2;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  #addr-hint { font-size: 12px; color: #94a1b2; min-height: 1em; }
+  .addr-current { font-size: 12.5px; color: #94a1b2; }
+  .addr-current b { color: #cfe9f2; }
+
+  /* import */
+  #import-text { min-height: 150px; font-family: ui-monospace, monospace; font-size: 12px; resize: vertical; }
+  #import-preview { font-size: 12.5px; color: #94a1b2; min-height: 1.2em; white-space: pre-wrap; }
+  .link-btn { background: none; border: none; padding: 0; color: #7fd6ea; font-size: 12px; cursor: pointer; text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <h1>OTTO · TRIGGER SCENARIOS</h1>
+    <span class="stats" id="stats">Loading…</span>
+  </div>
+  <div class="top-actions">
+    <span class="chip plain" id="backend" title="Map backend">GRID</span>
+    <button class="chip" id="refresh" type="button" title="Reload scenarios and debriefs">↻ REFRESH</button>
+    <button class="chip" id="import-open" type="button">⎘ PASTE FROM EXCEL</button>
+    <button class="chip primary" id="new-open" type="button">+ NEW SCENARIO</button>
+    <a class="chip plain" href="index.html" target="_blank" rel="noopener">PHONE APP ↗</a>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="map-panel">
+    <div id="map"></div>
+    <p class="map-note">Pins are the scenarios' test addresses — click one to open its scenario. The tester sees the same pins in the phone app.</p>
+  </section>
+  <section class="list" id="list"></section>
+</main>
+
+<!-- ---------- scenario form ---------- -->
+<div class="overlay" id="form-sheet" hidden>
+  <div class="panel">
+    <h2 id="form-title">New trigger scenario</h2>
+    <span class="sub">Same columns as the "Otto triggers" sheet. Only the scenario name is required.</span>
+    <div class="frm">
+      <div><label for="f-num">#</label><input id="f-num" type="number" min="1" step="1"></div>
+      <div><label for="f-title">Trigger scenario</label><input id="f-title" type="text" placeholder="Parking loops — driver circles the block looking for parking"></div>
+      <div class="full"><label for="f-rule">Trigger rule (testable)</label><textarea id="f-rule"></textarea></div>
+      <div class="full"><label for="f-ar">Activity Recognition states</label><textarea id="f-ar"></textarea></div>
+      <div class="full"><label for="f-signals">Other signals needed</label><textarea id="f-signals"></textarea></div>
+      <div class="full"><label for="f-timing">Timing to talk</label><textarea id="f-timing"></textarea></div>
+      <div class="full"><label for="f-says">Otto says</label><textarea id="f-says" placeholder="“Is it hard to park here at this time? Where did you find a spot?”"></textarea></div>
+      <div class="full"><label for="f-learns">What Otto learns (tip type)</label><input id="f-learns" type="text" placeholder="Parking / loading-zone tip"></div>
+      <div class="full"><label for="f-steps">How to test it</label><textarea id="f-steps"></textarea></div>
+    </div>
+    <div class="form-hint" id="form-hint"></div>
+    <div class="panel-foot">
+      <button class="sheet-btn" id="form-cancel" type="button">Cancel</button>
+      <button class="sheet-btn primary" id="form-save" type="button">Save scenario</button>
+    </div>
+  </div>
+</div>
+
+<!-- ---------- address picker ---------- -->
+<div class="overlay" id="addr-sheet" hidden>
+  <div class="panel">
+    <h2>Set the test address</h2>
+    <span class="sub" id="addr-for"></span>
+    <p class="addr-current" id="addr-current"></p>
+    <input id="addr-input" type="text" placeholder="Kollwitzstraße 18, Berlin — or paste coordinates “52.5346, 13.4109”" autocomplete="off">
+    <div id="addr-results"></div>
+    <div id="addr-hint"></div>
+    <div class="panel-foot">
+      <button class="sheet-btn" id="addr-close" type="button">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ---------- Excel paste import ---------- -->
+<div class="overlay" id="import-sheet" hidden>
+  <div class="panel">
+    <h2>Paste scenarios from the Excel sheet</h2>
+    <span class="sub">Copy rows from the "Otto triggers" sheet (header row is fine too) and paste here. Column order:
+    # · Trigger scenario · Trigger rule (testable) · Activity Recognition states · Other signals needed · Timing to talk · Otto says · What Otto learns (tip type) · How to test it.</span>
+    <textarea id="import-text" placeholder="Paste the copied rows here…"></textarea>
+    <div id="import-preview"></div>
+    <div class="panel-foot">
+      <span class="spacer"><button class="link-btn" id="import-sample" type="button">…or load the sample scenario from the deck</button></span>
+      <button class="sheet-btn" id="import-cancel" type="button">Cancel</button>
+      <button class="sheet-btn primary" id="import-go" type="button">Import</button>
+    </div>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="backend.js"></script>
+<script src="geolocate.js"></script>
+<script src="field-map.js"></script>
+<script src="dashboard.js"></script>
+
+</body>
+</html>

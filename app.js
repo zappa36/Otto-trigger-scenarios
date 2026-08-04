@@ -24,11 +24,25 @@ const el = id => document.getElementById(id);
 /* ---------- destinations & messages ---------- */
 const LS_DEST = 'od_destinations';
 const LS_MSGS = 'od_messages';
+const LS_SCEN = 'od_scenarios';
 
 let destinations = [];
 const messagesByDest = {};
 const reportedIds = new Set();
 let current = null; // destination in the open card / Otto session
+
+/* Trigger scenarios (defined on dashboard.html) — read-only here. A
+ * destination that belongs to a scenario carries the test steps on its
+ * card, and Otto opens the debrief with the scenario's own question. */
+let scenarios = [];
+let scenarioByDest = {};
+const rebuildScenarioIndex = () => {
+  scenarioByDest = {};
+  scenarios.forEach(s => { if (s.destination_id) scenarioByDest[s.destination_id] = s; });
+};
+const scenarioOf = d => (d && scenarioByDest[d.id]) || null;
+const stripQuotes = s => String(s || '').trim().replace(/^[“”"']+/, '').replace(/[“”"']+$/, '');
+const scenarioShort = sc => String(sc.title || '').split(/\s+—\s+|\s+-\s+/)[0].trim();
 
 const localId = () => 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
@@ -84,12 +98,20 @@ const map = FieldMap.mount({
 const voice = VoiceNote.mount({
   el: '#otto',
   assistant: 'Otto',
-  context: () => current
-    ? current.title + (current.addr ? ' — ' + current.addr : '')
-    : 'this spot',
-  greeting: () => current
-    ? `This is ${current.title}${current.addr ? ' — ' + current.addr : ''}. What's the situation there? Tap the mic and describe what you see.`
-    : 'Tap the mic and tell me what you found.',
+  context: () => {
+    if (!current) return 'this spot';
+    const base = current.title + (current.addr ? ' — ' + current.addr : '');
+    const sc = scenarioOf(current);
+    return sc ? `trigger scenario "${scenarioShort(sc)}" at ${base}` : base;
+  },
+  greeting: () => {
+    const sc = scenarioOf(current);
+    /* the sheet's "Otto says" column IS the debrief opener */
+    if (sc && sc.otto_says) return stripQuotes(sc.otto_says);
+    return current
+      ? `This is ${current.title}${current.addr ? ' — ' + current.addr : ''}. What's the situation there? Tap the mic and describe what you see.`
+      : 'Tap the mic and tell me what you found.';
+  },
   demo: [
     { q: "Here's the spot. What's going on?", a: 'The passage is blocked — scaffolding right across the entrance.' },
     { q: 'Got it. Can you still get through somehow?', a: "Yes — there's a side door on the left, maybe 20 metres on." },
@@ -136,6 +158,17 @@ function openCard(d) {
   updateCardDistance();
   el('card-dir').href = dirUrl(d);
   el('card-sv').href = panoUrl(d);
+
+  /* a scenario pin carries its instructions — and is managed from the
+   * dashboard, so the card's remove link goes away */
+  const sc = scenarioOf(d);
+  el('card-scenario').hidden = !sc;
+  if (sc) {
+    el('card-sc-name').textContent = (sc.num != null ? '#' + sc.num + ' · ' : '') + sc.title;
+    el('card-sc-steps').textContent = sc.test_steps || sc.rule || '';
+    el('card-sc-steps').hidden = !(sc.test_steps || sc.rule);
+  }
+  el('card-remove').hidden = !!sc;
 
   const list = messagesByDest[d.id] || [];
   const box = el('card-msgs');
@@ -316,6 +349,9 @@ async function boot() {
       const msgs = (await Backend.listMessages(500)) || [];
       msgs.forEach(m => { if (m.destination_id) recordMessage(m.destination_id, m); });
     } catch (e) { console.warn('load failed — run schema.sql?', e.message); }
+    try {
+      scenarios = (await Backend.listScenarios()) || [];
+    } catch (e) { console.warn('no scenarios — re-run schema.sql to add the table?', e.message); }
   } else {
     try { destinations = JSON.parse(localStorage.getItem(LS_DEST) || '[]'); } catch { /* private mode */ }
     try {
@@ -323,9 +359,30 @@ async function boot() {
         if (m.destination_id) recordMessage(m.destination_id, m);
       });
     } catch { /* private mode */ }
+    try { scenarios = JSON.parse(localStorage.getItem(LS_SCEN) || '[]'); } catch { /* private mode */ }
   }
+  rebuildScenarioIndex();
   renderEmpty();
   map.refresh();
+}
+
+/* Local demo mode: the dashboard in another tab writes the same
+ * localStorage — pick up its new scenarios and pins as they land. */
+if (!Backend.enabled) {
+  window.addEventListener('storage', e => {
+    if (e.key && ![LS_DEST, LS_SCEN].includes(e.key)) return;
+    try { destinations = JSON.parse(localStorage.getItem(LS_DEST) || '[]'); } catch { return; }
+    try { scenarios = JSON.parse(localStorage.getItem(LS_SCEN) || '[]'); } catch { /* keep old */ }
+    rebuildScenarioIndex();
+    renderEmpty();
+    map.refresh();
+    if (current && !el('otto-screen').hidden) return; // don't yank an open debrief
+    if (current) {
+      const d = destinations.find(x => x.id === current.id);
+      if (d) { if (!el('card').hidden) openCard(d); }
+      else { el('card').hidden = true; current = null; }
+    }
+  });
 }
 
 boot();
