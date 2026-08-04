@@ -1,0 +1,225 @@
+/* ============================================================
+ * Voice note widget styles.
+ *
+ * Self-contained and prefixed with .vn — drop it into any page.
+ * Colours come from CSS custom properties so the widget can take
+ * on a host app's brand without touching this file.
+ * ============================================================ */
+
+.vn {
+  --vn-accent: #7c8cff;
+  --vn-accent-2: #3cc0e0;
+  --vn-ink: #eef2f7;
+  --vn-dim: #94a1b2;
+  --vn-good: #5fe0b0;
+  --vn-gold: #ffcc00;
+  --vn-font: 'Saira', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --vn-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  color: var(--vn-ink);
+  font-family: var(--vn-font);
+}
+
+/* ---------- stage: orb + message ---------- */
+.vn-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 36px;
+  padding: 4px 30px 0;
+}
+
+.vn-orb {
+  position: relative;
+  width: 194px;
+  height: 194px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vn-glow {
+  position: absolute;
+  inset: -16px;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--vn-accent) 32%, transparent), transparent 66%);
+  filter: blur(4px);
+  animation: vn-breathe 3.6s ease-in-out infinite;
+}
+
+.vn-ring {
+  position: absolute;
+  inset: 14px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--vn-accent) 50%, transparent);
+  animation: vn-orbring 2.4s ease-out infinite;
+}
+.vn-ring2 {
+  border-color: color-mix(in srgb, var(--vn-accent-2) 45%, transparent);
+  animation-delay: 1.2s;
+}
+.vn-ring[hidden] { display: none; }
+
+/* The blob is deliberately not a circle: an off-round shape that morphs
+ * reads as alive, where a perfect circle reads as a loading spinner. */
+.vn-blob {
+  position: absolute;
+  inset: 26px;
+  background: linear-gradient(140deg, #aab6ff, var(--vn-accent) 38%, var(--vn-accent-2) 80%, #0498ba);
+  box-shadow: 0 22px 54px rgba(68, 88, 216, .5), inset 0 8px 22px rgba(255, 255, 255, .32);
+  border-radius: 42% 58% 56% 44% / 48% 42% 58% 52%;
+  animation: vn-morph 8s ease-in-out infinite, vn-float 5.2s ease-in-out infinite;
+}
+
+.vn-sheen {
+  position: absolute;
+  inset: 34px;
+  background: radial-gradient(circle at 36% 28%, rgba(255, 255, 255, .55), transparent 56%);
+  border-radius: 50%;
+  opacity: .75;
+  animation: vn-morph 8s ease-in-out infinite reverse;
+  pointer-events: none;
+}
+
+.vn-face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vn-eyes { display: flex; align-items: center; gap: 14px; }
+.vn-eye {
+  position: relative;
+  width: 16px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  display: block;
+  animation: vn-blink 3.6s ease-in-out infinite;
+  transform-origin: center;
+}
+.vn-eye i {
+  position: absolute;
+  left: 3px;
+  top: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #2a3a78;
+}
+.vn-think { display: flex; animation: vn-breathe 1.3s ease-in-out infinite; }
+
+/* ---------- message bubble ---------- */
+.vn-bubble {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+  animation: vn-msgin .3s ease;
+}
+.vn-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--vn-mono);
+  font-size: 11px;
+  letter-spacing: .2em;
+  color: #aab6ff;
+  text-transform: uppercase;
+}
+.vn-bubble-me .vn-who { color: var(--vn-accent-2); }
+.vn-text {
+  font-weight: 500;
+  font-size: 23px;
+  line-height: 1.42;
+  max-width: 308px;
+  text-wrap: pretty;
+}
+.vn-bubble-me .vn-text { color: #dceaf2; }
+
+/* ---------- control bar ---------- */
+.vn-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  margin: 8px 14px 26px;
+  padding: 13px 16px;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--vn-accent) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--vn-accent) 22%, transparent);
+}
+.vn-labels { flex: 1; min-width: 0; }
+.vn-caption { font-weight: 600; font-size: 15px; line-height: 1.1; }
+.vn-sub { font-size: 12px; color: var(--vn-dim); margin-top: 2px; }
+
+.vn-mic {
+  position: relative;
+  flex: none;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  background: linear-gradient(180deg, #1a2533, #0d1622);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .5), inset 0 0 0 1.5px color-mix(in srgb, var(--vn-accent) 50%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #b3bcff;
+}
+.vn-mic[hidden] { display: none; }
+.vn-mic:active { transform: scale(.94); }
+.vn-mic-rec { color: #ff8f8f; }
+.vn-micicon { display: flex; pointer-events: none; }
+.vn-micring {
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--vn-accent) 50%, transparent);
+  animation: vn-micring 1.9s ease-out infinite;
+  pointer-events: none;
+}
+.vn-micring[hidden] { display: none; }
+
+.vn-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  font-family: var(--vn-mono);
+  font-size: 11px;
+  color: var(--vn-good);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--vn-gold) 16%, transparent), color-mix(in srgb, var(--vn-good) 14%, transparent));
+  border: 1px solid color-mix(in srgb, var(--vn-good) 40%, transparent);
+  padding: 7px 11px;
+  border-radius: 11px;
+}
+.vn-chip[hidden] { display: none; }
+
+/* ---------- keyframes ---------- */
+@keyframes vn-msgin { from { transform: translateY(8px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
+@keyframes vn-orbring { from { transform: scale(.55); opacity: .7 } to { transform: scale(1.7); opacity: 0 } }
+@keyframes vn-micring { from { transform: scale(.85); opacity: .7 } to { transform: scale(1.55); opacity: 0 } }
+@keyframes vn-breathe { 0%, 100% { transform: scale(1); opacity: .92 } 50% { transform: scale(1.1); opacity: 1 } }
+@keyframes vn-blink { 0%, 92%, 100% { transform: scaleY(1) } 96% { transform: scaleY(.1) } }
+@keyframes vn-float { 0%, 100% { translate: 0 0 } 50% { translate: 0 -7px } }
+@keyframes vn-morph {
+  0%, 100% { border-radius: 42% 58% 56% 44% / 48% 42% 58% 52% }
+  33% { border-radius: 56% 44% 42% 58% / 56% 58% 42% 44% }
+  66% { border-radius: 46% 54% 62% 38% / 42% 56% 44% 58% }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vn * { animation: none !important; }
+}

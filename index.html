@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Destination debrief</title>
+<link rel="stylesheet" href="field-map.css">
+<link rel="stylesheet" href="voice-note.css">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #05080e;
+    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    color: #eef2f7;
+  }
+
+  /* Phone-first: full-bleed on a phone, a centered phone frame on desktop. */
+  .phone {
+    position: relative;
+    width: 100%;
+    max-width: 393px;
+    height: 100dvh;
+    max-height: 852px;
+    overflow: hidden;
+    background: #0e1b17;
+  }
+  @media (min-width: 460px) and (min-height: 700px) {
+    .phone { border-radius: 42px; box-shadow: 0 40px 90px rgba(0,0,0,.6), 0 0 0 1px rgba(140,165,200,.14); }
+  }
+
+  #map { position: absolute; inset: 0; }
+
+  /* ---------- HUD ---------- */
+  .hud {
+    position: absolute;
+    left: 0; right: 0; top: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 18px 16px;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(5,10,9,.85), transparent);
+  }
+  .chip {
+    pointer-events: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(60,192,224,.35);
+    background: rgba(8,18,16,.8);
+    color: #7fd6ea;
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 10px;
+    letter-spacing: .1em;
+    cursor: pointer;
+    max-width: 70%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .chip.warn { border-color: rgba(255,204,0,.4); color: #ffd95e; }
+  .chip.plain { cursor: default; border-color: rgba(140,165,200,.22); color: #94a1b2; }
+
+  /* ---------- add destination ---------- */
+  #add-fab {
+    position: absolute;
+    right: 14px; bottom: 84px;
+    z-index: 11;
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    background: linear-gradient(180deg, #ff8f8f, #d63a3a);
+    color: #fff;
+    font-size: 28px;
+    line-height: 1;
+    box-shadow: 0 8px 20px rgba(214,58,58,.5), inset 0 1px 0 rgba(255,255,255,.4);
+  }
+
+  #add-sheet {
+    position: absolute;
+    inset: 0;
+    z-index: 13;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    background: rgba(4,8,7,.6);
+    backdrop-filter: blur(2px);
+  }
+  #add-sheet[hidden] { display: none; }
+  .sheet {
+    background: #0a141d;
+    border-top: 1px solid rgba(140,165,200,.2);
+    border-radius: 22px 22px 0 0;
+    padding: 18px 16px 26px;
+    max-height: 72%;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .sheet h2 { margin: 0; font-size: 16px; }
+  .sheet .sub { font-size: 12px; color: #94a1b2; }
+  #add-input {
+    width: 100%;
+    padding: 12px;
+    border-radius: 11px;
+    border: 1px solid rgba(140,165,200,.25);
+    background: rgba(7,13,22,.7);
+    color: #eef2f7;
+    font-size: 15px;
+    outline: none;
+  }
+  #add-results { display: flex; flex-direction: column; gap: 7px; overflow: auto; }
+  .cand {
+    text-align: left;
+    padding: 11px 12px;
+    border-radius: 11px;
+    border: 1px solid rgba(60,192,224,.3);
+    background: rgba(60,192,224,.07);
+    color: #cfe9f2;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  #add-hint { font-size: 12px; color: #94a1b2; min-height: 1em; }
+  .sheet-row { display: flex; gap: 8px; }
+  .sheet-btn {
+    flex: 1;
+    padding: 10px;
+    border-radius: 11px;
+    border: 1px solid rgba(140,165,200,.25);
+    background: transparent;
+    color: #cfe9f2;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  #add-demo[hidden] { display: none; }
+
+  /* ---------- destination card ---------- */
+  #card {
+    position: absolute;
+    left: 12px; right: 12px; bottom: 12px;
+    z-index: 12;
+    padding: 15px 16px;
+    border-radius: 18px;
+    background: rgba(9,17,26,.94);
+    border: 1px solid rgba(140,165,200,.2);
+    backdrop-filter: blur(8px);
+  }
+  #card[hidden] { display: none; }
+  #card h3 { margin: 0 0 2px; font-size: 17px; }
+  #card-addr { margin: 0; font-size: 13px; color: #94a1b2; }
+  #card-dist {
+    display: inline-block;
+    margin-top: 7px;
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 10px;
+    letter-spacing: .1em;
+    color: #ffd95e;
+  }
+  .card-msgs { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; max-height: 132px; overflow: auto; }
+  .msg {
+    display: flex;
+    gap: 9px;
+    align-items: baseline;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: rgba(140,165,200,.07);
+    border: 1px solid rgba(140,165,200,.14);
+    font-size: 13px;
+  }
+  .msg-cat { flex: none; font-family: ui-monospace, monospace; font-size: 9px; letter-spacing: .1em; color: #5fe0b0; }
+  #card-empty { margin: 10px 0 0; font-size: 12.5px; color: #94a1b2; }
+  #card-empty[hidden] { display: none; }
+  .card-actions { display: flex; gap: 8px; margin-top: 12px; }
+  .card-btn {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 11px 8px;
+    border-radius: 11px;
+    border: 1px solid rgba(140,165,200,.25);
+    background: transparent;
+    color: #cfe9f2;
+    font-size: 12.5px;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .card-btn.primary {
+    border-color: rgba(124,140,255,.5);
+    background: linear-gradient(180deg, rgba(124,140,255,.25), rgba(68,88,216,.25));
+    color: #dbe2ff;
+  }
+  .card-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
+  .card-link { background: none; border: none; padding: 0; font-size: 11.5px; color: #8b97a8; cursor: pointer; }
+
+  /* ---------- empty state ---------- */
+  #hint {
+    position: absolute;
+    left: 50%; top: 46%;
+    transform: translate(-50%, -50%);
+    z-index: 9;
+    width: 78%;
+    text-align: center;
+    padding: 18px 16px;
+    border-radius: 16px;
+    background: rgba(9,17,26,.85);
+    border: 1px solid rgba(140,165,200,.18);
+    pointer-events: none;
+  }
+  #hint[hidden] { display: none; }
+  #hint b { display: block; font-size: 15px; margin-bottom: 5px; }
+  #hint span { font-size: 12.5px; color: #94a1b2; }
+
+  /* ---------- Otto screen ---------- */
+  #otto-screen {
+    position: absolute;
+    inset: 0;
+    z-index: 14;
+    display: flex;
+    flex-direction: column;
+    background: radial-gradient(130% 60% at 50% 0%, #101a2c 0%, #0a121d 55%, #070c14 100%);
+  }
+  #otto-screen[hidden] { display: none; }
+  .otto-top {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 18px 16px 6px;
+  }
+  #otto-back {
+    flex: none;
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    border: 1px solid rgba(140,165,200,.25);
+    background: rgba(255,255,255,.05);
+    color: #aeb9c8;
+    font-size: 17px;
+    cursor: pointer;
+  }
+  #otto-dest {
+    flex: 1;
+    text-align: right;
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 10.5px;
+    letter-spacing: .12em;
+    color: #ff9b9b;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #otto { flex: 1; min-height: 0; }
+</style>
+</head>
+<body>
+
+<div class="phone">
+  <div id="map"></div>
+
+  <div class="hud">
+    <span class="chip" id="gps">LOCATION OFF · TAP TO LOCATE</span>
+    <span class="chip plain" id="backend">GRID</span>
+  </div>
+
+  <div id="hint" hidden>
+    <b>No destinations yet</b>
+    <span>Tap <b style="display:inline;color:#ff9b9b;">+</b> and search a real address — the pin lands on the live map.</span>
+  </div>
+
+  <button id="add-fab" type="button" aria-label="Add destination">+</button>
+
+  <div id="add-sheet" hidden>
+    <div class="sheet">
+      <h2>Add a destination</h2>
+      <span class="sub">Search a real address, or paste coordinates ("52.5346, 13.4109").</span>
+      <input id="add-input" type="text" inputmode="text" placeholder="Kollwitzstraße 18, Berlin" autocomplete="off">
+      <div id="add-results"></div>
+      <div id="add-hint"></div>
+      <div class="sheet-row">
+        <button id="add-demo" class="sheet-btn" type="button" hidden>Demo spot near me</button>
+        <button id="add-close" class="sheet-btn" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="card" hidden>
+    <h3 id="card-title"></h3>
+    <p id="card-addr"></p>
+    <span id="card-dist"></span>
+    <div class="card-msgs" id="card-msgs"></div>
+    <p id="card-empty" hidden>No messages yet — go have a look, then tell Otto what you found.</p>
+    <div class="card-actions">
+      <button id="card-otto" class="card-btn primary" type="button"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Z"/><path d="M19 11a1 1 0 1 0-2 0 5 5 0 0 1-10 0 1 1 0 1 0-2 0 7 7 0 0 0 6 6.93V21a1 1 0 1 0 2 0v-3.07A7 7 0 0 0 19 11Z"/></svg>Report to Otto</button>
+      <a id="card-dir" class="card-btn" target="_blank" rel="noopener">Directions</a>
+      <a id="card-sv" class="card-btn" target="_blank" rel="noopener">Street View</a>
+    </div>
+    <div class="card-foot">
+      <button id="card-remove" class="card-link" type="button">Remove destination</button>
+      <button id="card-close" class="card-link" type="button">Close</button>
+    </div>
+  </div>
+
+  <section id="otto-screen" hidden>
+    <div class="otto-top">
+      <button id="otto-back" type="button" aria-label="Back to the map">←</button>
+      <span id="otto-dest"></span>
+    </div>
+    <div id="otto"></div>
+  </section>
+</div>
+
+<script src="config.js"></script>
+<script src="backend.js"></script>
+<script src="geolocate.js"></script>
+<script src="field-map.js"></script>
+<script src="voice-note.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>
