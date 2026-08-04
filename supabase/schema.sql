@@ -22,8 +22,16 @@ create table if not exists public.messages (
   category text,                    -- one of NOTE_CATEGORIES (see the voice-note function)
   lat double precision,             -- where the reporter stood
   lng double precision,
+  ar_summary text,                  -- observed activity, compact ("IN_VEHICLE 4m → STILL 50s")
+  ar_trace jsonb,                   -- segments + any fired trigger (see activity-rec.js)
   created_at timestamptz not null default now()
 );
+
+-- Activity-recognition columns for databases created before them —
+-- the phone stamps Google-AR-style states onto debriefs while a test
+-- is being tracked (states inferred on-device; see activity-rec.js).
+alter table public.messages add column if not exists ar_summary text;
+alter table public.messages add column if not exists ar_trace jsonb;
 
 create index if not exists messages_dest_idx on public.messages (destination_id, created_at desc);
 

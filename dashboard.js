@@ -184,6 +184,11 @@ function renderMessages(sc) {
   }
   return list.map(m => {
     const match = catMatches(m.category, sc.learns);
+    /* observed activity, if the phone was tracking (jsonb object from
+     * Supabase, plain object from localStorage, string if hand-fed) */
+    let trace = m.ar_trace;
+    if (typeof trace === 'string') { try { trace = JSON.parse(trace); } catch { trace = null; } }
+    const trig = trace && trace.trigger;
     return `
       <div class="msg">
         <div class="msg-top">
@@ -193,6 +198,8 @@ function renderMessages(sc) {
         </div>
         ${m.title ? `<div class="msg-title">${esc(m.title)}</div>` : ''}
         ${m.transcript ? `<p class="msg-tr">&ldquo;${esc(m.transcript)}&rdquo;</p>` : ''}
+        ${trig ? `<span class="trig-chip">TRIGGER FIRED · ${esc(trig.passes)} PASS${trig.passes === 1 ? '' : 'ES'}${trig.stopped ? ' + STOP' : ''}</span>` : ''}
+        ${m.ar_summary ? `<div class="msg-ar" title="Activity observed on the device (${esc((trace && trace.source) || 'web')} inference)">AR&nbsp;·&nbsp;${esc(m.ar_summary)}</div>` : ''}
       </div>`;
   }).join('');
 }
@@ -240,6 +247,7 @@ function renderScenario(sc) {
           <h4>DEFINED — WHAT SHOULD HAPPEN</h4>
           ${sc.otto_says ? `<div class="cmp-row"><span class="cmp-k">Otto asks</span><span class="cmp-v say">&ldquo;${esc(stripQuotes(sc.otto_says))}&rdquo;</span></div>` : ''}
           ${sc.learns ? `<div class="cmp-row"><span class="cmp-k">Expected tip type</span><span class="tip-chip">${esc(sc.learns)}</span></div>` : ''}
+          ${sc.ar_states ? `<div class="cmp-row"><span class="cmp-k">Expected activity (Google AR states)</span><span class="cmp-v mono-v">${esc(sc.ar_states)}</span></div>` : ''}
           ${sc.test_steps ? `<div class="cmp-row"><span class="cmp-k">How to test it</span><span class="cmp-v">${esc(sc.test_steps)}</span></div>` : ''}
           ${!sc.otto_says && !sc.learns && !sc.test_steps ? '<p class="cmp-empty">Nothing defined yet — edit the scenario.</p>' : ''}
         </div>

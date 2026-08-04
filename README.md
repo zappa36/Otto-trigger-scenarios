@@ -88,6 +88,57 @@ your tip types (e.g. `PARKING,ACCESS,HAZARD,HOURS,INFO`) so Otto's
 categories can line up with the "What Otto learns" column, and point
 `ASSISTANT_BRIEF` at trigger debriefs.
 
+## Activity recognition (and the Google AR API)
+
+The deck's trigger rules are written against
+[Google's Activity Recognition API](https://developers.google.com/location-context/activity-recognition)
+— IN_VEHICLE, ON_FOOT, STILL and friends. That API lives in Google Play
+Services, so it exists **on Android only**; a browser cannot call it.
+[`activity-rec.js`](activity-rec.js) does the honest next-best thing and
+keeps a seam open for the real one:
+
+- **Same vocabulary, web signals.** GPS speed (its own `watchPosition`;
+  the Geo kit stays untouched) plus accelerometer **step cadence** via
+  `devicemotion` — the signal that separates a slow drive from a walk at
+  the same speed — produce committed states with confidence and
+  hysteresis: `IN_VEHICLE`, `ON_FOOT`, `STILL`, `UNKNOWN`. Red lights
+  don't flip to STILL instantly, creeping traffic stays IN_VEHICLE.
+  Every snapshot says `source: 'web'`, so nothing downstream mistakes
+  the approximation for the real thing. (iOS asks for motion permission
+  on the first tap; without it, states run on GPS speed alone.)
+
+- **The real API plugs into the same seam.** Wrap the page in an Android
+  WebView/TWA and forward `ActivityRecognitionClient` transitions:
+
+  ```kotlin
+  // in the ACTIVITY_TRANSITION receiver of the wrapper app
+  webView.evaluateJavascript(
+    "ActivityRec.inject('IN_VEHICLE', 92)", null)   // source: 'native'
+  ```
+
+  Injected states silence the web heuristic while they are fresh.
+  `ActivityRec.feed({lat, lng, speed})` accepts fused-location fixes the
+  same way — and also replays recorded routes, which is how the trigger
+  detector is tested without a car.
+
+- **Tracking a test.** "▶ Start test tracking" on a scenario card (or
+  the AR chip in the HUD) arms it. The screen stays awake (wake lock),
+  the chip shows the live state, and every debrief saved while tracking
+  carries `ar_summary` ("IN_VEHICLE 4m → STILL 50s → ON_FOOT 1m") and
+  the full `ar_trace` — shown on the dashboard right under what Otto
+  understood, next to the scenario's expected AR states. Re-run
+  `schema.sql` to add the two columns.
+
+- **The sample trigger actually runs.** While tracking, the phone
+  detects the deck's scenario #1 for real: 2 slow passes inside ~150 m
+  of the pin without stopping, then the stop, then moving again → the
+  **OTTO TRIGGER FIRED** banner pops (with a buzz), tap it and Otto asks
+  the scenario's question. The thresholds sit in one `TRIG` block at the
+  top of `app.js` — the deck calls them drafts to tune, so they are
+  plainly tunable. The card shows live progress ("TRACKING · 1 SLOW
+  PASS · WAITING FOR YOUR STOP"), and the fired trigger is stamped into
+  the message (`TRIGGER FIRED · 2 PASSES + STOP` on the dashboard).
+
 ## On your phone
 
 GPS and the microphone both require **https** (or localhost). There is
@@ -189,6 +240,7 @@ The composition happens entirely through the kits' public seams:
 | `app.js` | Destinations, messages, the card, Otto wiring |
 | `dashboard.html` | Desktop shell: scenario list, map, form / address / import sheets |
 | `dashboard.js` | Trigger scenarios: CRUD, Excel paste-import, address pinning, compare + verdict |
+| `activity-rec.js` | Google-AR-style activity states from web signals; `inject()`/`feed()` seams for the real Android API |
 | `backend.js` | Merged Supabase client for both kits + this app's tables |
 | `config.js` | Keys — all optional |
 | `voice-note.js/.css` | verbatim from voice-notes-kit |

@@ -73,6 +73,60 @@
   .chip.plain { cursor: default; border-color: rgba(140,165,200,.22); color: #94a1b2; }
   a.chip { text-decoration: none; cursor: pointer; }
 
+  /* second HUD row: activity recognition */
+  .hud2 {
+    position: absolute;
+    left: 0; right: 0; top: 56px;
+    z-index: 10;
+    display: flex;
+    padding: 0 16px;
+    pointer-events: none;
+  }
+  #ar { pointer-events: auto; cursor: pointer; }
+  #ar.off { border-color: rgba(140,165,200,.22); color: #94a1b2; }
+
+  /* the trigger banner — Otto noticed the pattern and wants to talk */
+  #trigger-banner {
+    position: absolute;
+    left: 12px; right: 12px; top: 100px;
+    z-index: 12;
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid rgba(255,217,94,.55);
+    background: linear-gradient(180deg, rgba(64,52,10,.96), rgba(38,30,8,.96));
+    cursor: pointer;
+    animation: tb-pulse 1.6s ease-in-out infinite;
+  }
+  #trigger-banner[hidden] { display: none; }
+  @keyframes tb-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255,217,94,.3); }
+    50% { box-shadow: 0 0 22px 4px rgba(255,217,94,.22); }
+  }
+  #tb-body { flex: 1; min-width: 0; }
+  #tb-title {
+    display: block;
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 9.5px;
+    letter-spacing: .14em;
+    color: #ffd95e;
+    margin-bottom: 2px;
+  }
+  #tb-text { font-size: 13px; color: #f4ead0; }
+  #tb-close {
+    flex: none;
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    border: 1px solid rgba(255,217,94,.4);
+    background: transparent;
+    color: #ffd95e;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
   /* ---------- add destination ---------- */
   #add-fab {
     position: absolute;
@@ -189,6 +243,22 @@
   #card-sc-name { display: block; font-size: 13.5px; }
   #card-sc-steps { margin: 4px 0 0; font-size: 12.5px; color: #c9d2de; }
   #card-sc-steps[hidden] { display: none; }
+  .sc-track-row { display: flex; align-items: center; gap: 9px; margin-top: 9px; flex-wrap: wrap; }
+  #card-sc-start {
+    padding: 8px 12px;
+    border-radius: 9px;
+    border: 1px solid rgba(255,217,94,.45);
+    background: rgba(255,217,94,.12);
+    color: #ffd95e;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  #card-sc-track {
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 9.5px;
+    letter-spacing: .07em;
+    color: #ffd95e;
+  }
 
   .card-msgs { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; max-height: 132px; overflow: auto; }
   .msg {
@@ -298,6 +368,17 @@
     <a class="chip plain" id="dash-link" href="dashboard.html" title="Trigger-scenarios dashboard">TESTS</a>
     <span class="chip plain" id="backend">GRID</span>
   </div>
+  <div class="hud2">
+    <span class="chip off" id="ar" title="Activity recognition — tap to start/stop">AR OFF · TAP TO TRACK</span>
+  </div>
+
+  <div id="trigger-banner" hidden>
+    <div id="tb-body">
+      <b id="tb-title">OTTO TRIGGER FIRED</b>
+      <span id="tb-text"></span>
+    </div>
+    <button id="tb-close" type="button" aria-label="Dismiss">×</button>
+  </div>
 
   <div id="hint" hidden>
     <b>No destinations yet</b>
@@ -328,6 +409,10 @@
       <span class="sc-chip">TEST SCENARIO</span>
       <b id="card-sc-name"></b>
       <p id="card-sc-steps"></p>
+      <div class="sc-track-row">
+        <button id="card-sc-start" type="button">▶ Start test tracking</button>
+        <span id="card-sc-track"></span>
+      </div>
     </div>
     <div class="card-msgs" id="card-msgs"></div>
     <p id="card-empty" hidden>No messages yet — go have a look, then tell Otto what you found.</p>
@@ -355,6 +440,7 @@
 <script src="backend.js"></script>
 <script src="geolocate.js"></script>
 <script src="field-map.js"></script>
+<script src="activity-rec.js"></script>
 <script src="voice-note.js"></script>
 <script src="app.js"></script>
 
