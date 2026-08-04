@@ -38,17 +38,24 @@ localStorage, and Otto as the scripted demo — clearly labelled as such.
 
 ## On your phone
 
-GPS and the microphone both require **https** (or localhost). The
-practical path is GitHub Pages:
+GPS and the microphone both require **https** (or localhost). There is
+no build step, so any static host serves the repo as-is.
 
-1. Put this directory in a repo with Pages enabled (or merge it into one —
-   in `driversense_rewards` it deploys with the existing workflow).
-2. Open `https://<user>.github.io/<repo>/otto-destinations/` on the phone.
-3. Chrome will ask for location on first use and for the mic on the
-   first debrief.
+**Vercel:** import this repository, set Framework Preset to **Other**,
+leave Build Command empty and Output Directory at the default — the site
+is the repo root. Open the production URL
+(`https://<project>.vercel.app`) on the phone; Chrome asks for location
+on first use and for the mic on the first debrief.
 
-For the backends to accept the page, add that origin to both Edge
-Functions' `ALLOWED_ORIGINS` secret.
+**GitHub Pages** works the same way: Settings → Pages → Deploy from a
+branch → `main` / (root).
+
+For the backends to accept the page, add its origin to both Edge
+Functions' `ALLOWED_ORIGINS` secret — use the **production** domain.
+The check is an exact match, so Vercel's per-deployment preview URLs
+(`<project>-<hash>-<team>.vercel.app`) will be rejected; on previews the
+app simply stays in demo mode. Add a specific preview origin temporarily
+if you need to test the live backend from one.
 
 ## Going live (real Otto, shared destinations)
 
