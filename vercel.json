@@ -1,4 +1,3 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "if [ -n \"$GMAPS_BROWSER_KEY\" ]; then grep -q __GMAPS_KEY__ config.js && sed -i \"s|__GMAPS_KEY__|$GMAPS_BROWSER_KEY|\" config.js || { echo 'config.js placeholder drifted — refusing to ship keyless by accident'; exit 1; }; else echo 'GMAPS_BROWSER_KEY not set — deploying keyless (grid map backdrop)'; fi"
+  "buildCommand": "if [ -n \"$GMAPS_BROWSER_KEY\" ]; then grep -q __GMAPS_KEY__ config.js && sed -i \"s|__GMAPS_KEY__|$GMAPS_BROWSER_KEY|\" config.js || exit 1; else echo \"keyless deploy (grid map)\"; fi"
 }
