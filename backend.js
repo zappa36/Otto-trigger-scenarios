@@ -11,6 +11,7 @@
  *   geolocate.js needs   geocode({lat,lng})
  *   voice-note.js needs  transcribe(blob, ctx), saveNote(row)
  *   app.js needs         search(q), destinations, messages
+ *   dashboard.js needs   the scenarios table on top of all that
  *
  * When config.js is empty, enabled is false: the map falls back
  * to OpenStreetMap geocoding, Otto to the scripted demo, and
@@ -90,7 +91,26 @@ const Backend = (() => {
       headers: { Prefer: 'return=representation' },
       body: JSON.stringify([row]),
     }),
+    updateDestination: (id, patch) => rest('/rest/v1/destinations?id=eq.' + encodeURIComponent(id), {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify(patch),
+    }),
     deleteDestination: id => rest('/rest/v1/destinations?id=eq.' + encodeURIComponent(id), { method: 'DELETE' }),
     listMessages: limit => rest(`/rest/v1/${table}?select=*&order=created_at.desc&limit=${limit || 500}`),
+
+    /* ---------- trigger scenarios (dashboard.js) ---------- */
+    listScenarios: () => rest('/rest/v1/scenarios?select=*&order=num.asc.nullslast,created_at.asc'),
+    insertScenarios: rows => rest('/rest/v1/scenarios', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify(rows),
+    }),
+    updateScenario: (id, patch) => rest('/rest/v1/scenarios?id=eq.' + encodeURIComponent(id), {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify(patch),
+    }),
+    deleteScenario: id => rest('/rest/v1/scenarios?id=eq.' + encodeURIComponent(id), { method: 'DELETE' }),
   };
 })();

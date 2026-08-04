@@ -4,6 +4,12 @@ One loop: **pin a real address on a live map → walk over → tell Otto what
 you found.** Otto transcribes and structures the voice message, files it
 against the destination, and the pin flips to reported.
 
+On top of that loop sits a second surface,
+[`dashboard.html`](dashboard.html): define **Otto trigger scenarios**
+(straight out of the deck's "Otto triggers" sheet), give each one a clear
+Google-Maps address, send a tester out to act it out, and compare what
+Otto understood with what the scenario said should happen.
+
 This is the original
 [driversense_rewards](https://github.com/zappa36/driversense_rewards)
 challenge flow with the economy removed. Kept and dropped, deliberately:
@@ -35,15 +41,118 @@ python3 -m http.server 8000
 Zero configuration runs the whole loop on-device: grid map backdrop,
 address search via OpenStreetMap (or pasted coordinates), destinations in
 localStorage, and Otto as the scripted demo — clearly labelled as such.
+Open `http://localhost:8000/dashboard.html` for the scenarios dashboard —
+in this mode both pages share the browser's localStorage and keep each
+other fresh across tabs, so the whole define → test → compare loop can be
+felt on one machine.
+
+## The trigger-scenarios dashboard
+
+`dashboard.html` is the test designer's surface; the phone app is the
+tester's. One scenario is one row of the "Otto triggers" sheet — same
+columns, same wording:
+
+| # | Trigger scenario | Trigger rule (testable) | Activity Recognition states | Other signals needed | Timing to talk | Otto says | What Otto learns (tip type) | How to test it |
+|---|---|---|---|---|---|---|---|---|
+
+The loop:
+
+1. **Define** — "+ New scenario", or copy rows straight out of the Excel
+   sheet and use "Paste from Excel" (tab-separated clipboard rows, quoted
+   multi-line cells and the header row both handled).
+2. **Pin** — every scenario gets a clear Google-Maps address: search one,
+   or paste coordinates ("52.5346, 13.4109"). The dashboard shows the
+   address, its exact coordinates, and keyless **Open in Google Maps** /
+   **Street View** links; the pin lands on the live map and on every
+   tester's phone. A scenario without an address is flagged loudly —
+   it cannot be tested.
+3. **Test** — on the phone, the destination card carries the scenario's
+   "how to test it" steps, and Otto opens the debrief with the scenario's
+   own question (the "Otto says" column). Scenario pins are managed from
+   the dashboard, so the phone card hides "Remove destination" for them.
+4. **Compare** — the dashboard puts the definition (**defined — what
+   should happen**) next to the messages Otto filed (**what Otto
+   understood**: category, structured title, raw transcript). A category
+   that matches the expected tip type is flagged `= EXPECTED TYPE`. Close
+   the case with a **PASS / PARTIAL / FAIL** verdict per scenario.
+
+Statuses roll up in the header and colour the pins: *needs address* →
+*awaiting test* (red, like the phone) → *debriefed · n* (cyan) → verdict
+(green / amber / orange).
+
+Going live is the same story as the rest of the app: re-run
+[`supabase/schema.sql`](supabase/schema.sql) (safe to re-run) to add the
+`scenarios` table, and every phone sees the dashboard's pins. Worth doing
+at the same time: set the voice function's `NOTE_CATEGORIES` secret to
+your tip types (e.g. `PARKING,ACCESS,HAZARD,HOURS,INFO`) so Otto's
+categories can line up with the "What Otto learns" column, and point
+`ASSISTANT_BRIEF` at trigger debriefs.
+
+## Activity recognition (and the Google AR API)
+
+The deck's trigger rules are written against
+[Google's Activity Recognition API](https://developers.google.com/location-context/activity-recognition)
+— IN_VEHICLE, ON_FOOT, STILL and friends. That API lives in Google Play
+Services, so it exists **on Android only**; a browser cannot call it.
+[`activity-rec.js`](activity-rec.js) does the honest next-best thing and
+keeps a seam open for the real one:
+
+- **Same vocabulary, web signals.** GPS speed (its own `watchPosition`;
+  the Geo kit stays untouched) plus accelerometer **step cadence** via
+  `devicemotion` — the signal that separates a slow drive from a walk at
+  the same speed — produce committed states with confidence and
+  hysteresis: `IN_VEHICLE`, `ON_FOOT`, `STILL`, `UNKNOWN`. Red lights
+  don't flip to STILL instantly, creeping traffic stays IN_VEHICLE.
+  Every snapshot says `source: 'web'`, so nothing downstream mistakes
+  the approximation for the real thing. (iOS asks for motion permission
+  on the first tap; without it, states run on GPS speed alone.)
+
+- **The real API plugs into the same seam.** Wrap the page in an Android
+  WebView/TWA and forward `ActivityRecognitionClient` transitions:
+
+  ```kotlin
+  // in the ACTIVITY_TRANSITION receiver of the wrapper app
+  webView.evaluateJavascript(
+    "ActivityRec.inject('IN_VEHICLE', 92)", null)   // source: 'native'
+  ```
+
+  Injected states silence the web heuristic while they are fresh.
+  `ActivityRec.feed({lat, lng, speed})` accepts fused-location fixes the
+  same way — and also replays recorded routes, which is how the trigger
+  detector is tested without a car.
+
+- **Tracking a test.** "▶ Start test tracking" on a scenario card (or
+  the AR chip in the HUD) arms it. The screen stays awake (wake lock),
+  the chip shows the live state, and every debrief saved while tracking
+  carries `ar_summary` ("IN_VEHICLE 4m → STILL 50s → ON_FOOT 1m") and
+  the full `ar_trace` — shown on the dashboard right under what Otto
+  understood, next to the scenario's expected AR states. Re-run
+  `schema.sql` to add the two columns.
+
+- **The sample trigger actually runs.** While tracking, the phone
+  detects the deck's scenario #1 for real: 2 slow passes inside ~150 m
+  of the pin without stopping, then the stop, then moving again → the
+  **OTTO TRIGGER FIRED** banner pops (with a buzz), tap it and Otto asks
+  the scenario's question. The thresholds sit in one `TRIG` block at the
+  top of `app.js` — the deck calls them drafts to tune, so they are
+  plainly tunable. The card shows live progress ("TRACKING · 1 SLOW
+  PASS · WAITING FOR YOUR STOP"), and the fired trigger is stamped into
+  the message (`TRIGGER FIRED · 2 PASSES + STOP` on the dashboard).
 
 ## On your phone
 
 GPS and the microphone both require **https** (or localhost). There is
 no build step, so any static host serves the repo as-is.
 
-**Vercel:** import this repository, set Framework Preset to **Other**,
-leave Build Command empty and Output Directory at the default — the site
-is the repo root. Open the production URL
+**Vercel:** import this repository, set Framework Preset to **Other**
+and leave Output Directory at the default — the site is the repo root,
+and [`vercel.json`](vercel.json) supplies the build command (it only
+injects the Maps key, see below). For **live Google map tiles**, add a
+`GMAPS_BROWSER_KEY` environment variable (Project → Settings →
+Environment Variables) holding a Maps key referrer-locked to your
+domain — the same deploy-time injection `driversense_rewards` uses.
+Without the variable the deploy still succeeds and the map stays on the
+grid backdrop. Open the production URL
 (`https://<project>.vercel.app`) on the phone; Chrome asks for location
 on first use and for the mic on the first debrief.
 
@@ -76,8 +185,20 @@ Three things to provide, all server-side:
    ```sh
    supabase secrets set ASSISTANT_BRIEF="short observations about a destination they were sent to check (blocked entrances, construction, changed access, anything off)"
    ```
-3. **Optionally a Google Maps browser key** in `config.js` for real map
-   tiles (JS API with Static Maps fallback). Without it the grid backdrop
+3. **Optionally a Google Maps browser key** for the real, pannable map:
+   your position on live Google tiles, one-finger pan, pinch and
+   scroll-wheel zoom (plus +/− buttons and the recenter pill on the live
+   map). The key never lives in the repo — same mechanism as
+   `driversense_rewards`: `config.js` carries a `__GMAPS_KEY__`
+   placeholder and the deploy injects the `GMAPS_BROWSER_KEY` env var
+   (the build command in [`vercel.json`](vercel.json); it fails the
+   build if the placeholder drifted, and ships keyless with a note when
+   the variable is missing). Create the key in the Google Cloud console
+   with **Maps JavaScript API** and **Maps Static API** enabled,
+   restrict it to your site's HTTP referrer, and cap daily quotas — it
+   is a public browser key by design, so the restriction and the caps
+   are the protection, not secrecy. Quick test without deploying: open
+   any page with `?gkey=YOUR_API_KEY`. Without a key the grid backdrop
    carries the pins — Directions and Street View still open the real
    Google Maps app either way, keyless, via the Maps URLs API.
 
@@ -91,6 +212,14 @@ which is the point of having extracted them:
 | `voice-notes-kit` | `voice-note.js`, `voice-note.css`, `supabase/functions/voice-note/` | The Otto debrief |
 | `field-map-kit` | `geolocate.js`, `field-map.js`, `field-map.css`, `supabase/functions/geocode/` | Position + live map |
 | new | `app.js`, `index.html`, `backend.js`, `config.js`, `supabase/schema.sql` | Destinations, the card, the wiring |
+| new | `dashboard.html`, `dashboard.js` | Trigger scenarios: define, pin, compare, verdict |
+
+The dashboard composes through the same seams: `FieldMap.mount` draws the
+scenario pins (status as `color`/`icon`), `Geo.simulate` centres the
+desktop map on the scenarios (flagged, as always, as not a real fix), and
+`Backend` gains the `scenarios` table alongside destinations and
+messages. The scenario's destination is the join point — the messages
+Otto files against it ARE "what Otto understood".
 
 The composition happens entirely through the kits' public seams:
 
@@ -127,9 +256,13 @@ The composition happens entirely through the kits' public seams:
 |---|---|
 | `index.html` | Phone shell: map, HUD, add-sheet, card, Otto screen |
 | `app.js` | Destinations, messages, the card, Otto wiring |
+| `dashboard.html` | Desktop shell: scenario list, map, form / address / import sheets |
+| `dashboard.js` | Trigger scenarios: CRUD, Excel paste-import, address pinning, compare + verdict |
+| `activity-rec.js` | Google-AR-style activity states from web signals; `inject()`/`feed()` seams for the real Android API |
 | `backend.js` | Merged Supabase client for both kits + this app's tables |
-| `config.js` | Keys — all optional |
+| `config.js` | Keys — all optional; `__GMAPS_KEY__` placeholder filled at deploy time |
+| `vercel.json` | Build command that injects `GMAPS_BROWSER_KEY` into `config.js` |
 | `voice-note.js/.css` | verbatim from voice-notes-kit |
 | `geolocate.js`, `field-map.js/.css` | verbatim from field-map-kit |
-| `supabase/schema.sql` | `destinations` + `messages`, RLS |
+| `supabase/schema.sql` | `destinations` + `messages` + `scenarios`, RLS |
 | `supabase/functions/` | `voice-note` + `geocode`, verbatim from the kits |

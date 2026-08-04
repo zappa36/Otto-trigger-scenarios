@@ -24,11 +24,181 @@ const el = id => document.getElementById(id);
 /* ---------- destinations & messages ---------- */
 const LS_DEST = 'od_destinations';
 const LS_MSGS = 'od_messages';
+const LS_SCEN = 'od_scenarios';
 
 let destinations = [];
 const messagesByDest = {};
 const reportedIds = new Set();
 let current = null; // destination in the open card / Otto session
+
+/* Trigger scenarios (defined on dashboard.html) — read-only here. A
+ * destination that belongs to a scenario carries the test steps on its
+ * card, and Otto opens the debrief with the scenario's own question. */
+let scenarios = [];
+let scenarioByDest = {};
+const rebuildScenarioIndex = () => {
+  scenarioByDest = {};
+  scenarios.forEach(s => { if (s.destination_id) scenarioByDest[s.destination_id] = s; });
+};
+const scenarioOf = d => (d && scenarioByDest[d.id]) || null;
+const stripQuotes = s => String(s || '').trim().replace(/^[“”"']+/, '').replace(/[“”"']+$/, '');
+const scenarioShort = sc => String(sc.title || '').split(/\s+—\s+|\s+-\s+/)[0].trim();
+
+/* ---------- test tracking: activity recognition + the trigger ----------
+ * "Start test tracking" on a scenario card arms ActivityRec (states in
+ * Google AR vocabulary — see activity-rec.js for what feeds them) and a
+ * detector for the deck's sample rule: slow passes near the pin without
+ * stopping, then the stop, then back in the vehicle -> Otto speaks up.
+ * The numbers mirror the sheet ("radius and count are drafts to tune"). */
+const TRIG = {
+  radius: 150,        // m — a pass is being inside this circle around the pin
+  exitRadius: 190,    // m — hysteresis: the pass counts once you are back out
+  passSpeedMax: 9,    // m/s — faster than this inside is through-traffic, not a loop
+  passStillMax: 25e3, // ms — standing longer than this inside makes it a stop, not a pass
+  passesNeeded: 2,    // deck says 2–3 slow loops
+  stopSpeed: 0.6,     // m/s — below this you are standing
+  stopDwellMs: 45e3,  // ms — standing this long near the pin is THE stop
+  stopRadius: 250,    // m — where that stop may happen
+  resumeSpeed: 3,     // m/s — moving again afterwards = back in the car -> fire
+};
+let tracking = null;  // { sc, d, startedAt, passes, ... } while a test runs
+let wakeLock = null;
+
+async function acquireWakeLock() {
+  try { if (navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch { /* optional */ }
+}
+document.addEventListener('visibilitychange', () => {
+  if (tracking && document.visibilityState === 'visible') acquireWakeLock();
+});
+
+function startTracking(sc, d) {
+  ActivityRec.requestMotionPermission(); // needs the tap gesture on iOS
+  ActivityRec.start();
+  tracking = {
+    sc, d, startedAt: Date.now(),
+    passes: 0, inside: false, insideMaxStill: 0, insideSpeedSum: 0, insideN: 0,
+    stillStart: null, stopped: false, resumeN: 0, fired: false, firedAt: null,
+  };
+  acquireWakeLock();
+  updateArChip(ActivityRec.snapshot);
+  updateCardTrack();
+}
+
+function stopTracking() {
+  ActivityRec.stop();
+  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+  tracking = null;
+  el('trigger-banner').hidden = true;
+  updateArChip(ActivityRec.snapshot);
+  updateCardTrack();
+}
+
+function detectorStep(snap) {
+  const tr = tracking;
+  const t = snap.t || Date.now();
+  const sp = snap.speed;
+  const dist = distM(snap.position, tr.d);
+
+  /* the stop: standing near the pin long enough, after the loops */
+  if (sp <= TRIG.stopSpeed && dist <= TRIG.stopRadius) {
+    if (!tr.stillStart) tr.stillStart = t;
+    const dwell = t - tr.stillStart;
+    if (tr.inside) tr.insideMaxStill = Math.max(tr.insideMaxStill, dwell);
+    if (!tr.stopped && tr.passes >= TRIG.passesNeeded && dwell >= TRIG.stopDwellMs) {
+      tr.stopped = true;
+      updateCardTrack();
+    }
+  } else {
+    tr.stillStart = null;
+  }
+
+  /* pass episodes: in through the 150 m circle and out again, slow, no stop */
+  if (!tr.inside && dist <= TRIG.radius) {
+    tr.inside = true;
+    tr.insideMaxStill = 0;
+    tr.insideSpeedSum = 0;
+    tr.insideN = 0;
+  }
+  if (tr.inside) { tr.insideSpeedSum += sp; tr.insideN++; }
+  if (tr.inside && dist >= TRIG.exitRadius) {
+    tr.inside = false;
+    const mean = tr.insideN ? tr.insideSpeedSum / tr.insideN : 0;
+    if (mean > 0.3 && mean <= TRIG.passSpeedMax && tr.insideMaxStill < TRIG.passStillMax) {
+      tr.passes++;
+      updateCardTrack();
+    }
+  }
+
+  /* back in the car after the stop — the deck's timing to talk */
+  if (tr.stopped && !tr.fired) {
+    if (sp >= TRIG.resumeSpeed) { if (++tr.resumeN >= 2) fireTrigger(t); }
+    else tr.resumeN = 0;
+  }
+}
+
+function fireTrigger(t) {
+  tracking.fired = true;
+  tracking.firedAt = t;
+  el('tb-text').textContent = `${scenarioShort(tracking.sc)} — tap to answer Otto.`;
+  el('trigger-banner').hidden = false;
+  if (navigator.vibrate) navigator.vibrate([120, 60, 120]);
+  updateCardTrack();
+}
+
+function updateArChip(snap) {
+  const chip = el('ar');
+  if (!snap.on) {
+    chip.textContent = 'AR OFF · TAP TO TRACK';
+    chip.classList.add('off');
+    return;
+  }
+  chip.classList.remove('off');
+  const suffix = snap.source !== 'web' ? ' · ' + snap.source.toUpperCase() : '';
+  const test = tracking ? ` · TEST${tracking.sc.num != null ? ' #' + tracking.sc.num : ''}` : '';
+  chip.textContent = `AR · ${snap.state}${suffix}${test}`;
+}
+
+function updateCardTrack() {
+  const btn = el('card-sc-start');
+  const line = el('card-sc-track');
+  const sc = current && scenarioOf(current);
+  const isThis = tracking && current && tracking.d.id === current.id;
+  btn.textContent = isThis ? '■ Stop tracking' : '▶ Start test tracking';
+  if (!sc || !isThis) { line.textContent = tracking || !sc ? '' : 'GPS + activity are recorded while tracking'; return; }
+  const tr = tracking;
+  const bits = [`${tr.passes} SLOW PASS${tr.passes === 1 ? '' : 'ES'}`];
+  if (tr.fired) bits.push('TRIGGER FIRED');
+  else if (tr.stopped) bits.push('STOP SEEN — DRIVE ON TO FIRE');
+  else if (tr.passes >= TRIG.passesNeeded) bits.push('WAITING FOR YOUR STOP');
+  line.textContent = 'TRACKING · ' + bits.join(' · ');
+}
+
+ActivityRec.on(snap => {
+  updateArChip(snap);
+  if (tracking && snap.on && snap.position && typeof snap.speed === 'number') detectorStep(snap);
+});
+
+/* What the device observed while the test ran — stamped onto every saved
+ * debrief; the dashboard puts it next to the scenario's expected states. */
+function arExtras() {
+  if (!ActivityRec.active) return { ar_summary: null, ar_trace: null };
+  const since = tracking ? tracking.startedAt : Date.now() - 15 * 60e3;
+  return {
+    ar_summary: ActivityRec.summary(since) || null,
+    ar_trace: {
+      source: ActivityRec.snapshot.source,
+      segments: ActivityRec.segments(since),
+      ...(tracking && (tracking.passes || tracking.fired) ? {
+        trigger: {
+          scenario_id: tracking.sc.id,
+          passes: tracking.passes,
+          stopped: !!tracking.stopped,
+          fired_at: tracking.firedAt ? new Date(tracking.firedAt).toISOString() : null,
+        },
+      } : {}),
+    },
+  };
+}
 
 const localId = () => 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
@@ -77,49 +247,80 @@ const map = FieldMap.mount({
     const d = destinations.find(x => x.id === m.id);
     if (d) openCard(d);
   },
-  onBackendChange(b) { el('backend').textContent = b.toUpperCase(); },
+  onBackendChange(b) {
+    el('backend').textContent = b.toUpperCase();
+    /* zoom buttons only make sense on the live Google map — the static
+     * image and the grid are fixed-zoom (pinch/scroll work there too) */
+    el('map-zoom').hidden = b !== 'gmap';
+  },
 });
 
 /* ---------- Otto ---------- */
-const voice = VoiceNote.mount({
-  el: '#otto',
-  assistant: 'Otto',
-  context: () => current
-    ? current.title + (current.addr ? ' — ' + current.addr : '')
-    : 'this spot',
-  greeting: () => current
-    ? `This is ${current.title}${current.addr ? ' — ' + current.addr : ''}. What's the situation there? Tap the mic and describe what you see.`
-    : 'Tap the mic and tell me what you found.',
-  demo: [
-    { q: "Here's the spot. What's going on?", a: 'The passage is blocked — scaffolding right across the entrance.' },
-    { q: 'Got it. Can you still get through somehow?', a: "Yes — there's a side door on the left, maybe 20 metres on." },
-    { q: 'Anything else worth noting?', a: "The scaffolding looks like it'll be up for weeks." },
+/* The widget is remounted per debrief (the kit reads its demo script once
+ * at mount), so the scripted demo can open with the scenario's own
+ * question exactly like the live greeting does. */
+const voiceOpts = () => {
+  const sc = current && scenarioOf(current);
+  return {
+    el: '#otto',
+    assistant: 'Otto',
+    context: () => {
+      if (!current) return 'this spot';
+      const base = current.title + (current.addr ? ' — ' + current.addr : '');
+      const s = scenarioOf(current);
+      return s ? `trigger scenario "${scenarioShort(s)}" at ${base}` : base;
+    },
+    greeting: () => {
+      const s = scenarioOf(current);
+      /* the sheet's "Otto says" column IS the debrief opener */
+      if (s && s.otto_says) return stripQuotes(s.otto_says);
+      return current
+        ? `This is ${current.title}${current.addr ? ' — ' + current.addr : ''}. What's the situation there? Tap the mic and describe what you see.`
+        : 'Tap the mic and tell me what you found.';
+    },
+    demo: sc && sc.otto_says ? [
+      { q: stripQuotes(sc.otto_says), a: 'Scripted demo answer — with the backend live you would answer by voice here.' },
+      { q: 'Got it. Anything else the next driver should know?', a: "That's everything — end of the scripted demo." },
+    ] : [
+      { q: "Here's the spot. What's going on?", a: 'The passage is blocked — scaffolding right across the entrance.' },
+      { q: 'Got it. Can you still get through somehow?', a: "Yes — there's a side door on the left, maybe 20 metres on." },
+      { q: 'Anything else worth noting?', a: "The scaffolding looks like it'll be up for weeks." },
     ],
-  demoFinal: 'Saved to the destination — your note is on the record.',
-  extra: () => ({
-    destination_id: current ? current.id : null,
-    lat: Geo.position ? Geo.position.lat : null,
-    lng: Geo.position ? Geo.position.lng : null,
-  }),
-  onSaved(res) {
-    if (!current) return;
-    recordMessage(current.id, {
-      ...res.row,
-      destination_id: current.id,
-      demo: !!res.demo,
-      created_at: (res.row && res.row.created_at) || new Date().toISOString(),
-    });
-    persistLocal();
-    map.refresh(); // the pin flips to reported
-  },
-});
+    demoFinal: sc
+      ? 'Saved — the dashboard now compares this with what the scenario expected.'
+      : 'Saved to the destination — your note is on the record.',
+    extra: () => ({
+      destination_id: current ? current.id : null,
+      lat: Geo.position ? Geo.position.lat : null,
+      lng: Geo.position ? Geo.position.lng : null,
+      ...arExtras(),
+    }),
+    onSaved(res) {
+      if (!current) return;
+      recordMessage(current.id, {
+        ...res.row,
+        /* the scripted demo bypasses extra() — stamp the observed activity here too */
+        ...(res.demo ? arExtras() : {}),
+        destination_id: current.id,
+        demo: !!res.demo,
+        created_at: (res.row && res.row.created_at) || new Date().toISOString(),
+      });
+      persistLocal();
+      map.refresh(); // the pin flips to reported
+      /* debrief delivered for a fired trigger — that test run is complete */
+      if (tracking && tracking.fired && tracking.d.id === current.id) stopTracking();
+    },
+  };
+};
+let voice = VoiceNote.mount(voiceOpts());
 
 function openOtto(d) {
   current = d;
   el('card').hidden = true;
   el('otto-dest').textContent = d.title;
   el('otto-screen').hidden = false;
-  voice.start();
+  voice.destroy();
+  voice = VoiceNote.mount(voiceOpts()); // mount() starts it
 }
 
 function closeOtto() {
@@ -136,6 +337,18 @@ function openCard(d) {
   updateCardDistance();
   el('card-dir').href = dirUrl(d);
   el('card-sv').href = panoUrl(d);
+
+  /* a scenario pin carries its instructions — and is managed from the
+   * dashboard, so the card's remove link goes away */
+  const sc = scenarioOf(d);
+  el('card-scenario').hidden = !sc;
+  if (sc) {
+    el('card-sc-name').textContent = (sc.num != null ? '#' + sc.num + ' · ' : '') + sc.title;
+    el('card-sc-steps').textContent = sc.test_steps || sc.rule || '';
+    el('card-sc-steps').hidden = !(sc.test_steps || sc.rule);
+    updateCardTrack();
+  }
+  el('card-remove').hidden = !!sc;
 
   const list = messagesByDest[d.id] || [];
   const box = el('card-msgs');
@@ -300,6 +513,8 @@ Geo.on(snap => {
 
 /* ---------- boot ---------- */
 el('gps').onclick = () => Geo.locate();
+el('zoom-in').onclick = () => { const g = map.map; if (g) g.setZoom(Math.min(20, (g.getZoom() || 17) + 1)); };
+el('zoom-out').onclick = () => { const g = map.map; if (g) g.setZoom(Math.max(3, (g.getZoom() || 17) - 1)); };
 el('add-fab').onclick = openAdd;
 el('add-close').onclick = closeAdd;
 el('add-demo').onclick = addDemoSpot;
@@ -309,6 +524,29 @@ el('card-otto').onclick = () => current && openOtto(current);
 el('card-remove').onclick = removeCurrent;
 el('otto-back').onclick = closeOtto;
 
+/* activity recognition + test tracking */
+el('ar').onclick = () => {
+  if (tracking) { stopTracking(); return; }
+  if (ActivityRec.active) { ActivityRec.stop(); updateArChip(ActivityRec.snapshot); return; }
+  ActivityRec.requestMotionPermission(); // inside the tap gesture, for iOS
+  ActivityRec.start();
+};
+el('card-sc-start').onclick = () => {
+  const sc = current && scenarioOf(current);
+  if (!sc) return;
+  if (tracking && tracking.d.id === current.id) { stopTracking(); return; }
+  if (tracking) stopTracking();
+  startTracking(sc, current);
+};
+el('trigger-banner').onclick = () => {
+  el('trigger-banner').hidden = true;
+  if (tracking) openOtto(tracking.d);
+};
+el('tb-close').onclick = e => {
+  e.stopPropagation();
+  el('trigger-banner').hidden = true;
+};
+
 async function boot() {
   if (Backend.enabled) {
     try {
@@ -316,6 +554,9 @@ async function boot() {
       const msgs = (await Backend.listMessages(500)) || [];
       msgs.forEach(m => { if (m.destination_id) recordMessage(m.destination_id, m); });
     } catch (e) { console.warn('load failed — run schema.sql?', e.message); }
+    try {
+      scenarios = (await Backend.listScenarios()) || [];
+    } catch (e) { console.warn('no scenarios — re-run schema.sql to add the table?', e.message); }
   } else {
     try { destinations = JSON.parse(localStorage.getItem(LS_DEST) || '[]'); } catch { /* private mode */ }
     try {
@@ -323,9 +564,30 @@ async function boot() {
         if (m.destination_id) recordMessage(m.destination_id, m);
       });
     } catch { /* private mode */ }
+    try { scenarios = JSON.parse(localStorage.getItem(LS_SCEN) || '[]'); } catch { /* private mode */ }
   }
+  rebuildScenarioIndex();
   renderEmpty();
   map.refresh();
+}
+
+/* Local demo mode: the dashboard in another tab writes the same
+ * localStorage — pick up its new scenarios and pins as they land. */
+if (!Backend.enabled) {
+  window.addEventListener('storage', e => {
+    if (e.key && ![LS_DEST, LS_SCEN].includes(e.key)) return;
+    try { destinations = JSON.parse(localStorage.getItem(LS_DEST) || '[]'); } catch { return; }
+    try { scenarios = JSON.parse(localStorage.getItem(LS_SCEN) || '[]'); } catch { /* keep old */ }
+    rebuildScenarioIndex();
+    renderEmpty();
+    map.refresh();
+    if (current && !el('otto-screen').hidden) return; // don't yank an open debrief
+    if (current) {
+      const d = destinations.find(x => x.id === current.id);
+      if (d) { if (!el('card').hidden) openCard(d); }
+      else { el('card').hidden = true; current = null; }
+    }
+  });
 }
 
 boot();
