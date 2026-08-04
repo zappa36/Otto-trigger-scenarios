@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The deployed web app this wrapper loads. Point it at a preview
+         deployment (or http://<laptop-ip>:8000 on the same wifi) to test
+         branches — everything else stays identical. -->
+    <string name="app_url">https://otto-trigger-scenarios.vercel.app</string>
+</resources>
