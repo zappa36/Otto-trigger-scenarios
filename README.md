@@ -107,16 +107,13 @@ keeps a seam open for the real one:
   the approximation for the real thing. (iOS asks for motion permission
   on the first tap; without it, states run on GPS speed alone.)
 
-- **The real API plugs into the same seam.** Wrap the page in an Android
-  WebView/TWA and forward `ActivityRecognitionClient` transitions:
-
-  ```kotlin
-  // in the ACTIVITY_TRANSITION receiver of the wrapper app
-  webView.evaluateJavascript(
-    "ActivityRec.inject('IN_VEHICLE', 92)", null)   // source: 'native'
-  ```
-
-  Injected states silence the web heuristic while they are fresh.
+- **The real API plugs into the same seam — and the wrapper exists:**
+  [`android/`](android/) is a small WebView app that loads the deployed
+  site and pipes real Play Services detected activities into
+  `ActivityRec.inject('IN_VEHICLE', 92)` (`source: 'native'`), which
+  silences the web heuristic while fresh. The `android-apk` GitHub
+  Action builds the installable APK on every push touching `android/` —
+  see [`android/README.md`](android/README.md).
   `ActivityRec.feed({lat, lng, speed})` accepts fused-location fixes the
   same way — and also replays recorded routes, which is how the trigger
   detector is tested without a car.
@@ -128,6 +125,13 @@ keeps a seam open for the real one:
   the full `ar_trace` — shown on the dashboard right under what Otto
   understood, next to the scenario's expected AR states. Re-run
   `schema.sql` to add the two columns.
+
+- **The map drives along.** While tracking, ActivityRec's continuous
+  fixes feed the map: the position dot moves live (losing its stale
+  grey), the card's distance readout updates, and a 🚗 marker rides your
+  position while the state is IN_VEHICLE (🚶 on foot). Untracked, the
+  map stays tap-to-refresh — continuous GPS is a deliberate,
+  battery-honest choice you switch on per test.
 
 - **The sample trigger actually runs.** While tracking, the phone
   detects the deck's scenario #1 for real: 2 slow passes inside ~150 m
