@@ -1,3 +1,4 @@
 {
-  "buildCommand": "if [ -n \"$GMAPS_BROWSER_KEY\" ]; then grep -q __GMAPS_KEY__ config.js && sed -i \"s|__GMAPS_KEY__|$GMAPS_BROWSER_KEY|\" config.js || exit 1; else echo \"keyless deploy (grid map)\"; fi"
+  "outputDirectory": ".",
+  "buildCommand": "k=$(printf %s \"$GMAPS_BROWSER_KEY\" | tr -d '[:space:]'); if [ -n \"$k\" ]; then grep -q __GMAPS_KEY__ config.js && sed -i \"s|__GMAPS_KEY__|$k|\" config.js || exit 1; else echo 'keyless deploy (grid map)'; fi"
 }
