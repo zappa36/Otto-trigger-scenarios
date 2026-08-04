@@ -126,6 +126,13 @@ keeps a seam open for the real one:
   understood, next to the scenario's expected AR states. Re-run
   `schema.sql` to add the two columns.
 
+- **The map drives along.** While tracking, ActivityRec's continuous
+  fixes feed the map: the position dot moves live (losing its stale
+  grey), the card's distance readout updates, and a 🚗 marker rides your
+  position while the state is IN_VEHICLE (🚶 on foot). Untracked, the
+  map stays tap-to-refresh — continuous GPS is a deliberate,
+  battery-honest choice you switch on per test.
+
 - **The sample trigger actually runs.** While tracking, the phone
   detects the deck's scenario #1 for real: 2 slow passes inside ~150 m
   of the pin without stopping, then the stop, then moving again → the

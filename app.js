@@ -173,8 +173,50 @@ function updateCardTrack() {
   line.textContent = 'TRACKING · ' + bits.join(' · ');
 }
 
+/* ---------- live position while tracking ----------
+ * The Geo kit is one-shot by design (tap the chip to refresh), but a
+ * driving test wants the map to follow the car. ActivityRec already
+ * watches position continuously while armed — mirror its fixes into a
+ * thin Geo lookalike the map mounts instead of Geo. Untracked, it is
+ * exactly Geo; tracked, the dot moves and loses its stale grey. */
+let liveFix = null; // { lat, lng, wall }
+const liveFresh = () => !!liveFix && ActivityRec.active && Date.now() - liveFix.wall < 15000;
+const liveGeoListeners = [];
+const LiveGeo = {
+  on(fn) {
+    liveGeoListeners.push(fn);
+    const offGeo = Geo.on(() => fn(LiveGeo.snapshot));
+    return () => {
+      offGeo();
+      const i = liveGeoListeners.indexOf(fn);
+      if (i >= 0) liveGeoListeners.splice(i, 1);
+    };
+  },
+  get state() { return Geo.state; },
+  get address() { return Geo.address; },
+  get reason() { return Geo.reason; },
+  get position() { return liveFresh() ? { lat: liveFix.lat, lng: liveFix.lng, acc: 15 } : Geo.position; },
+  get stale() { return liveFresh() ? false : Geo.stale; },
+  get snapshot() { return { ...Geo.snapshot, position: LiveGeo.position, stale: LiveGeo.stale }; },
+};
+/* Throttled: every emit reprojects pins, and the static-image backend
+ * refetches its map per new centre — 1 Hz GPS would spam it. */
+let lastLiveEmit = 0;
+function emitLiveGeo() {
+  const now = Date.now();
+  if (now - lastLiveEmit < 2000) return;
+  lastLiveEmit = now;
+  const s = LiveGeo.snapshot;
+  liveGeoListeners.forEach(fn => { try { fn(s); } catch (e) { console.error(e); } });
+}
+
 ActivityRec.on(snap => {
   updateArChip(snap);
+  if (snap.on && snap.position) {
+    liveFix = { lat: snap.position.lat, lng: snap.position.lng, wall: Date.now() };
+    emitLiveGeo();
+    if (!el('card').hidden) updateCardDistance(); // the distance readout drives along
+  }
   if (tracking && snap.on && snap.position && typeof snap.speed === 'number') detectorStep(snap);
 });
 
@@ -231,18 +273,34 @@ const panoUrl = d => `https://www.google.com/maps/@?api=1&map_action=pano&viewpo
 /* ---------- map ---------- */
 const map = FieldMap.mount({
   el: '#map',
-  markers: () => destinations.map(d => {
-    const done = reportedIds.has(d.id);
-    return {
-      id: d.id, lat: d.lat, lng: d.lng,
-      label: (done ? '✓ ' : '') + String(d.title || 'Destination').toUpperCase().slice(0, 22),
-      color: done ? '70,211,154' : '255,107,107',
-      labelColor: done ? '#7ce0b8' : '#ff9b9b',
-      icon: done ? '✓' : '▲',
-      size: 44,
-      priority: done ? 2 : 1, // open spots outrank finished ones for label space
-    };
-  }),
+  geo: LiveGeo, // Geo, plus ActivityRec's continuous fixes while tracking
+  markers: () => {
+    const list = destinations.map(d => {
+      const done = reportedIds.has(d.id);
+      return {
+        id: d.id, lat: d.lat, lng: d.lng,
+        label: (done ? '✓ ' : '') + String(d.title || 'Destination').toUpperCase().slice(0, 22),
+        color: done ? '70,211,154' : '255,107,107',
+        labelColor: done ? '#7ce0b8' : '#ff9b9b',
+        icon: done ? '✓' : '▲',
+        size: 44,
+        priority: done ? 2 : 1, // open spots outrank finished ones for label space
+      };
+    });
+    /* during a tracked test, you are on the map too — as what AR says you are */
+    if (tracking && liveFresh()) {
+      const st = ActivityRec.state;
+      list.push({
+        id: '__live', lat: liveFix.lat, lng: liveFix.lng,
+        icon: st === 'IN_VEHICLE' ? '🚗'
+          : (st === 'ON_FOOT' || st === 'WALKING' || st === 'RUNNING') ? '🚶' : '●',
+        color: '96,165,250',
+        size: 34,
+        priority: 3,
+      });
+    }
+    return list;
+  },
   onMarkerClick(m) {
     const d = destinations.find(x => x.id === m.id);
     if (d) openCard(d);
@@ -291,8 +349,8 @@ const voiceOpts = () => {
       : 'Saved to the destination — your note is on the record.',
     extra: () => ({
       destination_id: current ? current.id : null,
-      lat: Geo.position ? Geo.position.lat : null,
-      lng: Geo.position ? Geo.position.lng : null,
+      lat: LiveGeo.position ? LiveGeo.position.lat : null,
+      lng: LiveGeo.position ? LiveGeo.position.lng : null,
       ...arExtras(),
     }),
     onSaved(res) {
@@ -370,9 +428,9 @@ function openCard(d) {
 
 function updateCardDistance() {
   if (!current) return;
-  const p = Geo.position;
+  const p = LiveGeo.position;
   el('card-dist').textContent = p
-    ? '~' + fmtDist(distM(p, current)) + ' away' + (Geo.stale ? ' (from last known position)' : '')
+    ? '~' + fmtDist(distM(p, current)) + ' away' + (LiveGeo.stale ? ' (from last known position)' : '')
     : 'distance unknown — no GPS fix';
 }
 
