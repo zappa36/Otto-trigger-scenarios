@@ -127,6 +127,28 @@
     cursor: pointer;
   }
 
+  /* ---------- map zoom controls (live Google map only) ---------- */
+  #map-zoom {
+    position: absolute;
+    right: 14px; bottom: 152px;
+    z-index: 8;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+  #map-zoom[hidden] { display: none; }
+  .zoom-btn {
+    width: 42px; height: 42px;
+    border-radius: 50%;
+    border: 1px solid rgba(60,192,224,.45);
+    background: rgba(8,18,16,.74);
+    backdrop-filter: blur(6px);
+    color: #dfe6ee;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
   /* ---------- add destination ---------- */
   #add-fab {
     position: absolute;
@@ -383,6 +405,11 @@
   <div id="hint" hidden>
     <b>No destinations yet</b>
     <span>Tap <b style="display:inline;color:#ff9b9b;">+</b> and search a real address — the pin lands on the live map.</span>
+  </div>
+
+  <div id="map-zoom" hidden>
+    <button class="zoom-btn" id="zoom-in" type="button" aria-label="Zoom in">+</button>
+    <button class="zoom-btn" id="zoom-out" type="button" aria-label="Zoom out">−</button>
   </div>
 
   <button id="add-fab" type="button" aria-label="Add destination">+</button>

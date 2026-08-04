@@ -27,8 +27,17 @@ window.VOICE_FN = 'voice-note';
 /* Table Otto's structured messages are written to. */
 window.VOICE_TABLE = 'messages';
 
-/* Google Maps Platform browser key — client-side by design, restrict it
- * to this site's HTTP referrer. Enables the Maps JavaScript API (pan +
- * pinch) with the Static Maps image as fallback. Leave empty for the
- * grid backdrop. */
-window.GMAPS_KEY = '';
+/* Google Maps Platform key — same mechanism as driversense_rewards:
+ * injected at deploy time from the GMAPS_BROWSER_KEY env var (the build
+ * command in vercel.json does the substitution), so no real key ever
+ * lives in the repo and secret scanning stays quiet. On the deployed
+ * site it is still a PUBLIC browser key (that is how Maps in the browser
+ * works — anyone can read it with F12); protection comes from the
+ * HTTP-referrer restriction and daily quota caps in the Google Cloud
+ * console, never from secrecy.
+ * Local clones keep the placeholder and simply run keyless: grid
+ * backdrop instead of live Google tiles. Quick test without deploying:
+ * open any page with ?gkey=YOUR_API_KEY. */
+window.GMAPS_KEY = '__GMAPS_KEY__';
+if (String(window.GMAPS_KEY).slice(0, 2) === '__') window.GMAPS_KEY = ''; /* placeholder -> keyless */
+window.GMAPS_KEY = new URLSearchParams(location.search).get('gkey') || window.GMAPS_KEY;

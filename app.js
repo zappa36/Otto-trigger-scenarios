@@ -247,7 +247,12 @@ const map = FieldMap.mount({
     const d = destinations.find(x => x.id === m.id);
     if (d) openCard(d);
   },
-  onBackendChange(b) { el('backend').textContent = b.toUpperCase(); },
+  onBackendChange(b) {
+    el('backend').textContent = b.toUpperCase();
+    /* zoom buttons only make sense on the live Google map — the static
+     * image and the grid are fixed-zoom (pinch/scroll work there too) */
+    el('map-zoom').hidden = b !== 'gmap';
+  },
 });
 
 /* ---------- Otto ---------- */
@@ -508,6 +513,8 @@ Geo.on(snap => {
 
 /* ---------- boot ---------- */
 el('gps').onclick = () => Geo.locate();
+el('zoom-in').onclick = () => { const g = map.map; if (g) g.setZoom(Math.min(20, (g.getZoom() || 17) + 1)); };
+el('zoom-out').onclick = () => { const g = map.map; if (g) g.setZoom(Math.max(3, (g.getZoom() || 17) - 1)); };
 el('add-fab').onclick = openAdd;
 el('add-close').onclick = closeAdd;
 el('add-demo').onclick = addDemoSpot;

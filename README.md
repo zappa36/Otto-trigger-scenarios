@@ -144,9 +144,15 @@ keeps a seam open for the real one:
 GPS and the microphone both require **https** (or localhost). There is
 no build step, so any static host serves the repo as-is.
 
-**Vercel:** import this repository, set Framework Preset to **Other**,
-leave Build Command empty and Output Directory at the default — the site
-is the repo root. Open the production URL
+**Vercel:** import this repository, set Framework Preset to **Other**
+and leave Output Directory at the default — the site is the repo root,
+and [`vercel.json`](vercel.json) supplies the build command (it only
+injects the Maps key, see below). For **live Google map tiles**, add a
+`GMAPS_BROWSER_KEY` environment variable (Project → Settings →
+Environment Variables) holding a Maps key referrer-locked to your
+domain — the same deploy-time injection `driversense_rewards` uses.
+Without the variable the deploy still succeeds and the map stays on the
+grid backdrop. Open the production URL
 (`https://<project>.vercel.app`) on the phone; Chrome asks for location
 on first use and for the mic on the first debrief.
 
@@ -179,8 +185,20 @@ Three things to provide, all server-side:
    ```sh
    supabase secrets set ASSISTANT_BRIEF="short observations about a destination they were sent to check (blocked entrances, construction, changed access, anything off)"
    ```
-3. **Optionally a Google Maps browser key** in `config.js` for real map
-   tiles (JS API with Static Maps fallback). Without it the grid backdrop
+3. **Optionally a Google Maps browser key** for the real, pannable map:
+   your position on live Google tiles, one-finger pan, pinch and
+   scroll-wheel zoom (plus +/− buttons and the recenter pill on the live
+   map). The key never lives in the repo — same mechanism as
+   `driversense_rewards`: `config.js` carries a `__GMAPS_KEY__`
+   placeholder and the deploy injects the `GMAPS_BROWSER_KEY` env var
+   (the build command in [`vercel.json`](vercel.json); it fails the
+   build if the placeholder drifted, and ships keyless with a note when
+   the variable is missing). Create the key in the Google Cloud console
+   with **Maps JavaScript API** and **Maps Static API** enabled,
+   restrict it to your site's HTTP referrer, and cap daily quotas — it
+   is a public browser key by design, so the restriction and the caps
+   are the protection, not secrecy. Quick test without deploying: open
+   any page with `?gkey=YOUR_API_KEY`. Without a key the grid backdrop
    carries the pins — Directions and Street View still open the real
    Google Maps app either way, keyless, via the Maps URLs API.
 
@@ -242,7 +260,8 @@ The composition happens entirely through the kits' public seams:
 | `dashboard.js` | Trigger scenarios: CRUD, Excel paste-import, address pinning, compare + verdict |
 | `activity-rec.js` | Google-AR-style activity states from web signals; `inject()`/`feed()` seams for the real Android API |
 | `backend.js` | Merged Supabase client for both kits + this app's tables |
-| `config.js` | Keys — all optional |
+| `config.js` | Keys — all optional; `__GMAPS_KEY__` placeholder filled at deploy time |
+| `vercel.json` | Build command that injects `GMAPS_BROWSER_KEY` into `config.js` |
 | `voice-note.js/.css` | verbatim from voice-notes-kit |
 | `geolocate.js`, `field-map.js/.css` | verbatim from field-map-kit |
 | `supabase/schema.sql` | `destinations` + `messages` + `scenarios`, RLS |

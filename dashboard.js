@@ -95,8 +95,13 @@ const map = FieldMap.mount({
     const sc = scenarios.find(x => x.id === m.id);
     if (sc) { expandedId = sc.id; render(); scrollToScenario(sc.id); }
   },
-  onBackendChange(b) { el('backend').textContent = b.toUpperCase(); },
+  onBackendChange(b) {
+    el('backend').textContent = b.toUpperCase();
+    el('map-zoom').hidden = b !== 'gmap'; // zoom buttons need the live Google map
+  },
 });
+el('zoom-in').onclick = () => { const g = map.map; if (g) g.setZoom(Math.min(20, (g.getZoom() || 15) + 1)); };
+el('zoom-out').onclick = () => { const g = map.map; if (g) g.setZoom(Math.max(3, (g.getZoom() || 15) - 1)); };
 
 /* Centre the map by simulating a position — the desktop dashboard has no
  * GPS to follow, and the kit flags a simulated fix so nothing mistakes it
