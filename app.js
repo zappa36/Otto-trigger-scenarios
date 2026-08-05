@@ -539,7 +539,16 @@ Geo.locate();
 
 /* No GPS on a desktop browser, and none in CI: drop in a simulated
  * position rather than an empty map. Geo flags it — the marker greys out
- * and the chip says it is not a real fix. On a phone the real fix wins. */
-setTimeout(() => {
-  if (!Geo.position) Geo.simulate({ lat: 52.5346, lng: 13.4109, street: 'Kollwitzstraße 18' });
+ * and the chip says it is not a real fix. But not while a real fix is
+ * still being acquired: a cold GPS start takes 5–10 s on a phone, and
+ * teleporting the tester to the demo city mid-wait reads as a bug. The
+ * 12 s deadline covers the headless case where an unanswered permission
+ * prompt leaves the request 'locating' forever — and if a real fix lands
+ * after the demo pin dropped, it still takes over. */
+const demoStart = Date.now();
+const demoFallback = setInterval(() => {
+  if (Geo.position) { clearInterval(demoFallback); return; }
+  if (Geo.state === 'locating' && Date.now() - demoStart < 12000) return;
+  clearInterval(demoFallback);
+  Geo.simulate({ lat: 52.5346, lng: 13.4109, street: 'Kollwitzstraße 18' });
 }, 3000);

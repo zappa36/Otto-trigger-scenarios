@@ -15,6 +15,20 @@ android {
         versionName "1.0"
     }
 
+    /* A committed debug keystore (standard Android debug credentials —
+     * protects nothing, IS nothing) so every CI build carries the same
+     * signature and a newer APK installs over the old one. Without it,
+     * each runner mints a fresh key and updates fail with a signature
+     * mismatch until the app is uninstalled. */
+    signingConfigs {
+        debug {
+            storeFile file('../debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
