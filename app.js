@@ -242,8 +242,6 @@ function arExtras() {
   };
 }
 
-const localId = () => 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-
 const persistLocal = () => {
   if (Backend.enabled) return; // Supabase is the source of truth when configured
   try {
@@ -448,147 +446,6 @@ function removeCurrent() {
   map.refresh();
 }
 
-/* ---------- add a destination · real address -> pin ---------- */
-/* Cascade mirrors reverse geocoding, ordered by coverage: pasted
- * "lat, lng" first (works anywhere, offline), then the geocode Edge
- * Function (server-side Google), then OpenStreetMap. */
-let addrTimer = null;
-let addrSeq = 0; // stale-result guard: only the latest query may render
-let candidates = [];
-
-function onAddrInput(q) {
-  clearTimeout(addrTimer);
-  const seq = ++addrSeq;
-  const m = q.match(/(-?\d{1,2}\.\d+)\s*[, ]\s*(-?\d{1,3}\.\d+)/);
-  if (m) {
-    candidates = [{ label: `Dropped pin — ${(+m[1]).toFixed(5)}, ${(+m[2]).toFixed(5)}`, lat: +m[1], lng: +m[2], pin: true }];
-    renderCandidates();
-    return;
-  }
-  if (q.trim().length < 3) { candidates = []; renderCandidates(); return; }
-  addrTimer = setTimeout(async () => {
-    el('add-hint').textContent = 'Searching…';
-    const found = await searchAddress(q.trim());
-    if (seq !== addrSeq) return; // they kept typing — this answer is stale
-    candidates = found;
-    renderCandidates();
-    if (!found.length) el('add-hint').textContent = 'Nothing found — try adding the city, or paste coordinates like "52.5346, 13.4109" (long-press a spot in Google Maps to copy them).';
-    else el('add-hint').textContent = houseNumberHint(q, found);
-  }, 350);
-}
-
-/* All legs are time-boxed: a geocoder that hangs must degrade to the
- * "nothing found" hint (which teaches the coordinate-paste path), not
- * leave the sheet sitting silent. */
-async function searchAddress(q) {
-  if (Backend.enabled) {
-    try {
-      const r = await Backend.search(q);
-      if (r.length) return r;
-    } catch { /* function not deployed — fall through */ }
-  }
-  /* With the Maps JS API on the page (browser key set), Google's own
-   * geocoder resolves house numbers Nominatim often lacks — e.g. Italian
-   * street numbers. Referrer-locked browser keys are valid here, unlike
-   * on the REST geocoding endpoint. */
-  const g = await googleGeocode(q);
-  if (g.length) return g;
-  try {
-    const r = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&limit=4&q=${encodeURIComponent(q)}`,
-      { signal: AbortSignal.timeout(6000) },
-    );
-    if (!r.ok) return [];
-    return (await r.json()).map(x => ({ label: x.display_name, lat: +x.lat, lng: +x.lon }));
-  } catch { return []; }
-}
-
-function googleGeocode(q) {
-  if (!(window.google && google.maps && google.maps.Geocoder)) return Promise.resolve([]);
-  return new Promise(resolve => {
-    const t = setTimeout(() => resolve([]), 6000);
-    try {
-      new google.maps.Geocoder().geocode({ address: q }, (res, status) => {
-        clearTimeout(t);
-        resolve(status === 'OK' && Array.isArray(res) ? res.slice(0, 4).map(x => ({
-          label: x.formatted_address,
-          lat: x.geometry.location.lat(),
-          lng: x.geometry.location.lng(),
-        })) : []);
-      });
-    } catch { clearTimeout(t); resolve([]); }
-  });
-}
-
-/* A candidate list that silently dropped the typed house number puts the
- * pin mid-street — say so, and teach the exact-pin path. */
-function houseNumberHint(q, found) {
-  const num = (q.match(/\b(\d{1,4})\b/) || [])[1];
-  if (!found.length || !num || found.some(c => String(c.label).includes(num))) return '';
-  return `No exact match for house number ${num} — for a precise pin, long-press the spot in Google Maps, copy the coordinates and paste them here.`;
-}
-
-function renderCandidates() {
-  const box = el('add-results');
-  box.innerHTML = '';
-  el('add-hint').textContent = '';
-  candidates.forEach((c, i) => {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'cand';
-    b.textContent = c.label;
-    b.onclick = () => addDestination(candidates[i]);
-    box.appendChild(b);
-  });
-}
-
-async function addDestination(c) {
-  const title = c.pin ? 'Dropped pin' : String(c.label).split(',')[0].trim();
-  const row = { title, addr: c.pin ? null : c.label, lat: c.lat, lng: c.lng };
-  if (Backend.enabled) {
-    try {
-      const saved = await Backend.insertDestination(row);
-      if (Array.isArray(saved) && saved[0]) Object.assign(row, saved[0]);
-    } catch (e) { console.warn('insert failed — kept locally', e.message); row.id = localId(); }
-  } else {
-    row.id = localId();
-  }
-  destinations.push(row);
-  persistLocal();
-  closeAdd();
-  renderEmpty();
-  map.refresh();
-  openCard(row);
-  /* a dropped pin gets its street name when the geocoder finds one */
-  if (!row.addr) {
-    Geo.reverseGeocode(row.lat, row.lng).then(r => {
-      if (!r || !(r.street || r.area)) return;
-      row.title = r.street || row.title;
-      row.addr = [r.street, r.area].filter(Boolean).join(', ');
-      persistLocal();
-      map.refresh();
-      if (current === row && el('otto-screen').hidden) openCard(row);
-    });
-  }
-}
-
-function addDemoSpot() {
-  const p = Geo.position;
-  if (!p) return;
-  /* ~250 m north-east: close enough to walk to, far enough to be a pin */
-  addDestination({ label: `Dropped pin — near you`, lat: p.lat + 0.0018, lng: p.lng + 0.0012, pin: true });
-}
-
-function openAdd() {
-  el('add-sheet').hidden = false;
-  el('add-input').value = '';
-  el('add-results').innerHTML = '';
-  el('add-hint').textContent = '';
-  el('add-demo').hidden = !Geo.position;
-  el('add-input').focus();
-}
-function closeAdd() { el('add-sheet').hidden = true; }
-
 /* ---------- empty state ---------- */
 function renderEmpty() { el('hint').hidden = destinations.length > 0; }
 
@@ -605,10 +462,6 @@ Geo.on(snap => {
 el('gps').onclick = () => Geo.locate();
 el('zoom-in').onclick = () => { const g = map.map; if (g) g.setZoom(Math.min(20, (g.getZoom() || 17) + 1)); };
 el('zoom-out').onclick = () => { const g = map.map; if (g) g.setZoom(Math.max(3, (g.getZoom() || 17) - 1)); };
-el('add-fab').onclick = openAdd;
-el('add-close').onclick = closeAdd;
-el('add-demo').onclick = addDemoSpot;
-el('add-input').oninput = e => onAddrInput(e.target.value);
 el('card-close').onclick = () => { el('card').hidden = true; };
 el('card-otto').onclick = () => current && openOtto(current);
 el('card-remove').onclick = removeCurrent;

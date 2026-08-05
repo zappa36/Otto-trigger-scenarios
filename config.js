@@ -5,20 +5,27 @@
  *
  * Everything is optional. With all of it empty the app still
  * runs the whole loop on-device: grid map backdrop, address
- * search via OpenStreetMap, destinations in localStorage, and
- * Otto as the scripted demo conversation.
+ * search via OpenStreetMap, scenarios in localStorage (each
+ * browser its own), and Otto as the scripted demo conversation.
  *
- * To go live you provide exactly three things:
- *   1. a Supabase project (URL + anon key below, schema.sql run
- *      once, both Edge Functions deployed),
- *   2. an OpenAI key — as the voice-note function's secret, so
- *      Otto really transcribes; it never reaches the browser,
- *   3. optionally a Google Maps browser key for the real map
- *      tiles (the grid works without it).
+ * Nothing is edited here to go live — every value is injected at
+ * deploy time from Vercel env vars by scripts/vercel-build.sh:
+ *   1. SUPABASE_URL + SUPABASE_ANON_KEY — a Supabase project with
+ *      schema.sql run once; scenarios, pins and debriefs are then
+ *      shared between the dashboard and every phone,
+ *   2. GMAPS_BROWSER_KEY — live Google map tiles + house-number
+ *      address search,
+ *   3. an OpenAI key — as the voice-note Edge Function's secret,
+ *      so Otto really transcribes; it never reaches the browser.
+ * (The anon key and the Maps key are public in the browser by
+ * design — RLS and key restrictions are the protection. The
+ * env-var path keeps them out of the git history.)
  * ============================================================ */
 
-window.SUPABASE_URL = '';
-window.SUPABASE_ANON_KEY = '';
+window.SUPABASE_URL = '__SUPABASE_URL__';
+window.SUPABASE_ANON_KEY = '__SUPABASE_ANON_KEY__';
+if (String(window.SUPABASE_URL).slice(0, 2) === '__') window.SUPABASE_URL = ''; /* placeholder -> local demo mode */
+if (String(window.SUPABASE_ANON_KEY).slice(0, 2) === '__') window.SUPABASE_ANON_KEY = '';
 
 /* Edge Function names (as deployed in Supabase). */
 window.GEOCODE_FN = 'geocode';

@@ -68,8 +68,9 @@ The loop:
    it cannot be tested.
 3. **Test** — on the phone, the destination card carries the scenario's
    "how to test it" steps, and Otto opens the debrief with the scenario's
-   own question (the "Otto says" column). Scenario pins are managed from
-   the dashboard, so the phone card hides "Remove destination" for them.
+   own question (the "Otto says" column). The phone is the tester's
+   surface only: destinations are defined and managed on the dashboard,
+   and the phone's old add-a-destination sheet is gone.
 4. **Compare** — the dashboard puts the definition (**defined — what
    should happen**) next to the messages Otto filed (**what Otto
    understood**: category, structured title, raw transcript). A category
@@ -170,14 +171,21 @@ The check is an exact match, so Vercel's per-deployment preview URLs
 app simply stays in demo mode. Add a specific preview origin temporarily
 if you need to test the live backend from one.
 
-## Going live (real Otto, shared destinations)
+## Going live (real Otto, shared scenarios)
 
-Three things to provide, all server-side:
+Three things to provide — none of them edits a file:
+[`scripts/vercel-build.sh`](scripts/vercel-build.sh) injects every value
+into `config.js` at deploy time from Vercel env vars, so the public repo
+never carries them.
 
-1. **Supabase project** — run [`supabase/schema.sql`](supabase/schema.sql)
-   in the SQL editor, copy the Project URL + anon key into
-   [`config.js`](config.js). Destinations and messages are then shared
-   between phones instead of per-device.
+1. **Supabase project** — create a free project, run
+   [`supabase/schema.sql`](supabase/schema.sql) once in the SQL editor,
+   then add two Vercel env vars (Project Settings → Environment
+   Variables, Production): `SUPABASE_URL` and `SUPABASE_ANON_KEY`
+   (both under Project Settings → API in Supabase) — and redeploy.
+   Scenarios, pins and debriefs are then shared: define on the
+   dashboard, every phone sees the same pins. Without these the app
+   still runs, but each browser keeps its own localStorage copy.
 2. **Both Edge Functions** — deploy
    [`voice-note`](supabase/functions/voice-note/index.ts) (Otto:
    transcription + structuring; needs the `OPENAI_API_KEY` secret) and
@@ -263,14 +271,14 @@ The composition happens entirely through the kits' public seams:
 
 | File | Purpose |
 |---|---|
-| `index.html` | Phone shell: map, HUD, add-sheet, card, Otto screen |
+| `index.html` | Phone shell: map, HUD, card, Otto screen (pins come from the dashboard) |
 | `app.js` | Destinations, messages, the card, Otto wiring |
 | `dashboard.html` | Desktop shell: scenario list, map, form / address / import sheets |
 | `dashboard.js` | Trigger scenarios: CRUD, Excel paste-import, address pinning, compare + verdict |
 | `activity-rec.js` | Google-AR-style activity states from web signals; `inject()`/`feed()` seams for the real Android API |
 | `backend.js` | Merged Supabase client for both kits + this app's tables |
-| `config.js` | Keys — all optional; `__GMAPS_KEY__` placeholder filled at deploy time |
-| `vercel.json` | Build command that injects `GMAPS_BROWSER_KEY` into `config.js` |
+| `config.js` | Keys — all optional; placeholders filled at deploy time |
+| `vercel.json`, `scripts/vercel-build.sh` | Deploy-time injection of `GMAPS_BROWSER_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY` |
 | `voice-note.js/.css` | verbatim from voice-notes-kit |
 | `geolocate.js`, `field-map.js/.css` | verbatim from field-map-kit |
 | `supabase/schema.sql` | `destinations` + `messages` + `scenarios`, RLS |
