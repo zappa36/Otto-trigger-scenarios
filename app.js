@@ -155,7 +155,10 @@ function updateArChip(snap) {
   chip.classList.remove('off');
   const suffix = snap.source !== 'web' ? ' · ' + snap.source.toUpperCase() : '';
   const test = tracking ? ` · TEST${tracking.sc.num != null ? ' #' + tracking.sc.num : ''}` : '';
-  chip.textContent = `AR · ${snap.state}${suffix}${test}`;
+  /* raw speed rides along — the instant signal, while the state label
+   * carries deliberate smoothing */
+  const kmh = typeof snap.speed === 'number' && snap.speed >= 0 ? ` · ${Math.round(snap.speed * 3.6)} KM/H` : '';
+  chip.textContent = `AR · ${snap.state}${suffix}${test}${kmh}`;
 }
 
 function updateCardTrack() {

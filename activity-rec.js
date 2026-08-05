@@ -34,8 +34,11 @@ const ActivityRec = (() => {
     vehicleSpeed: 6.5,   // m/s — above this it is a vehicle, cadence or not
     footSpeed: 3.5,      // m/s — below this, step cadence means ON_FOOT
     stillSpeed: 0.7,     // m/s — below this with no cadence we may be STILL
-    commitMs: 8000,      // evidence must persist this long before a flip
-    stillCommitMs: 20000, // STILL commits slower — red lights are not stops
+    /* Hysteresis tuned for a testing tool: fast enough to watch, still
+     * enough smoothing that one noisy fix cannot flip the state. STILL
+     * stays the slowest commit so short red lights read as driving. */
+    commitMs: 5000,       // evidence must persist this long before a flip
+    stillCommitMs: 10000, // STILL commits slower — red lights are not stops
     nativeFreshMs: 90000, // injected native states silence the heuristic
     maxSegments: 120,
   };

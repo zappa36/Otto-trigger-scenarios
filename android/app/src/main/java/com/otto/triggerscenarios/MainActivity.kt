@@ -40,14 +40,18 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.ActivityRecognition
 import com.google.android.gms.location.ActivityRecognitionResult
+import com.google.android.gms.location.ActivityTransition
+import com.google.android.gms.location.ActivityTransitionRequest
+import com.google.android.gms.location.ActivityTransitionResult
 import com.google.android.gms.location.DetectedActivity
 
 class MainActivity : ComponentActivity() {
 
     companion object {
         private const val ACTION_AR = "com.otto.triggerscenarios.AR_UPDATE"
+        private const val ACTION_AR_TRANSITION = "com.otto.triggerscenarios.AR_TRANSITION"
         private const val PERMISSIONS_REQUEST = 1
-        private const val AR_INTERVAL_MS = 5000L
+        private const val AR_INTERVAL_MS = 2000L
 
         /* Google's DetectedActivity ints -> the names the sheet and the
          * web module already speak. */
@@ -66,6 +70,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var webView: WebView
     private var arReceiver: BroadcastReceiver? = null
     private var arPendingIntent: PendingIntent? = null
+    private var arTransitionIntent: PendingIntent? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -170,16 +175,27 @@ class MainActivity : ComponentActivity() {
 
         arReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                if (intent == null || !ActivityRecognitionResult.hasResult(intent)) return
+                intent ?: return
+                /* Transition events are the fast, pre-debounced edges —
+                 * inject them the moment they land. The sampled updates
+                 * keep confidence fresh between edges. */
+                if (ActivityTransitionResult.hasResult(intent)) {
+                    val last = ActivityTransitionResult.extractResult(intent)
+                        ?.transitionEvents?.lastOrNull() ?: return
+                    inject(typeName(last.activityType), 95)
+                    return
+                }
+                if (!ActivityRecognitionResult.hasResult(intent)) return
                 val most = ActivityRecognitionResult.extractResult(intent)
                     ?.mostProbableActivity ?: return
-                val js = "window.ActivityRec&&ActivityRec.inject('${typeName(most.type)}',${most.confidence})"
-                runOnUiThread { webView.evaluateJavascript(js, null) }
+                inject(typeName(most.type), most.confidence)
             }
         }
-        ContextCompat.registerReceiver(
-            this, arReceiver, IntentFilter(ACTION_AR), ContextCompat.RECEIVER_NOT_EXPORTED,
-        )
+        val filter = IntentFilter().apply {
+            addAction(ACTION_AR)
+            addAction(ACTION_AR_TRANSITION)
+        }
+        ContextCompat.registerReceiver(this, arReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
 
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or
             (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0)
@@ -188,14 +204,35 @@ class MainActivity : ComponentActivity() {
         )
         ActivityRecognition.getClient(this)
             .requestActivityUpdates(AR_INTERVAL_MS, arPendingIntent!!)
+
+        /* enter-edges for every type the Transition API supports
+         * (ON_FOOT deliberately absent — it is not a valid transition type) */
+        val transitions = listOf(
+            DetectedActivity.IN_VEHICLE, DetectedActivity.ON_BICYCLE,
+            DetectedActivity.WALKING, DetectedActivity.RUNNING, DetectedActivity.STILL,
+        ).map {
+            ActivityTransition.Builder()
+                .setActivityType(it)
+                .setActivityTransition(ActivityTransition.ACTIVITY_TRANSITION_ENTER)
+                .build()
+        }
+        arTransitionIntent = PendingIntent.getBroadcast(
+            this, 1, Intent(ACTION_AR_TRANSITION).setPackage(packageName), flags,
+        )
+        ActivityRecognition.getClient(this)
+            .requestActivityTransitionUpdates(ActivityTransitionRequest(transitions), arTransitionIntent!!)
+    }
+
+    private fun inject(state: String, confidence: Int) {
+        val js = "window.ActivityRec&&ActivityRec.inject('$state',$confidence)"
+        runOnUiThread { webView.evaluateJavascript(js, null) }
     }
 
     override fun onDestroy() {
-        arPendingIntent?.let {
-            try {
-                ActivityRecognition.getClient(this).removeActivityUpdates(it)
-            } catch (_: SecurityException) { /* permission got revoked */ }
-        }
+        try {
+            arPendingIntent?.let { ActivityRecognition.getClient(this).removeActivityUpdates(it) }
+            arTransitionIntent?.let { ActivityRecognition.getClient(this).removeActivityTransitionUpdates(it) }
+        } catch (_: SecurityException) { /* permission got revoked */ }
         arReceiver?.let { unregisterReceiver(it) }
         arReceiver = null
         super.onDestroy()
