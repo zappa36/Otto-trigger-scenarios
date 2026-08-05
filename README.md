@@ -198,11 +198,16 @@ Three things to provide, all server-side:
    (the build command in [`vercel.json`](vercel.json); it fails the
    build if the placeholder drifted, and ships keyless with a note when
    the variable is missing). Create the key in the Google Cloud console
-   with **Maps JavaScript API** and **Maps Static API** enabled,
-   restrict it to your site's HTTP referrer, and cap daily quotas — it
-   is a public browser key by design, so the restriction and the caps
-   are the protection, not secrecy. Quick test without deploying: open
-   any page with `?gkey=YOUR_API_KEY`. Without a key the grid backdrop
+   with **Maps JavaScript API**, **Maps Static API** and **Geocoding
+   API** enabled (the third powers house-number address search), then
+   lock it down — it is a public browser key by design, so the locks
+   and the caps are the protection, not secrecy: restrict it to your
+   site's HTTP referrer (the exact domain, never `*.vercel.app/*`),
+   restrict it to those three APIs, cap each API's daily quota, and set
+   a billing budget alert. Delete any older unrestricted key. Quick
+   test without deploying: open the production site with
+   `?gkey=YOUR_API_KEY` (a referrer-locked key works only on pages
+   served from the allowed domain). Without a key the grid backdrop
    carries the pins — Directions and Street View still open the real
    Google Maps app either way, keyless, via the Maps URLs API.
 

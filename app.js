@@ -473,10 +473,11 @@ function onAddrInput(q) {
     candidates = found;
     renderCandidates();
     if (!found.length) el('add-hint').textContent = 'Nothing found — try adding the city, or paste coordinates like "52.5346, 13.4109" (long-press a spot in Google Maps to copy them).';
+    else el('add-hint').textContent = houseNumberHint(q, found);
   }, 350);
 }
 
-/* Both legs are time-boxed: a geocoder that hangs must degrade to the
+/* All legs are time-boxed: a geocoder that hangs must degrade to the
  * "nothing found" hint (which teaches the coordinate-paste path), not
  * leave the sheet sitting silent. */
 async function searchAddress(q) {
@@ -486,6 +487,12 @@ async function searchAddress(q) {
       if (r.length) return r;
     } catch { /* function not deployed — fall through */ }
   }
+  /* With the Maps JS API on the page (browser key set), Google's own
+   * geocoder resolves house numbers Nominatim often lacks — e.g. Italian
+   * street numbers. Referrer-locked browser keys are valid here, unlike
+   * on the REST geocoding endpoint. */
+  const g = await googleGeocode(q);
+  if (g.length) return g;
   try {
     const r = await fetch(
       `https://nominatim.openstreetmap.org/search?format=json&limit=4&q=${encodeURIComponent(q)}`,
@@ -494,6 +501,31 @@ async function searchAddress(q) {
     if (!r.ok) return [];
     return (await r.json()).map(x => ({ label: x.display_name, lat: +x.lat, lng: +x.lon }));
   } catch { return []; }
+}
+
+function googleGeocode(q) {
+  if (!(window.google && google.maps && google.maps.Geocoder)) return Promise.resolve([]);
+  return new Promise(resolve => {
+    const t = setTimeout(() => resolve([]), 6000);
+    try {
+      new google.maps.Geocoder().geocode({ address: q }, (res, status) => {
+        clearTimeout(t);
+        resolve(status === 'OK' && Array.isArray(res) ? res.slice(0, 4).map(x => ({
+          label: x.formatted_address,
+          lat: x.geometry.location.lat(),
+          lng: x.geometry.location.lng(),
+        })) : []);
+      });
+    } catch { clearTimeout(t); resolve([]); }
+  });
+}
+
+/* A candidate list that silently dropped the typed house number puts the
+ * pin mid-street — say so, and teach the exact-pin path. */
+function houseNumberHint(q, found) {
+  const num = (q.match(/\b(\d{1,4})\b/) || [])[1];
+  if (!found.length || !num || found.some(c => String(c.label).includes(num))) return '';
+  return `No exact match for house number ${num} — for a precise pin, long-press the spot in Google Maps, copy the coordinates and paste them here.`;
 }
 
 function renderCandidates() {
