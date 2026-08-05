@@ -119,7 +119,16 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        /* The page is loaded only after the permission dialog settles —
+         * loading it earlier makes its first geolocation request hit a
+         * not-yet-granted state and come back denied. */
         requestNeededPermissions()
+    }
+
+    private var pageLoaded = false
+    private fun loadAppOnce() {
+        if (pageLoaded) return
+        pageLoaded = true
         webView.loadUrl(getString(R.string.app_url))
     }
 
@@ -134,8 +143,12 @@ class MainActivity : ComponentActivity() {
         )
         if (Build.VERSION.SDK_INT >= 29) wanted.add(Manifest.permission.ACTIVITY_RECOGNITION)
         val missing = wanted.filterNot { hasPermission(it) }
-        if (missing.isEmpty()) startActivityRecognition()
-        else ActivityCompat.requestPermissions(this, missing.toTypedArray(), PERMISSIONS_REQUEST)
+        if (missing.isEmpty()) {
+            startActivityRecognition()
+            loadAppOnce()
+        } else {
+            ActivityCompat.requestPermissions(this, missing.toTypedArray(), PERMISSIONS_REQUEST)
+        }
     }
 
     override fun onRequestPermissionsResult(
@@ -145,8 +158,9 @@ class MainActivity : ComponentActivity() {
         if (requestCode != PERMISSIONS_REQUEST) return
         val arOk = Build.VERSION.SDK_INT < 29 || hasPermission(Manifest.permission.ACTIVITY_RECOGNITION)
         if (arOk) startActivityRecognition()
-        /* location / mic grants flow to the page automatically through the
-         * WebChromeClient the next time it asks */
+        /* now the page's first geolocation request sees the real grants
+         * (denied grants degrade gracefully in the page) */
+        loadAppOnce()
     }
 
     /* ---------- the real Activity Recognition API ---------- */
