@@ -149,80 +149,6 @@
     cursor: pointer;
   }
 
-  /* ---------- add destination ---------- */
-  #add-fab {
-    position: absolute;
-    right: 14px; bottom: 84px;
-    z-index: 11;
-    width: 52px; height: 52px;
-    border-radius: 50%;
-    border: none;
-    cursor: pointer;
-    background: linear-gradient(180deg, #ff8f8f, #d63a3a);
-    color: #fff;
-    font-size: 28px;
-    line-height: 1;
-    box-shadow: 0 8px 20px rgba(214,58,58,.5), inset 0 1px 0 rgba(255,255,255,.4);
-  }
-
-  #add-sheet {
-    position: absolute;
-    inset: 0;
-    z-index: 13;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-end;
-    background: rgba(4,8,7,.6);
-    backdrop-filter: blur(2px);
-  }
-  #add-sheet[hidden] { display: none; }
-  .sheet {
-    background: #0a141d;
-    border-top: 1px solid rgba(140,165,200,.2);
-    border-radius: 22px 22px 0 0;
-    padding: 18px 16px 26px;
-    max-height: 72%;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-  .sheet h2 { margin: 0; font-size: 16px; }
-  .sheet .sub { font-size: 12px; color: #94a1b2; }
-  #add-input {
-    width: 100%;
-    padding: 12px;
-    border-radius: 11px;
-    border: 1px solid rgba(140,165,200,.25);
-    background: rgba(7,13,22,.7);
-    color: #eef2f7;
-    font-size: 15px;
-    outline: none;
-  }
-  #add-results { display: flex; flex-direction: column; gap: 7px; overflow: auto; }
-  .cand {
-    text-align: left;
-    padding: 11px 12px;
-    border-radius: 11px;
-    border: 1px solid rgba(60,192,224,.3);
-    background: rgba(60,192,224,.07);
-    color: #cfe9f2;
-    font-size: 13px;
-    cursor: pointer;
-  }
-  #add-hint { font-size: 12px; color: #94a1b2; min-height: 1em; }
-  .sheet-row { display: flex; gap: 8px; }
-  .sheet-btn {
-    flex: 1;
-    padding: 10px;
-    border-radius: 11px;
-    border: 1px solid rgba(140,165,200,.25);
-    background: transparent;
-    color: #cfe9f2;
-    font-size: 13px;
-    cursor: pointer;
-  }
-  #add-demo[hidden] { display: none; }
-
   /* ---------- destination card ---------- */
   #card {
     position: absolute;
@@ -403,29 +329,13 @@
   </div>
 
   <div id="hint" hidden>
-    <b>No destinations yet</b>
-    <span>Tap <b style="display:inline;color:#ff9b9b;">+</b> and search a real address — the pin lands on the live map.</span>
+    <b>No test scenarios yet</b>
+    <span>Scenarios are defined on the dashboard (<b style="display:inline;color:#94a1b2;">TESTS</b> above) — their pins land here for you to act out.</span>
   </div>
 
   <div id="map-zoom" hidden>
     <button class="zoom-btn" id="zoom-in" type="button" aria-label="Zoom in">+</button>
     <button class="zoom-btn" id="zoom-out" type="button" aria-label="Zoom out">−</button>
-  </div>
-
-  <button id="add-fab" type="button" aria-label="Add destination">+</button>
-
-  <div id="add-sheet" hidden>
-    <div class="sheet">
-      <h2>Add a destination</h2>
-      <span class="sub">Search a real address, or paste coordinates ("52.5346, 13.4109").</span>
-      <input id="add-input" type="text" inputmode="text" placeholder="Kollwitzstraße 18, Berlin" autocomplete="off">
-      <div id="add-results"></div>
-      <div id="add-hint"></div>
-      <div class="sheet-row">
-        <button id="add-demo" class="sheet-btn" type="button" hidden>Demo spot near me</button>
-        <button id="add-close" class="sheet-btn" type="button">Close</button>
-      </div>
-    </div>
   </div>
 
   <div id="card" hidden>
