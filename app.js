@@ -534,21 +534,15 @@ if (!Backend.enabled) {
 }
 
 boot();
+
+/* GPS is the only position source — no simulated fallback. The map
+ * starts on the last cached real fix (prime, flagged stale) and a fresh
+ * fix is requested immediately; until one lands, the veil and the GPS
+ * chip say exactly where things stand. Coming back to the foreground
+ * retries automatically, so a denied-then-granted permission or a
+ * missed cold start never leaves the app stuck unlocated. */
 Geo.prime();
 Geo.locate();
-
-/* No GPS on a desktop browser, and none in CI: drop in a simulated
- * position rather than an empty map. Geo flags it — the marker greys out
- * and the chip says it is not a real fix. But not while a real fix is
- * still being acquired: a cold GPS start takes 5–10 s on a phone, and
- * teleporting the tester to the demo city mid-wait reads as a bug. The
- * 12 s deadline covers the headless case where an unanswered permission
- * prompt leaves the request 'locating' forever — and if a real fix lands
- * after the demo pin dropped, it still takes over. */
-const demoStart = Date.now();
-const demoFallback = setInterval(() => {
-  if (Geo.position) { clearInterval(demoFallback); return; }
-  if (Geo.state === 'locating' && Date.now() - demoStart < 12000) return;
-  clearInterval(demoFallback);
-  Geo.simulate({ lat: 52.5346, lng: 13.4109, street: 'Kollwitzstraße 18' });
-}, 3000);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && !Geo.position && Geo.state !== 'locating') Geo.locate();
+});
