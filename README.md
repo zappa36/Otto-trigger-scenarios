@@ -190,9 +190,9 @@ keeps a seam open for the real one:
 - **The map drives along.** While tracking, ActivityRec's continuous
   fixes feed the map: the position dot moves live (losing its stale
   grey), the card's distance readout updates, and a 🚗 marker rides your
-  position while the state is IN_VEHICLE (🚶 on foot). Untracked, the
-  map stays tap-to-refresh — continuous GPS is a deliberate,
-  battery-honest choice you switch on per test.
+  position while the state is IN_VEHICLE (🚶 on foot). Activity
+  recognition arms itself at app open (testers kept walking with it
+  off); the AR chip toggles it off in one tap when battery matters.
 
 - **The sample trigger actually runs.** While tracking, the phone
   detects the deck's scenario #1 for real: 2 slow passes inside ~150 m
