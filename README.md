@@ -199,7 +199,7 @@ never carries them.
    ```
 3. **Optionally a Google Maps browser key** for the real, pannable map:
    your position on live Google tiles, one-finger pan, pinch and
-   scroll-wheel zoom (plus +/− buttons and the recenter pill on the live
+   scroll-wheel zoom (plus +/− buttons and the recenter button on the live
    map). The key never lives in the repo — same mechanism as
    `driversense_rewards`: `config.js` carries a `__GMAPS_KEY__`
    placeholder and the deploy injects the `GMAPS_BROWSER_KEY` env var
