@@ -28,7 +28,10 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.view.WindowManager
+import android.webkit.JavascriptInterface
 import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
 import android.webkit.WebResourceRequest
@@ -72,6 +75,32 @@ class MainActivity : ComponentActivity() {
     private var arPendingIntent: PendingIntent? = null
     private var arTransitionIntent: PendingIntent? = null
 
+    /* ---------- native text-to-speech ----------
+     * Android WebViews have NO Web Speech API — speechSynthesis.speak()
+     * silently does nothing, so a hands-free Otto question was text-only
+     * in the app. This bridge gives the page the platform's own TTS:
+     *   OttoTTS.speak('…')            — speaks; calls window.__ottoTtsDone()
+     *   OttoTTS.stop()                — cancels (backing out mid-question)
+     * app.js prefers this bridge and falls back to speechSynthesis in
+     * ordinary browsers. */
+    private var tts: TextToSpeech? = null
+    private var ttsReady = false
+
+    private fun notifyTtsDone() {
+        runOnUiThread { webView.evaluateJavascript("window.__ottoTtsDone&&__ottoTtsDone()", null) }
+    }
+
+    inner class TtsBridge {
+        @JavascriptInterface
+        fun speak(text: String) {
+            if (!ttsReady || text.isBlank()) { notifyTtsDone(); return }
+            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "otto-question")
+        }
+
+        @JavascriptInterface
+        fun stop() { tts?.stop() }
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -89,6 +118,18 @@ class MainActivity : ComponentActivity() {
             setGeolocationEnabled(true)
             mediaPlaybackRequiresUserGesture = false
         }
+
+        webView.addJavascriptInterface(TtsBridge(), "OttoTTS")
+        tts = TextToSpeech(this) { status ->
+            ttsReady = status == TextToSpeech.SUCCESS
+            if (ttsReady) tts?.language = java.util.Locale.US // the scenario questions are English
+        }
+        tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) {}
+            override fun onDone(utteranceId: String?) = notifyTtsDone()
+            @Deprecated("Deprecated in Java")
+            override fun onError(utteranceId: String?) = notifyTtsDone()
+        })
 
         webView.webChromeClient = object : WebChromeClient() {
             /* The page's watchPosition / Geo.locate() land here. */
@@ -240,6 +281,9 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        tts?.stop()
+        tts?.shutdown()
+        tts = null
         try {
             arPendingIntent?.let { ActivityRecognition.getClient(this).removeActivityUpdates(it) }
             arTransitionIntent?.let { ActivityRecognition.getClient(this).removeActivityTransitionUpdates(it) }
