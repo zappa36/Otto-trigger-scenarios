@@ -5,6 +5,12 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- WebView getUserMedia needs this beside RECORD_AUDIO — without it
+         the audio source refuses to start (NotReadableError: "Could not
+         start audio source", mic self-test 2026-08-06) and the voice
+         widget silently degrades to its scripted demo. Normal-protection
+         permission: granted at install, no dialog. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- the real Google Activity Recognition API (runtime permission on API 29+) -->
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     <uses-permission android:name="com.google.android.gms.permission.ACTIVITY_RECOGNITION" />
