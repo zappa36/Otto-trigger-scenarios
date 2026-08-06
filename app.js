@@ -517,6 +517,10 @@ const voiceOpts = () => {
       ...arExtras(),
     }),
     onSaved(res) {
+      /* Otto's reply gets the same voice as his question — text-only
+       * feedback goes unnoticed by someone watching the road. Scripted
+       * demo replies stay silent: nothing was actually heard. */
+      if (!res.demo && res.reply) speakThen(String(res.reply), () => {});
       if (!current) return;
       recordMessage(current.id, {
         ...res.row,

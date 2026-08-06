@@ -71,7 +71,10 @@ Deno.serve(async (req) => {
       body: tf,
     });
     if (!tr.ok) return fail(502, `transcription failed: ${(await tr.text()).slice(0, 300)}`);
-    const transcript = String((await tr.json()).text || '').trim();
+    // The widget ends a clip on a pause and tells people they may say
+    // "stop" — that closing word is a control signal, not content.
+    const transcript = String((await tr.json()).text || '').trim()
+      .replace(/[,.!?\s]*\b(stop|stopp|basta)\b[.!?\s]*$/i, '').trim();
     if (!transcript) return fail(422, 'heard nothing — try again closer to the mic');
 
     // 2) structure the observation + the assistant's reply

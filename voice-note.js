@@ -127,7 +127,7 @@ const VoiceNote = (() => {
     const CAPTIONS = {
       live: {
         idle: ['Tap the mic to talk', 'Your voice, transcribed and saved'],
-        rec: ['Recording…', 'Tap stop to send'],
+        rec: ['Recording…', 'Say "stop" or just pause — it sends itself'],
         think: ['Thinking…', 'Transcribing & structuring your note'],
         done: ['Saved', 'The next person here sees it first'],
       },
@@ -201,13 +201,67 @@ const VoiceNote = (() => {
       const chunks = [];
       rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
       rec.onstop = () => {
+        stopSilenceWatch();
         stream.getTracks().forEach(t => t.stop());
         state.rec = null;
         send(new Blob(chunks, { type: rec.mimeType || 'audio/webm' }));
       };
       state.rec = rec;
       rec.start();
-      render({ from: 'ai', text: "I'm listening — tap again when you're done." }, 'rec');
+      startSilenceWatch(stream);
+      render({ from: 'ai', text: 'I\'m listening — say "stop" or simply pause when you\'re done.' }, 'rec');
+    }
+
+    /* ---------- hands-free stop ----------
+     * The person talking is often driving or has their hands full, so
+     * the clip ends itself: watch the live level, and a clear pause
+     * AFTER speech sends the recording. Saying "stop" needs no keyword
+     * recognition — saying it and falling quiet IS the pause (the
+     * backend strips the trailing word). Tapping ■ still works, and if
+     * the analyser is unavailable the widget behaves exactly as before. */
+    let audioCtx = null;
+    let silenceTimer = null;
+    function startSilenceWatch(stream) {
+      try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        audioCtx = new AC();
+        if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 512;
+        audioCtx.createMediaStreamSource(stream).connect(analyser);
+        const buf = new Uint8Array(analyser.fftSize);
+        const started = Date.now();
+        let baseline = 0;
+        let baseN = 0;
+        let spoke = false;
+        let quietSince = null;
+        silenceTimer = setInterval(() => {
+          analyser.getByteTimeDomainData(buf);
+          let sum = 0;
+          for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v; }
+          const rms = Math.sqrt(sum / buf.length);
+          const now = Date.now();
+          /* the first beats calibrate the ambient level — a car cabin and
+           * a quiet office need different floors */
+          if (now - started < 600) { baseline += rms; baseN++; return; }
+          const floor = Math.max(0.02, (baseline / Math.max(1, baseN)) * 1.8);
+          if (rms > floor * 2) { spoke = true; quietSince = null; return; }
+          if (rms < floor) {
+            if (!quietSince) quietSince = now;
+            /* pause after speech -> send. Silence with no speech yet keeps
+             * waiting — they may still be gathering the sentence. */
+            if (spoke && now - quietSince > 2600 && state.rec) state.rec.stop();
+          } else {
+            quietSince = null;
+          }
+        }, 150);
+      } catch { /* analyser optional — tap to stop, as always */ }
+    }
+    function stopSilenceWatch() {
+      clearInterval(silenceTimer);
+      silenceTimer = null;
+      if (audioCtx) { try { audioCtx.close(); } catch { /* already closed */ } audioCtx = null; }
     }
 
     async function send(blob) {
@@ -281,6 +335,7 @@ const VoiceNote = (() => {
       },
       stop() {
         clearTimeout(state.timer);
+        stopSilenceWatch();
         if (state.rec) {
           try {
             state.rec.onstop = null;
