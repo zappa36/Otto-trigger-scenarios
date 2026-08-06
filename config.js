@@ -30,6 +30,7 @@ if (String(window.SUPABASE_ANON_KEY).slice(0, 2) === '__') window.SUPABASE_ANON_
 /* Edge Function names (as deployed in Supabase). */
 window.GEOCODE_FN = 'geocode';
 window.VOICE_FN = 'voice-note';
+window.SCENARIO_AI_FN = 'scenario-ai';
 
 /* Table Otto's structured messages are written to. */
 window.VOICE_TABLE = 'messages';

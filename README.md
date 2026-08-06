@@ -81,13 +81,62 @@ Statuses roll up in the header and colour the pins: *needs address* →
 *awaiting test* (red, like the phone) → *debriefed · n* (cyan) → verdict
 (green / amber / orange).
 
+## The tuning loop (describe → draft → test → feedback → v2)
+
+The end goal of all this testing is an **algorithm per scenario** —
+trigger rules with numbers that survived contact with reality. The
+dashboard runs that loop end to end:
+
+1. **Describe.** In "+ New scenario", write what happens in your own
+   words and hit **✨ Draft the fields** — every sheet column is filled
+   in, and every number in the rule is extracted as a **tunable value**
+   (`{radius}`-style placeholder + value/min/max/unit). With the
+   `scenario-ai` Edge Function deployed that is a real AI draft; without
+   it, a built-in archetype template (parking loops, entrance hunt, long
+   wait, blocked route, generic dwell) — labelled as a demo draft, like
+   everything scripted in this kit. Either way the draft lands in the
+   form to be edited before saving.
+2. **Tune with sliders.** An expanded scenario shows its tunable values
+   as sliders; the rule text follows the drag live. Params whose keys
+   match the detector's (`radius`, `passes_needed`, `stop_dwell_s`, …)
+   **drive the phone's live trigger detector on the next run** — the
+   `TRIG` defaults in `app.js` are only the fallback. Saving a drag cuts
+   a new version with an auto-changelog ("Tuned: Pass radius
+   150→120 m").
+3. **Leave feedback by voice.** After a run, **🎙 Record test feedback**
+   on the scenario: with the backend live the clip is transcribed by the
+   voice function; keyless, the browser's own on-device speech
+   recognition types along (or just type). The note is stored against
+   the version it commented on.
+4. **A new version is proposed.** Saved feedback comes straight back as
+   a **proposed vN+1** — changed fields and moved values shown as an
+   editable old→new diff with a changelog note. Live, that is the AI
+   reading your feedback plus the recent debrief results; keyless, a
+   labelled heuristic (explicit numbers like "make it 80 m" move the
+   nearest matching value; "never fired" / "fired too often" nudge the
+   thresholds). Apply it (or discard — the feedback stays on record).
+5. **The trail is the record.** Every scenario carries its version chip,
+   the full history with per-version notes (any version can be
+   restored), and which feedback went into which version. Debriefs are
+   stamped with the scenario version *and* the exact detector values the
+   run used, so results stay comparable across versions.
+6. **Export the algorithm.** **Spec JSON ⇩** on a scenario (or **⇩
+   SPECS** in the header for all of them) downloads the machine-readable
+   spec: resolved rule, tuned params with their ranges, version history,
+   feedback trail, and every structured test result — ready to hand to
+   whoever builds the production trigger.
+
 Going live is the same story as the rest of the app: re-run
-[`supabase/schema.sql`](supabase/schema.sql) (safe to re-run) to add the
-`scenarios` table, and every phone sees the dashboard's pins. Worth doing
-at the same time: set the voice function's `NOTE_CATEGORIES` secret to
-your tip types (e.g. `PARKING,ACCESS,HAZARD,HOURS,INFO`) so Otto's
-categories can line up with the "What Otto learns" column, and point
-`ASSISTANT_BRIEF` at trigger debriefs.
+[`supabase/schema.sql`](supabase/schema.sql) (safe to re-run — it adds
+the `scenarios` table and the tuning-loop columns), and deploy
+[`scenario-ai`](supabase/functions/scenario-ai/index.ts) next to
+`voice-note` (same `OPENAI_API_KEY` and `ALLOWED_ORIGINS` secrets) for
+real drafts and revisions. Worth doing at the same time: set the voice
+function's `NOTE_CATEGORIES` secret to your tip types (e.g.
+`PARKING,ACCESS,HAZARD,HOURS,INFO`) so Otto's categories can line up
+with the "What Otto learns" column, and point `ASSISTANT_BRIEF` at
+trigger debriefs — `scenario-ai` reads `NOTE_CATEGORIES` too, so drafted
+scenarios expect tip types Otto can actually file.
 
 ## Activity recognition (and the Google AR API)
 
@@ -139,10 +188,13 @@ keeps a seam open for the real one:
   of the pin without stopping, then the stop, then moving again → the
   **OTTO TRIGGER FIRED** banner pops (with a buzz), tap it and Otto asks
   the scenario's question. The thresholds sit in one `TRIG` block at the
-  top of `app.js` — the deck calls them drafts to tune, so they are
-  plainly tunable. The card shows live progress ("TRACKING · 1 SLOW
-  PASS · WAITING FOR YOUR STOP"), and the fired trigger is stamped into
-  the message (`TRIGGER FIRED · 2 PASSES + STOP` on the dashboard).
+  top of `app.js` — the deck calls them drafts to tune, and tuned they
+  are: a scenario's params (the dashboard's sliders) override any of
+  them per test run, `TRIG` is only the fallback. The card shows live
+  progress ("TRACKING · 1 SLOW PASS · WAITING FOR YOUR STOP"), and the
+  fired trigger is stamped into the message with the scenario version
+  and the exact values the run used (`TRIGGER FIRED · 2 PASSES + STOP ·
+  v2` on the dashboard).
 
 ## On your phone
 
@@ -186,13 +238,16 @@ never carries them.
    Scenarios, pins and debriefs are then shared: define on the
    dashboard, every phone sees the same pins. Without these the app
    still runs, but each browser keeps its own localStorage copy.
-2. **Both Edge Functions** — deploy
+2. **The Edge Functions** — deploy
    [`voice-note`](supabase/functions/voice-note/index.ts) (Otto:
-   transcription + structuring; needs the `OPENAI_API_KEY` secret) and
+   transcription + structuring; needs the `OPENAI_API_KEY` secret),
    [`geocode`](supabase/functions/geocode/index.ts) (worldwide address
-   search + street names; needs `GMAPS_SERVER_KEY`). Set `ALLOWED_ORIGINS`
-   on both. Optional persona tuning via `ASSISTANT_NAME`,
-   `ASSISTANT_BRIEF`, `NOTE_CATEGORIES` — e.g.:
+   search + street names; needs `GMAPS_SERVER_KEY`) and
+   [`scenario-ai`](supabase/functions/scenario-ai/index.ts) (the
+   dashboard's describe→draft and feedback→new-version loop; shares
+   `OPENAI_API_KEY`). Set `ALLOWED_ORIGINS` on all three. Optional
+   persona tuning via `ASSISTANT_NAME`, `ASSISTANT_BRIEF`,
+   `NOTE_CATEGORIES` — e.g.:
 
    ```sh
    supabase secrets set ASSISTANT_BRIEF="short observations about a destination they were sent to check (blocked entrances, construction, changed access, anything off)"
@@ -229,7 +284,7 @@ which is the point of having extracted them:
 | `voice-notes-kit` | `voice-note.js`, `voice-note.css`, `supabase/functions/voice-note/` | The Otto debrief |
 | `field-map-kit` | `geolocate.js`, `field-map.js`, `field-map.css`, `supabase/functions/geocode/` | Position + live map |
 | new | `app.js`, `index.html`, `backend.js`, `config.js`, `supabase/schema.sql` | Destinations, the card, the wiring |
-| new | `dashboard.html`, `dashboard.js` | Trigger scenarios: define, pin, compare, verdict |
+| new | `dashboard.html`, `dashboard.js`, `supabase/functions/scenario-ai/` | Trigger scenarios: define, pin, compare, verdict — and the tuning loop (draft, sliders, feedback, versions, spec export) |
 
 The dashboard composes through the same seams: `FieldMap.mount` draws the
 scenario pins (status as `color`/`icon`), `Geo.simulate` centres the
@@ -274,12 +329,12 @@ The composition happens entirely through the kits' public seams:
 | `index.html` | Phone shell: map, HUD, card, Otto screen (pins come from the dashboard) |
 | `app.js` | Destinations, messages, the card, Otto wiring |
 | `dashboard.html` | Desktop shell: scenario list, map, form / address / import sheets |
-| `dashboard.js` | Trigger scenarios: CRUD, Excel paste-import, address pinning, compare + verdict |
+| `dashboard.js` | Trigger scenarios: CRUD, describe→draft, tunable-value sliders, voice feedback → proposed versions, history, spec export, Excel paste-import, address pinning, compare + verdict |
 | `activity-rec.js` | Google-AR-style activity states from web signals; `inject()`/`feed()` seams for the real Android API |
 | `backend.js` | Merged Supabase client for both kits + this app's tables |
 | `config.js` | Keys — all optional; placeholders filled at deploy time |
 | `vercel.json`, `scripts/vercel-build.sh` | Deploy-time injection of `GMAPS_BROWSER_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY` |
 | `voice-note.js/.css` | verbatim from voice-notes-kit |
 | `geolocate.js`, `field-map.js/.css` | verbatim from field-map-kit |
-| `supabase/schema.sql` | `destinations` + `messages` + `scenarios`, RLS |
-| `supabase/functions/` | `voice-note` + `geocode`, verbatim from the kits |
+| `supabase/schema.sql` | `destinations` + `messages` + `scenarios` (incl. params / versions / feedback), RLS |
+| `supabase/functions/` | `voice-note` + `geocode` (verbatim from the kits) + `scenario-ai` (draft & revise) |

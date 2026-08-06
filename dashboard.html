@@ -466,6 +466,184 @@
   #import-text { min-height: 150px; font-family: ui-monospace, monospace; font-size: 12px; resize: vertical; }
   #import-preview { font-size: 12.5px; color: #94a1b2; min-height: 1.2em; white-space: pre-wrap; }
   .link-btn { background: none; border: none; padding: 0; color: #7fd6ea; font-size: 12px; cursor: pointer; text-decoration: underline; }
+
+  /* ---------- describe → draft ---------- */
+  .describe {
+    padding: 11px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(124,140,255,.35);
+    background: rgba(124,140,255,.06);
+  }
+  .describe label {
+    display: block;
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: .11em;
+    color: #aab6ff;
+    margin-bottom: 5px;
+  }
+  .describe textarea { min-height: 58px; resize: vertical; }
+  .describe-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+  .describe-hint { font-size: 11.5px; color: #94a1b2; flex: 1; min-width: 180px; }
+
+  /* param editor rows in the form */
+  .pe-sub { text-transform: none; letter-spacing: 0; color: #6d7a8c; }
+  .pe-row {
+    display: grid;
+    grid-template-columns: 1.2fr .9fr 64px 64px 64px 52px 26px;
+    gap: 6px;
+    margin-bottom: 6px;
+    align-items: center;
+  }
+  .pe-row input { padding: 7px 8px; font-size: 12px; }
+  .pe-mono { font-family: ui-monospace, monospace; }
+  .pe-del {
+    width: 26px; height: 30px;
+    border: none;
+    background: none;
+    color: #8b97a8;
+    font-size: 15px;
+    cursor: pointer;
+  }
+  .pe-del:hover { color: #ff9b9b; }
+
+  /* ---------- tunable-value sliders on the card ---------- */
+  .tune-block {
+    margin-top: 13px;
+    padding: 12px 14px;
+    border-radius: 13px;
+    border: 1px solid rgba(124,140,255,.3);
+    background: rgba(124,140,255,.05);
+  }
+  .tune-block .addr-tag { color: #aab6ff; }
+  .tune-row {
+    display: grid;
+    grid-template-columns: minmax(110px, 1fr) minmax(120px, 2fr) 86px;
+    align-items: center;
+    gap: 10px;
+    margin-top: 7px;
+  }
+  .tune-label { font-size: 12px; color: #aeb9c8; }
+  .tune-row input[type=range] { width: 100%; accent-color: #7c8cff; cursor: pointer; }
+  .tune-val {
+    font-family: ui-monospace, monospace;
+    font-size: 11.5px;
+    color: #dbe2ff;
+    text-align: right;
+    white-space: nowrap;
+  }
+  .tune-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 11px; }
+  .tune-foot[hidden] { display: none; }
+  .tune-diff { font-size: 11.5px; color: #ffd95e; flex: 1; min-width: 150px; }
+  .tune-note { margin: 9px 0 0; font-size: 11px; color: #6d7a8c; }
+
+  /* version chip in the header row */
+  .ver {
+    flex: none;
+    padding: 4px 8px;
+    border-radius: 8px;
+    border: 1px solid rgba(124,140,255,.35);
+    background: rgba(124,140,255,.08);
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    color: #aab6ff;
+  }
+
+  /* ---------- feedback → new version ---------- */
+  .fb-block {
+    margin-top: 13px;
+    padding: 12px 14px;
+    border-radius: 13px;
+    border: 1px solid rgba(70,211,154,.25);
+    background: rgba(70,211,154,.04);
+  }
+  .fb-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .fb-head .addr-tag { margin-bottom: 0; color: #7ce0b8; }
+  .fb-actions { display: flex; gap: 7px; flex-wrap: wrap; }
+  .fb-rec { margin-top: 10px; }
+  .fb-rec textarea { min-height: 64px; resize: vertical; }
+  .fb-rec-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .fb-hint { font-size: 11.5px; color: #94a1b2; flex: 1; min-width: 140px; }
+  .rec-on { border-color: rgba(255,107,107,.65) !important; color: #ff9b9b !important; animation: fb-pulse 1.2s infinite; }
+  @keyframes fb-pulse { 50% { background: rgba(255,107,107,.14); } }
+  .fb-busy { margin: 10px 0 0; font-size: 12.5px; color: #aab6ff; }
+  .fb-item {
+    margin-top: 9px;
+    padding: 9px 11px;
+    border-radius: 11px;
+    background: rgba(140,165,200,.06);
+    border: 1px solid rgba(140,165,200,.13);
+  }
+  .fb-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .fb-chip {
+    padding: 3px 8px;
+    border-radius: 999px;
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: .09em;
+    color: #ffd95e;
+    border: 1px solid rgba(255,217,94,.4);
+    background: rgba(255,217,94,.07);
+  }
+  .fb-chip.ok { color: #7ce0b8; border-color: rgba(70,211,154,.45); background: rgba(70,211,154,.09); }
+  .fb-chip.plain { color: #8b97a8; border-color: rgba(140,165,200,.28); background: transparent; }
+  .fb-chip.accent { color: #aab6ff; border-color: rgba(124,140,255,.5); background: rgba(124,140,255,.09); }
+  .fb-text { margin: 6px 0 0; font-size: 12.5px; color: #d7dfe9; }
+
+  /* proposed new version */
+  .prop {
+    margin-top: 10px;
+    padding: 11px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(124,140,255,.4);
+    background: rgba(124,140,255,.07);
+  }
+  .prop-field { margin-top: 9px; }
+  .prop-old-text {
+    font-size: 12px;
+    color: #8b97a8;
+    white-space: pre-wrap;
+    padding: 6px 9px;
+    border-radius: 8px;
+    background: rgba(140,165,200,.05);
+    margin-bottom: 5px;
+  }
+  .prop textarea, .prop input[type=text], .prop input[type=number] {
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 9px;
+    border: 1px solid rgba(124,140,255,.4);
+    background: rgba(7,13,22,.7);
+    color: #eef2f7;
+    font-size: 12.5px;
+    font-family: inherit;
+    outline: none;
+  }
+  .prop textarea { min-height: 48px; resize: vertical; }
+  .prop-params { margin-top: 9px; }
+  .prop-param {
+    display: grid;
+    grid-template-columns: minmax(100px, 1fr) 60px 20px 90px 44px;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  .prop-old { font-family: ui-monospace, monospace; font-size: 11.5px; color: #8b97a8; text-align: right; text-decoration: line-through; }
+  .prop-arrow { color: #aab6ff; text-align: center; }
+  .prop .cmp-k { display: block; margin-top: 8px; }
+
+  /* version history */
+  .ver-list { margin-top: 11px; }
+  .ver-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 6px 0;
+    border-top: 1px solid rgba(140,165,200,.1);
+    font-size: 12px;
+  }
+  .ver-item:first-of-type { border-top: none; }
+  .ver-note { flex: 1; min-width: 0; color: #aeb9c8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -478,6 +656,7 @@
   <div class="top-actions">
     <span class="chip plain" id="backend" title="Map backend">GRID</span>
     <button class="chip" id="refresh" type="button" title="Reload scenarios and debriefs">↻ REFRESH</button>
+    <button class="chip" id="spec-all" type="button" title="Download every scenario as a JSON spec — tuned values, versions, feedback, test results">⇩ SPECS</button>
     <button class="chip" id="import-open" type="button">⎘ PASTE FROM EXCEL</button>
     <button class="chip primary" id="new-open" type="button">+ NEW SCENARIO</button>
     <a class="chip plain" href="index.html" target="_blank" rel="noopener">PHONE APP ↗</a>
@@ -500,7 +679,15 @@
 <div class="overlay" id="form-sheet" hidden>
   <div class="panel">
     <h2 id="form-title">New trigger scenario</h2>
-    <span class="sub">Same columns as the "Otto triggers" sheet. Only the scenario name is required.</span>
+    <span class="sub">Describe the scenario in your own words and let the draft fill the sheet columns — or fill them by hand. Only the scenario name is required.</span>
+    <div class="describe">
+      <label for="f-desc">Describe it — your words</label>
+      <textarea id="f-desc" placeholder="e.g. driver reaches the destination but can't find the entrance — parks, wanders around the building, finally finds the side door"></textarea>
+      <div class="describe-foot">
+        <button class="sheet-btn" id="f-draft" type="button">✨ Draft the fields from this</button>
+        <span class="describe-hint">Fills every column below, tunable numbers extracted as sliders. Edit anything before saving.</span>
+      </div>
+    </div>
     <div class="frm">
       <div><label for="f-num">#</label><input id="f-num" type="number" min="1" step="1"></div>
       <div><label for="f-title">Trigger scenario</label><input id="f-title" type="text" placeholder="Parking loops — driver circles the block looking for parking"></div>
@@ -511,6 +698,11 @@
       <div class="full"><label for="f-says">Otto says</label><textarea id="f-says" placeholder="“Is it hard to park here at this time? Where did you find a spot?”"></textarea></div>
       <div class="full"><label for="f-learns">What Otto learns (tip type)</label><input id="f-learns" type="text" placeholder="Parking / loading-zone tip"></div>
       <div class="full"><label for="f-steps">How to test it</label><textarea id="f-steps"></textarea></div>
+      <div class="full">
+        <label>Tunable values <span class="pe-sub">— referenced as {key} in the rule; sliders on the card; the phone's detector reads matching keys</span></label>
+        <div id="f-params"></div>
+        <button class="link-btn" id="f-param-add" type="button">+ add a tunable value</button>
+      </div>
     </div>
     <div class="form-hint" id="form-hint"></div>
     <div class="panel-foot">

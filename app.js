@@ -44,12 +44,27 @@ const scenarioOf = d => (d && scenarioByDest[d.id]) || null;
 const stripQuotes = s => String(s || '').trim().replace(/^[“”"']+/, '').replace(/[“”"']+$/, '');
 const scenarioShort = sc => String(sc.title || '').split(/\s+—\s+|\s+-\s+/)[0].trim();
 
+/* A scenario rule can carry its tunable numbers as {key} placeholders;
+ * the dashboard's sliders edit them (sc.params). Resolve them for
+ * display here — and feed the same numbers into the trigger detector
+ * (trigOf below), so a slider moved on the dashboard retunes the very
+ * next test run on this phone. */
+const fmtParamVal = v => String(Math.abs(+v) >= 100 ? Math.round(+v) : Math.round(+v * 100) / 100);
+const fillParams = (text, params) =>
+  String(text == null ? '' : text).replace(/\{([a-z][a-z0-9_]*)\}/gi, (m, k) => {
+    const p = Array.isArray(params) ? params.find(x => x && x.key === k) : null;
+    return p && isFinite(+p.value) ? fmtParamVal(p.value) : m;
+  });
+
 /* ---------- test tracking: activity recognition + the trigger ----------
  * "Start test tracking" on a scenario card arms ActivityRec (states in
  * Google AR vocabulary — see activity-rec.js for what feeds them) and a
  * detector for the deck's sample rule: slow passes near the pin without
  * stopping, then the stop, then back in the vehicle -> Otto speaks up.
- * The numbers mirror the sheet ("radius and count are drafts to tune"). */
+ * The numbers mirror the sheet ("radius and count are drafts to tune")
+ * — and tune them the dashboard does: a scenario's params override any
+ * of these per test run (trigOf below), so the sliders there are live
+ * detector knobs here. */
 const TRIG = {
   radius: 150,        // m — a pass is being inside this circle around the pin
   exitRadius: 190,    // m — hysteresis: the pass counts once you are back out
@@ -61,7 +76,30 @@ const TRIG = {
   stopRadius: 250,    // m — where that stop may happen
   resumeSpeed: 3,     // m/s — moving again afterwards = back in the car -> fire
 };
-let tracking = null;  // { sc, d, startedAt, passes, ... } while a test runs
+/* dashboard param key -> [TRIG field, factor] (dashboard stores seconds,
+ * the detector runs on milliseconds) */
+const TRIG_PARAM_KEYS = {
+  radius: ['radius', 1],
+  exit_radius: ['exitRadius', 1],
+  pass_speed_max: ['passSpeedMax', 1],
+  pass_still_max_s: ['passStillMax', 1000],
+  passes_needed: ['passesNeeded', 1],
+  stop_speed: ['stopSpeed', 1],
+  stop_dwell_s: ['stopDwellMs', 1000],
+  stop_radius: ['stopRadius', 1],
+  resume_speed: ['resumeSpeed', 1],
+};
+function trigOf(sc) {
+  const t = { ...TRIG };
+  (sc && Array.isArray(sc.params) ? sc.params : []).forEach(p => {
+    const spec = p && TRIG_PARAM_KEYS[p.key];
+    const v = p && parseFloat(p.value);
+    if (spec && isFinite(v)) t[spec[0]] = p.key === 'passes_needed' ? Math.max(0, Math.round(v)) : v * spec[1];
+  });
+  if (t.exitRadius <= t.radius) t.exitRadius = Math.round(t.radius * 1.25); // hysteresis must stay outside the pass circle
+  return t;
+}
+let tracking = null;  // { sc, d, trig, startedAt, passes, ... } while a test runs
 let wakeLock = null;
 
 async function acquireWakeLock() {
@@ -75,7 +113,7 @@ function startTracking(sc, d) {
   ActivityRec.requestMotionPermission(); // needs the tap gesture on iOS
   ActivityRec.start();
   tracking = {
-    sc, d, startedAt: Date.now(),
+    sc, d, trig: trigOf(sc), startedAt: Date.now(),
     passes: 0, inside: false, insideMaxStill: 0, insideSpeedSum: 0, insideN: 0,
     stillStart: null, stopped: false, resumeN: 0, fired: false, firedAt: null,
   };
@@ -95,16 +133,17 @@ function stopTracking() {
 
 function detectorStep(snap) {
   const tr = tracking;
+  const cfg = tr.trig; // the scenario's tuned values (TRIG defaults otherwise)
   const t = snap.t || Date.now();
   const sp = snap.speed;
   const dist = distM(snap.position, tr.d);
 
   /* the stop: standing near the pin long enough, after the loops */
-  if (sp <= TRIG.stopSpeed && dist <= TRIG.stopRadius) {
+  if (sp <= cfg.stopSpeed && dist <= cfg.stopRadius) {
     if (!tr.stillStart) tr.stillStart = t;
     const dwell = t - tr.stillStart;
     if (tr.inside) tr.insideMaxStill = Math.max(tr.insideMaxStill, dwell);
-    if (!tr.stopped && tr.passes >= TRIG.passesNeeded && dwell >= TRIG.stopDwellMs) {
+    if (!tr.stopped && tr.passes >= cfg.passesNeeded && dwell >= cfg.stopDwellMs) {
       tr.stopped = true;
       updateCardTrack();
     }
@@ -112,18 +151,18 @@ function detectorStep(snap) {
     tr.stillStart = null;
   }
 
-  /* pass episodes: in through the 150 m circle and out again, slow, no stop */
-  if (!tr.inside && dist <= TRIG.radius) {
+  /* pass episodes: in through the pass circle and out again, slow, no stop */
+  if (!tr.inside && dist <= cfg.radius) {
     tr.inside = true;
     tr.insideMaxStill = 0;
     tr.insideSpeedSum = 0;
     tr.insideN = 0;
   }
   if (tr.inside) { tr.insideSpeedSum += sp; tr.insideN++; }
-  if (tr.inside && dist >= TRIG.exitRadius) {
+  if (tr.inside && dist >= cfg.exitRadius) {
     tr.inside = false;
     const mean = tr.insideN ? tr.insideSpeedSum / tr.insideN : 0;
-    if (mean > 0.3 && mean <= TRIG.passSpeedMax && tr.insideMaxStill < TRIG.passStillMax) {
+    if (mean > 0.3 && mean <= cfg.passSpeedMax && tr.insideMaxStill < cfg.passStillMax) {
       tr.passes++;
       updateCardTrack();
     }
@@ -131,7 +170,7 @@ function detectorStep(snap) {
 
   /* back in the car after the stop — the deck's timing to talk */
   if (tr.stopped && !tr.fired) {
-    if (sp >= TRIG.resumeSpeed) { if (++tr.resumeN >= 2) fireTrigger(t); }
+    if (sp >= cfg.resumeSpeed) { if (++tr.resumeN >= 2) fireTrigger(t); }
     else tr.resumeN = 0;
   }
 }
@@ -172,7 +211,7 @@ function updateCardTrack() {
   const bits = [`${tr.passes} SLOW PASS${tr.passes === 1 ? '' : 'ES'}`];
   if (tr.fired) bits.push('TRIGGER FIRED');
   else if (tr.stopped) bits.push('STOP SEEN — DRIVE ON TO FIRE');
-  else if (tr.passes >= TRIG.passesNeeded) bits.push('WAITING FOR YOUR STOP');
+  else if (tr.passes >= tr.trig.passesNeeded) bits.push('WAITING FOR YOUR STOP');
   line.textContent = 'TRACKING · ' + bits.join(' · ');
 }
 
@@ -236,9 +275,23 @@ function arExtras() {
       ...(tracking && (tracking.passes || tracking.fired) ? {
         trigger: {
           scenario_id: tracking.sc.id,
+          /* which definition and which knob values this run actually used —
+           * the dashboard's version/feedback loop compares against these */
+          scenario_version: tracking.sc.version || 1,
           passes: tracking.passes,
           stopped: !!tracking.stopped,
           fired_at: tracking.firedAt ? new Date(tracking.firedAt).toISOString() : null,
+          tuning: {
+            radius: tracking.trig.radius,
+            exit_radius: tracking.trig.exitRadius,
+            pass_speed_max: tracking.trig.passSpeedMax,
+            pass_still_max_s: tracking.trig.passStillMax / 1000,
+            passes_needed: tracking.trig.passesNeeded,
+            stop_speed: tracking.trig.stopSpeed,
+            stop_dwell_s: tracking.trig.stopDwellMs / 1000,
+            stop_radius: tracking.trig.stopRadius,
+            resume_speed: tracking.trig.resumeSpeed,
+          },
         },
       } : {}),
     },
@@ -402,9 +455,11 @@ function openCard(d) {
   const sc = scenarioOf(d);
   el('card-scenario').hidden = !sc;
   if (sc) {
-    el('card-sc-name').textContent = (sc.num != null ? '#' + sc.num + ' · ' : '') + sc.title;
-    el('card-sc-steps').textContent = sc.test_steps || sc.rule || '';
-    el('card-sc-steps').hidden = !(sc.test_steps || sc.rule);
+    el('card-sc-name').textContent = (sc.num != null ? '#' + sc.num + ' · ' : '') + sc.title
+      + ((sc.version || 1) > 1 ? ' · v' + sc.version : '');
+    const steps = fillParams(sc.test_steps || sc.rule || '', sc.params);
+    el('card-sc-steps').textContent = steps;
+    el('card-sc-steps').hidden = !steps;
     updateCardTrack();
   }
   el('card-remove').hidden = !!sc;
