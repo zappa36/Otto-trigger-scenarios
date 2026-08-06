@@ -640,6 +640,34 @@ const renderBuild = () => {
 window.__setWrapperVersion = v => { window.WRAPPER_VERSION = String(v); renderBuild(); };
 renderBuild();
 
+/* Tap the version chip → mic self-test. The voice widget degrades to
+ * its scripted demo silently when any link in the recording chain is
+ * missing; in the field that reads as "Otto recorded me" when nothing
+ * was recorded. This names the broken link on the device itself. */
+el('build').onclick = async () => {
+  const out = [];
+  out.push('backend: ' + (Backend.enabled ? 'ON' : 'OFF — demo mode'));
+  out.push('secure context: ' + (window.isSecureContext ? 'yes' : 'NO'));
+  out.push('wrapper TTS: ' + (window.OttoTTS ? 'yes' : 'no (browser)'));
+  const md = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  out.push('mediaDevices.getUserMedia: ' + (md ? 'yes' : 'MISSING'));
+  out.push('MediaRecorder: ' + (typeof MediaRecorder !== 'undefined' ? 'yes' : 'MISSING'));
+  if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported) {
+    out.push('- audio/webm: ' + (MediaRecorder.isTypeSupported('audio/webm') ? 'yes' : 'no'));
+    out.push('- audio/mp4: ' + (MediaRecorder.isTypeSupported('audio/mp4') ? 'yes' : 'no'));
+  }
+  if (md) {
+    try {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+      s.getTracks().forEach(t => t.stop());
+      out.push('mic open/close: OK');
+    } catch (e) {
+      out.push('mic open FAILED: ' + (e.name || '') + ' ' + (e.message || ''));
+    }
+  }
+  alert('MIC SELF-TEST\n\n' + out.join('\n'));
+};
+
 /* ---------- boot ---------- */
 el('gps').onclick = () => Geo.locate();
 el('zoom-in').onclick = () => { const g = map.map; if (g) g.setZoom(Math.min(20, (g.getZoom() || 17) + 1)); };
