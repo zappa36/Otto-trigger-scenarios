@@ -197,8 +197,10 @@ keeps a seam open for the real one:
 - **The sample trigger actually runs.** While tracking, the phone
   detects the deck's scenario #1 for real: 2 slow passes inside ~150 m
   of the pin without stopping, then the stop, then moving again → the
-  **OTTO TRIGGER FIRED** banner pops (with a buzz), tap it and Otto asks
-  the scenario's question. The thresholds sit in one `TRIG` block at the
+  phone buzzes and **Otto opens by himself**, asks the scenario's
+  question out loud (browser speech synthesis, keyless) and starts
+  listening the moment he finishes — the tester's only tap is the one
+  that ends their answer. The thresholds sit in one `TRIG` block at the
   top of `app.js` — the deck calls them drafts to tune, and tuned they
   are: a scenario's params (the dashboard's sliders) override any of
   them per test run, `TRIG` is only the fallback. The card shows live
