@@ -199,8 +199,9 @@ keeps a seam open for the real one:
   of the pin without stopping, then the stop, then moving again → the
   phone buzzes and **Otto opens by himself**, asks the scenario's
   question out loud (browser speech synthesis, keyless) and starts
-  listening the moment he finishes — the tester's only tap is the one
-  that ends their answer. The thresholds sit in one `TRIG` block at the
+  listening the moment he finishes; the answer sends itself after a
+  clear pause (say "stop" and fall quiet, or just pause) and Otto
+  speaks his reply too — a fully hands-free debrief. The thresholds sit in one `TRIG` block at the
   top of `app.js` — the deck calls them drafts to tune, and tuned they
   are: a scenario's params (the dashboard's sliders) override any of
   them per test run, `TRIG` is only the fallback. The card shows live
@@ -289,12 +290,16 @@ never carries them.
 
 ## How it composes
 
-The two extracted kits are used **verbatim** — byte-identical copies,
-which is the point of having extracted them:
+The two extracted kits arrived as byte-identical copies. `field-map-kit`
+still is one; `voice-notes-kit` has since grown one field-driven
+extension here: **hands-free stop** — the recording watches its own
+level and a clear pause after speech sends the clip (say "stop" and
+fall quiet, or just pause; the function strips the trailing control
+word). Everything else is the kit as extracted:
 
 | From | Files | Provides |
 |---|---|---|
-| `voice-notes-kit` | `voice-note.js`, `voice-note.css`, `supabase/functions/voice-note/` | The Otto debrief |
+| `voice-notes-kit` | `voice-note.js`, `voice-note.css`, `supabase/functions/voice-note/` | The Otto debrief (+ hands-free stop, added here) |
 | `field-map-kit` | `geolocate.js`, `field-map.js`, `field-map.css`, `supabase/functions/geocode/` | Position + live map |
 | new | `app.js`, `index.html`, `backend.js`, `config.js`, `supabase/schema.sql` | Destinations, the card, the wiring |
 | new | `dashboard.html`, `dashboard.js`, `supabase/functions/scenario-ai/` | Trigger scenarios: define, pin, compare, verdict — and the tuning loop (draft, sliders, feedback, versions, spec export) |
@@ -347,7 +352,7 @@ The composition happens entirely through the kits' public seams:
 | `backend.js` | Merged Supabase client for both kits + this app's tables |
 | `config.js` | Keys — all optional; placeholders filled at deploy time |
 | `vercel.json`, `scripts/vercel-build.sh` | Deploy-time injection of `GMAPS_BROWSER_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY` |
-| `voice-note.js/.css` | verbatim from voice-notes-kit |
+| `voice-note.js/.css` | from voice-notes-kit + hands-free pause-to-send |
 | `geolocate.js`, `field-map.js/.css` | verbatim from field-map-kit |
 | `supabase/schema.sql` | `destinations` + `messages` + `scenarios` (incl. params / versions / feedback), RLS |
-| `supabase/functions/` | `voice-note` + `geocode` (verbatim from the kits) + `scenario-ai` (draft & revise) |
+| `supabase/functions/` | `voice-note` (kit + trailing-"stop" strip) + `geocode` (verbatim) + `scenario-ai` (draft & revise) |
