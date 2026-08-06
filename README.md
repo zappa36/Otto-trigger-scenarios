@@ -91,11 +91,16 @@ dashboard runs that loop end to end:
    words and hit **✨ Draft the fields** — every sheet column is filled
    in, and every number in the rule is extracted as a **tunable value**
    (`{radius}`-style placeholder + value/min/max/unit). With the
-   `scenario-ai` Edge Function deployed that is a real AI draft; without
-   it, a built-in archetype template (parking loops, entrance hunt, long
-   wait, blocked route, generic dwell) — labelled as a demo draft, like
-   everything scripted in this kit. Either way the draft lands in the
-   form to be edited before saving.
+   `scenario-ai` Edge Function deployed that is a real AI draft — hard
+   grounding rules keep it about exactly what was described, and a
+   too-short description gets called out rather than guessed around;
+   without the function, a built-in archetype template (parking loops,
+   entrance hunt, long wait, blocked route, generic dwell) — labelled as
+   a demo draft, like everything scripted in this kit. Either way the
+   draft lands in the form to be edited before saving. The **test
+   address is set right in the form** (search or paste coordinates; an
+   address mentioned in the description comes back as a search to
+   confirm) — the separate picker only pops up if it was skipped.
 2. **Tune with sliders.** An expanded scenario shows its tunable values
    as sliders; the rule text follows the drag live. Params whose keys
    match the detector's (`radius`, `passes_needed`, `stop_dwell_s`, …)

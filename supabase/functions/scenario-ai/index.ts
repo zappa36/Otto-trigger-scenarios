@@ -38,24 +38,57 @@ const DETECTOR_KEYS =
 const PARAM_SHAPE = '{"key":string,"label":string,"value":number,"min":number,"max":number,"step":number,"unit":string}';
 const FIELDS = 'title, rule, ar_states, signals, timing, otto_says, learns, test_steps';
 
+// One worked example anchors both the JSON shape and — more importantly —
+// the fidelity: the output is about exactly what the designer described.
+const DRAFT_EXAMPLE =
+  'Example. Description: "walking past the destination without finding the entrance — wandering ' +
+  'around the building until the side door turns up" → ' +
+  '{"fields":{"title":"Entrance hunt — walks past the destination without finding the entrance",' +
+  '"rule":"Tester is ON_FOOT within {search_radius} m of the pin for more than {foot_search_s} s ' +
+  'without stopping anywhere longer than {stop_dwell_s} s — they are circling the building hunting ' +
+  'for the way in.",' +
+  '"ar_states":"ON_FOOT (searching) → STILL at the real entrance",' +
+  '"signals":"GPS trace on foot vs pin; time on foot near the pin",' +
+  '"timing":"Wait — ask once they have stopped at the entrance they found",' +
+  '"otto_says":"\\"Was the entrance easy to find? Where is it, exactly?\\"",' +
+  '"learns":"ENTRANCE — where the real way in is",' +
+  '"test_steps":"Walk past the pin on the wrong side, circle the building for ~2 minutes, stop at ' +
+  'the real door, then answer Otto."},' +
+  '"params":[' +
+  '{"key":"search_radius","label":"Search radius","value":80,"min":20,"max":200,"step":5,"unit":"m"},' +
+  '{"key":"foot_search_s","label":"On-foot search time","value":90,"min":20,"max":300,"step":10,"unit":"s"},' +
+  '{"key":"stop_dwell_s","label":"Real-stop threshold","value":30,"min":10,"max":120,"step":5,"unit":"s"}]}';
+
 const DRAFT_SYSTEM =
   'You design field-testable trigger scenarios for Otto, a voice assistant that talks to delivery ' +
   'drivers at exactly the right moment and learns local tips from their answers. A test designer ' +
   'describes a scenario in plain words; you fill one row of the "Otto triggers" sheet. ' +
   'Return ONLY JSON: {"fields":{"title":string,"rule":string,"ar_states":string,"signals":string,' +
-  '"timing":string,"otto_says":string,"learns":string,"test_steps":string},"params":[' + PARAM_SHAPE + ']}. ' +
+  '"timing":string,"otto_says":string,"learns":string,"test_steps":string,"address":string?},' +
+  '"params":[' + PARAM_SHAPE + ']}. ' +
+  'THE CARDINAL RULE — ground every field in the description. The scenario is exactly what the ' +
+  'designer described, never a substituted more-common one: "walk by the address" is about walking ' +
+  'past on foot, not about parking. Reuse their key words in the title, make otto_says ask about ' +
+  'the situation THEY described, and if the description is short, stay literal and minimal rather ' +
+  'than inventing detail. ' +
   'Conventions: ' +
-  'title: "Short name — one-line situation", keeping the designer\'s wording where possible. ' +
-  'rule: a testable trigger rule; write EVERY tunable number as a {key} placeholder, never a literal. ' +
+  'title: "Short name — one-line situation", in the designer\'s words. ' +
+  'rule: one or two plain-language sentences a tester with a phone can verify in the field — never ' +
+  'code, never boolean expressions like "x == y". Write EVERY tunable number as a {key} ' +
+  'placeholder, never a literal. ' +
   'params: 2–6 entries, one per placeholder, each with a realistic field-tuning range (min/max/step) ' +
-  'around the value. Prefer these canonical keys when they fit — the phone\'s live detector reads ' +
-  'them directly: ' + DETECTOR_KEYS + '. Otherwise invent snake_case keys. Units: m, s, m/s, ×. ' +
+  'around the value. Prefer these canonical keys when they genuinely fit the described movement — ' +
+  'the phone\'s live detector reads them directly: ' + DETECTOR_KEYS + '. Otherwise invent ' +
+  'snake_case keys. Units: m, s, m/s, ×. ' +
   'ar_states: only IN_VEHICLE, ON_FOOT, WALKING, RUNNING, ON_BICYCLE, STILL, with → for transitions. ' +
   'timing: when Otto may speak — never mid-task, drivers\' hands are full. ' +
-  'otto_says: ONE short spoken question, in double quotes. ' +
+  'otto_says: ONE short spoken question, in double quotes, about the described situation. ' +
   `learns: must contain exactly one category word of ${CATEGORIES.join(', ')} plus a short phrase, ` +
   'e.g. "ENTRANCE — where the real way in is". ' +
-  'test_steps: concrete steps one tester with one phone can act out safely and legally.';
+  'test_steps: concrete numbered steps one tester with one phone can act out safely and legally. ' +
+  'address: ONLY if the description contains a concrete street address or named place, copy it ' +
+  'verbatim; otherwise omit the key entirely. ' +
+  DRAFT_EXAMPLE;
 
 const REVISE_SYSTEM =
   'You tune field-test trigger scenarios for Otto, a voice assistant for delivery drivers. You get ' +
@@ -122,7 +155,10 @@ Deno.serve(async (req) => {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        // full 4o, not mini: drafting a faithful scenario from two vague
+        // sentences is an instruction-following task mini gets wrong
+        // (it drifts to the most common scenario instead of the described one)
+        model: 'gpt-4o',
         response_format: { type: 'json_object' },
         max_tokens: 900,
         messages: [
