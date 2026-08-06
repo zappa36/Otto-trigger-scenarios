@@ -30,3 +30,12 @@ sub() { # sub ENV_NAME PLACEHOLDER
 sub GMAPS_BROWSER_KEY __GMAPS_KEY__
 sub SUPABASE_URL __SUPABASE_URL__
 sub SUPABASE_ANON_KEY __SUPABASE_ANON_KEY__
+
+# deploy stamp: UTC date.time plus the commit, e.g. 250806.1432-c05ebe0
+b="$(date -u +'%y%m%d.%H%M')"
+s="$(printf %s "${VERCEL_GIT_COMMIT_SHA:-}" | cut -c1-7)"
+[ -n "$s" ] && b="$b-$s"
+if grep -q __BUILD__ config.js; then
+  sed -i "s|__BUILD__|$b|" config.js
+  echo "build stamp: $b"
+fi

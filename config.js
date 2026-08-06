@@ -48,3 +48,8 @@ window.VOICE_TABLE = 'messages';
 window.GMAPS_KEY = '__GMAPS_KEY__';
 if (String(window.GMAPS_KEY).slice(0, 2) === '__') window.GMAPS_KEY = ''; /* placeholder -> keyless */
 window.GMAPS_KEY = new URLSearchParams(location.search).get('gkey') || window.GMAPS_KEY;
+
+/* Deploy stamp (UTC date.time-commit), shown in both UIs so a tester can
+ * tell at a glance which build they are on. Locally: 'dev'. */
+window.BUILD = '__BUILD__';
+if (String(window.BUILD).slice(0, 2) === '__') window.BUILD = 'dev';
