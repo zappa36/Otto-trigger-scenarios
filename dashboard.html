@@ -489,6 +489,16 @@
   .describe-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
   .describe-hint { font-size: 11.5px; color: #94a1b2; flex: 1; min-width: 180px; }
 
+  /* in-form address pick */
+  .f-addr-current {
+    margin-bottom: 6px;
+    font-size: 12.5px;
+    color: #7ce0b8;
+  }
+  .f-addr-current button { margin-left: 8px; }
+  #f-addr-results { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; max-height: 180px; overflow: auto; }
+  #f-addr-results:empty { display: none; }
+
   /* param editor rows in the form */
   .pe-sub { text-transform: none; letter-spacing: 0; color: #6d7a8c; }
   .pe-row {
@@ -694,6 +704,12 @@
     <div class="frm">
       <div><label for="f-num">#</label><input id="f-num" type="number" min="1" step="1"></div>
       <div><label for="f-title">Trigger scenario</label><input id="f-title" type="text" placeholder="Parking loops — driver circles the block looking for parking"></div>
+      <div class="full">
+        <label for="f-addr-input">Test address — where it is acted out</label>
+        <div class="f-addr-current" id="f-addr-current" hidden></div>
+        <input id="f-addr-input" type="text" autocomplete="off" placeholder="Search an address, or paste coordinates “52.5346, 13.4109”">
+        <div id="f-addr-results"></div>
+      </div>
       <div class="full"><label for="f-rule">Trigger rule (testable)</label><textarea id="f-rule"></textarea></div>
       <div class="full"><label for="f-ar">Activity Recognition states</label><textarea id="f-ar"></textarea></div>
       <div class="full"><label for="f-signals">Other signals needed</label><textarea id="f-signals"></textarea></div>

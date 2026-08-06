@@ -618,6 +618,50 @@ async function setVerdict(sc, v) {
 let editing = null;    // scenario being edited, or null for a new one
 let formParams = [];   // param editor rows while the form is open
 
+/* The test address lives right in the form — same search cascade as the
+ * address sheet (coordinates fast-path, then searchAddress). Nothing is
+ * pinned until the scenario is saved. */
+let formAddr = null;   // { label, lat, lng, pin, dirty } — dirty = picked in this form session
+let formAddrTimer = null;
+let formAddrSeq = 0;
+
+function setFormAddr(c, dirty) {
+  formAddr = c ? { label: c.label, lat: c.lat, lng: c.lng, pin: !!c.pin, dirty: !!dirty } : null;
+  const cur = el('f-addr-current');
+  cur.hidden = !formAddr;
+  cur.textContent = formAddr ? '📍 ' + formAddr.label : '';
+  el('f-addr-results').innerHTML = '';
+  if (formAddr) el('f-addr-input').value = '';
+}
+
+function onFormAddrInput(q) {
+  clearTimeout(formAddrTimer);
+  const seq = ++formAddrSeq;
+  const show = list => {
+    const box = el('f-addr-results');
+    box.innerHTML = '';
+    list.forEach(c => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'cand';
+      b.textContent = c.label;
+      b.onclick = () => setFormAddr(c, true);
+      box.appendChild(b);
+    });
+  };
+  const m = q.match(/(-?\d{1,2}\.\d+)\s*[, ]\s*(-?\d{1,3}\.\d+)/);
+  if (m) {
+    show([{ label: `Dropped pin — ${(+m[1]).toFixed(5)}, ${(+m[2]).toFixed(5)}`, lat: +m[1], lng: +m[2], pin: true }]);
+    return;
+  }
+  if (q.trim().length < 3) { show([]); return; }
+  formAddrTimer = setTimeout(async () => {
+    const found = await searchAddress(q.trim());
+    if (seq === formAddrSeq) show(found);
+  }, 350);
+}
+el('f-addr-input').addEventListener('input', e => onFormAddrInput(e.target.value));
+
 function renderFormParams() {
   el('f-params').innerHTML = formParams.map((p, i) => `
     <div class="pe-row">
@@ -649,6 +693,9 @@ function openForm(sc) {
   el('f-steps').value = sc ? sc.test_steps || '' : '';
   formParams = sc ? paramsOf(sc).map(p => ({ ...p })) : [];
   renderFormParams();
+  const d = sc && sc.destination_id ? destById(sc.destination_id) : null;
+  el('f-addr-input').value = '';
+  setFormAddr(d ? { label: d.addr || `${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}`, lat: d.lat, lng: d.lng } : null, false);
   el('form-sheet').hidden = false;
   /* new scenario: the describe-first flow starts in the describe box */
   el(sc ? 'f-title' : 'f-desc').focus();
@@ -684,9 +731,20 @@ async function runDraft() {
   put('f-steps', f.test_steps);
   formParams = (cleanParams(out && out.params) || []).map(p => ({ ...p }));
   renderFormParams();
-  el('form-hint').textContent = demo
+  /* an address mentioned in the description comes back as a search to
+   * confirm — the designer still picks the exact candidate */
+  if (typeof f.address === 'string' && f.address.trim() && !(formAddr && formAddr.dirty)) {
+    el('f-addr-input').value = f.address.trim();
+    onFormAddrInput(f.address.trim());
+  }
+  /* two words in → generic draft out; say so instead of leaving the
+   * mismatch to be discovered on the card */
+  const vague = desc.split(/\s+/).length < 6
+    ? 'Short description — the draft can only be as specific as it. Say what happens, on foot or driving, and what Otto should learn. '
+    : '';
+  el('form-hint').textContent = vague + (demo
     ? 'Demo draft from a built-in template (no AI backend). Numbers in {braces} are the tunable values below — edit anything, then save.'
-    : 'AI draft — numbers in {braces} are the tunable values below. Check every field, then save.';
+    : 'AI draft — numbers in {braces} are the tunable values below. Check every field, then save.');
 }
 
 async function submitForm() {
@@ -720,6 +778,7 @@ async function submitForm() {
     } else {
       await patchScenario(editing, extra);
     }
+    if (formAddr && formAddr.dirty) await applyAddress(editing, formAddr); // re-pinned inside the form
     render();
     map.refresh();
   } else {
@@ -730,7 +789,10 @@ async function submitForm() {
     render();
     map.refresh();
     scrollToScenario(sc.id);
-    openAddr(sc); // a scenario without an address cannot be tested — ask right away
+    /* address picked in the form pins straight away; otherwise the
+     * picker opens — a scenario without an address cannot be tested */
+    if (formAddr && formAddr.dirty) await applyAddress(sc, formAddr);
+    else openAddr(sc);
   }
 }
 
@@ -763,7 +825,7 @@ const DRAFT_TEMPLATES = [
     ],
   },
   {
-    re: /entrance|door|gate|eingang|way in|find the (entry|way)|access point/i,
+    re: /entrance|door|gate|eingang|way in|find the (entry|way)|access point|without finding|can.?t find|looking for/i,
     name: 'Entrance hunt',
     fields: {
       rule: 'Vehicle stops within {stop_radius} m of the pin, then ON_FOOT for ≥{foot_search_s} s inside ~{radius} m of the pin without the debrief starting — the tester is hunting for the way in.',
