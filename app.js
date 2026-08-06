@@ -719,3 +719,10 @@ Geo.locate();
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && !Geo.position && Geo.state !== 'locating') Geo.locate();
 });
+
+/* Activity recognition arms itself at app open — testers kept walking
+ * with it off. The chip still toggles it, so switching it off is one
+ * tap; continuous GPS is the accepted cost. (iOS motion permission
+ * still needs a tap — until then, states run on GPS speed alone.) */
+ActivityRec.start();
+updateArChip(ActivityRec.snapshot);
