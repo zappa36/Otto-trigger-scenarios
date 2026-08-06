@@ -44,12 +44,12 @@ const Backend = (() => {
    * than one that fails — the callers all have a fallback ready. (The
    * voice upload below is NOT boxed; a long clip legitimately takes a
    * while to transcribe.) */
-  async function fn(name, body) {
+  async function fn(name, body, timeoutMs) {
     const r = await fetch(`${url}/functions/v1/${name}`, {
       method: 'POST',
       headers: { apikey: key, Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(timeoutMs || 8000),
     });
     if (!r.ok) throw new Error(`${name} ${r.status}`);
     return r.json();
@@ -100,6 +100,10 @@ const Backend = (() => {
     listMessages: limit => rest(`/rest/v1/${table}?select=*&order=created_at.desc&limit=${limit || 500}`),
 
     /* ---------- trigger scenarios (dashboard.js) ---------- */
+    /* draft/revise round-trips are an LLM call each — a far longer box
+     * than the geocode lookups, but still one, so a hung function shows
+     * an error instead of a spinner that never ends */
+    scenarioAI: body => fn(window.SCENARIO_AI_FN || 'scenario-ai', body, 30000),
     listScenarios: () => rest('/rest/v1/scenarios?select=*&order=num.asc.nullslast,created_at.asc'),
     insertScenarios: rows => rest('/rest/v1/scenarios', {
       method: 'POST',

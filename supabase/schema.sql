@@ -43,17 +43,36 @@ create table if not exists public.scenarios (
   id uuid primary key default gen_random_uuid(),
   num integer,                      -- '#' column, for ordering and the pin label
   title text not null,              -- Trigger scenario
-  rule text,                        -- Trigger rule (testable)
+  rule text,                        -- Trigger rule (testable) — numbers as {key} placeholders
   ar_states text,                   -- Activity Recognition states
   signals text,                     -- Other signals needed
   timing text,                      -- Timing to talk
   otto_says text,                   -- the question Otto opens the debrief with
   learns text,                      -- What Otto learns (tip type) — the expected outcome
   test_steps text,                  -- How to test it
+  described text,                   -- the designer's own words (input of the AI draft)
+  params jsonb,                     -- tunable values: [{key,label,value,min,max,step,unit}]
+  version integer not null default 1,
+  version_note text,                -- one-line changelog of the current version
+  version_at timestamptz,
+  history jsonb,                    -- prior versions in full: [{version,note,at,fields,params}]
+  feedback jsonb,                   -- tester notes: [{id,at,version,via,text,status,applied_version}]
   destination_id uuid references public.destinations (id) on delete set null,
   verdict text check (verdict in ('pass', 'partial', 'fail')),
   created_at timestamptz not null default now()
 );
+
+-- Tuning-loop columns for databases created before them — params drive
+-- the dashboard sliders (and the phone's trigger detector); version /
+-- history / feedback carry the describe → test → feedback → new-version
+-- loop. Safe to re-run.
+alter table public.scenarios add column if not exists described text;
+alter table public.scenarios add column if not exists params jsonb;
+alter table public.scenarios add column if not exists version integer not null default 1;
+alter table public.scenarios add column if not exists version_note text;
+alter table public.scenarios add column if not exists version_at timestamptz;
+alter table public.scenarios add column if not exists history jsonb;
+alter table public.scenarios add column if not exists feedback jsonb;
 
 create index if not exists scenarios_dest_idx on public.scenarios (destination_id);
 

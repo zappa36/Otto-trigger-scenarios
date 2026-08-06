@@ -31,9 +31,26 @@ let destinations = [];
 let messagesByDest = {};
 let expandedId = null;
 
+/* in-flight UI state for the tuning loop — all per one scenario at a time */
+let tune = null;         // { id, params } — slider values not yet saved as a version
+let fbRec = null;        // { id, text, via, state } — the open feedback recorder
+let proposal = null;     // { id, changes, params, note, demo, fb_ids, none } — a proposed next version
+let proposalBusy = null; // scenario id while the revision round-trip runs
+
 const destById = id => destinations.find(d => d.id === id) || null;
 const localId = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const warn = e => console.warn('dashboard:', e && e.message ? e.message : e);
+/* A write failing against a live backend usually means the scenarios
+ * table predates the tuning-loop columns — say so where it is seen. */
+const schemaHint = e => {
+  warn(e);
+  if (Backend.enabled && /column|schema|400/i.test(String(e && e.message))) {
+    el('stats').textContent = 'Save failed — the scenarios table is missing newer columns. Re-run supabase/schema.sql, then ↻ REFRESH.';
+  }
+};
+/* Auto-refresh must not repaint over a drag, a recording, or an open
+ * proposal — those live only in the DOM until saved. */
+const uiBusy = () => !!(tune || fbRec || proposal || proposalBusy) || !el('form-sheet').hidden;
 
 const persistLocal = () => {
   if (Backend.enabled) return;
@@ -47,6 +64,104 @@ const persistLocal = () => {
  * carry the pin: everything before the dash is the short name. */
 const shortTitle = sc => String(sc.title || 'Scenario').split(/\s+—\s+|\s+-\s+/)[0].trim().slice(0, 40);
 const stripQuotes = s => String(s || '').trim().replace(/^[“”"']+/, '').replace(/[“”"']+$/, '');
+
+/* ---------- tunable values (params) ----------
+ * A rule can reference its numbers as {key} placeholders; sc.params
+ * carries the live value plus the range a slider offers:
+ *   [{ key, label, value, min, max, step, unit }]
+ * The phone's trigger detector reads params with its canonical keys
+ * (trigOf in app.js), so moving a slider here retunes the next real
+ * test run — that is the whole point of the loop. */
+const paramsOf = sc => (Array.isArray(sc.params) ? sc.params : []);
+const feedbackOf = sc => (Array.isArray(sc.feedback) ? sc.feedback : []);
+const historyOf = sc => (Array.isArray(sc.history) ? sc.history : []);
+const fmtVal = v => String(Math.abs(+v) >= 100 ? Math.round(+v) : Math.round(+v * 100) / 100);
+const fillParams = (text, params) =>
+  String(text == null ? '' : text).replace(/\{([a-z][a-z0-9_]*)\}/gi, (m, k) => {
+    const p = (params || []).find(x => x && x.key === k);
+    return p && isFinite(+p.value) ? fmtVal(p.value) : m;
+  });
+const slug = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 32);
+/* 1-2-5 slider step so ranges of any magnitude drag in sane increments */
+function niceStep(min, max) {
+  const raw = (Math.abs(max - min) || 1) / 60;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const r = raw / mag;
+  return (r >= 5 ? 5 : r >= 2 ? 2 : 1) * mag;
+}
+/* Params arrive from the AI, the form, or an imported spec — normalise
+ * hard so a bad row can never break a slider (or the phone's detector). */
+function cleanParams(list) {
+  if (!Array.isArray(list)) return null;
+  const seen = new Set();
+  const out = [];
+  list.forEach(p => {
+    if (!p) return;
+    const key = slug(p.key || p.label);
+    const value = parseFloat(p.value);
+    if (!key || seen.has(key) || !isFinite(value)) return;
+    seen.add(key);
+    let min = parseFloat(p.min);
+    let max = parseFloat(p.max);
+    if (!isFinite(min)) min = Math.min(0, value);
+    if (!isFinite(max) || max <= min) max = min + Math.max(Math.abs(value - min) * 2, 10);
+    const step = isFinite(parseFloat(p.step)) && +p.step > 0 ? +p.step : niceStep(min, max);
+    out.push({
+      key,
+      label: String(p.label || key).slice(0, 60),
+      value: Math.min(max, Math.max(min, value)),
+      min, max, step,
+      unit: String(p.unit || '').slice(0, 8),
+    });
+  });
+  return out;
+}
+/* Param keys the phone's live detector consumes (trigOf in app.js). */
+const DETECTOR_KEYS = ['radius', 'exit_radius', 'pass_speed_max', 'pass_still_max_s',
+  'passes_needed', 'stop_speed', 'stop_dwell_s', 'stop_radius', 'resume_speed'];
+
+/* ---------- versions ----------
+ * Every change to the definition — a tuned slider, an applied feedback
+ * proposal, a manual edit — cuts a new version; the old one goes to
+ * sc.history in full, so any version can be inspected or restored. The
+ * trail IS the record of how the trigger algorithm was arrived at. */
+const SNAP_FIELDS = ['title', 'rule', 'ar_states', 'signals', 'timing', 'otto_says', 'learns', 'test_steps'];
+const FIELD_LABELS = {
+  title: 'Trigger scenario', rule: 'Trigger rule', ar_states: 'AR states', signals: 'Other signals',
+  timing: 'Timing to talk', otto_says: 'Otto says', learns: 'Tip type', test_steps: 'How to test it',
+};
+function versionSnapshot(sc) {
+  const fields = {};
+  SNAP_FIELDS.forEach(k => { fields[k] = sc[k] == null ? null : sc[k]; });
+  return {
+    version: sc.version || 1,
+    note: sc.version_note || ((sc.version || 1) === 1 ? 'created' : ''),
+    at: sc.version_at || sc.created_at || null,
+    fields,
+    params: paramsOf(sc).map(p => ({ ...p })),
+  };
+}
+async function saveNewVersion(sc, patch, note) {
+  const history = historyOf(sc).concat([versionSnapshot(sc)]);
+  await patchScenario(sc, {
+    ...patch,
+    history,
+    version: (sc.version || 1) + 1,
+    version_note: String(note || '').slice(0, 200),
+    version_at: new Date().toISOString(),
+  });
+}
+/* "Pass radius 150→120 m, Stop dwell 45→30 s" — the auto-changelog. */
+function tuneDiff(saved, cur) {
+  const out = [];
+  (cur || []).forEach(p => {
+    const s = (saved || []).find(x => x.key === p.key);
+    if (s && +s.value !== +p.value) {
+      out.push(`${p.label || p.key} ${fmtVal(s.value)}→${fmtVal(p.value)}${p.unit ? ' ' + p.unit : ''}`);
+    }
+  });
+  return out.join(', ');
+}
 
 /* ---------- status model ---------- */
 function msgsOf(sc) {
@@ -204,16 +319,153 @@ function renderMessages(sc) {
         </div>
         ${m.title ? `<div class="msg-title">${esc(m.title)}</div>` : ''}
         ${m.transcript ? `<p class="msg-tr">&ldquo;${esc(m.transcript)}&rdquo;</p>` : ''}
-        ${trig ? `<span class="trig-chip">TRIGGER FIRED · ${esc(trig.passes)} PASS${trig.passes === 1 ? '' : 'ES'}${trig.stopped ? ' + STOP' : ''}</span>` : ''}
+        ${trig ? `<span class="trig-chip" title="${esc(trig.tuning ? 'Ran with: ' + Object.entries(trig.tuning).map(([k, v]) => k + '=' + v).join(', ') : '')}">TRIGGER FIRED · ${esc(trig.passes)} PASS${trig.passes === 1 ? '' : 'ES'}${trig.stopped ? ' + STOP' : ''}${trig.scenario_version ? ' · v' + esc(trig.scenario_version) : ''}</span>` : ''}
         ${m.ar_summary ? `<div class="msg-ar" title="Activity observed on the device (${esc((trace && trace.source) || 'web')} inference)">AR&nbsp;·&nbsp;${esc(m.ar_summary)}</div>` : ''}
       </div>`;
   }).join('');
+}
+
+/* Sliders drag against a working copy (tune) so nothing persists until
+ * "Save tuning" cuts the next version. */
+function renderTune(sc, params, ver) {
+  if (!params.length) return '';
+  const diff = tune && tune.id === sc.id ? tuneDiff(paramsOf(sc), tune.params) : '';
+  const drivesPhone = params.some(p => DETECTOR_KEYS.includes(p.key));
+  return `
+    <div class="tune-block">
+      <span class="addr-tag">TUNABLE VALUES — DRAG AFTER A REAL RUN, SAVE AS A NEW VERSION</span>
+      ${params.map(p => `
+        <div class="tune-row">
+          <span class="tune-label" title="{${esc(p.key)}} in the rule text">${esc(p.label || p.key)}</span>
+          <input type="range" class="tune-slider" data-key="${esc(p.key)}"
+            min="${+p.min}" max="${+p.max}" step="${+p.step || niceStep(+p.min, +p.max)}" value="${+p.value}">
+          <span class="tune-val" data-val="${esc(p.key)}">${fmtVal(p.value)}${p.unit ? '&thinsp;' + esc(p.unit) : ''}</span>
+        </div>`).join('')}
+      <div class="tune-foot"${diff ? '' : ' hidden'}>
+        <span class="tune-diff" data-diff>${esc(diff)}</span>
+        <button class="mini-btn accent" type="button" data-act="tune-save">Save tuning as v${ver + 1}</button>
+        <button class="mini-btn" type="button" data-act="tune-reset">Reset</button>
+      </div>
+      ${drivesPhone ? '<p class="tune-note">These values drive the phone’s live trigger detector on the next test run.</p>' : ''}
+    </div>`;
+}
+
+function renderRecorder() {
+  const live = Backend.enabled;
+  const sr = !live && speechAvailable();
+  const recording = fbRec.state === 'rec';
+  const busyTr = fbRec.state === 'transcribing';
+  return `
+    <div class="fb-rec">
+      <textarea data-fb-text placeholder="${live || sr
+        ? 'Talk, then polish the transcript here — or just type. What fired, what didn’t, which value felt wrong?'
+        : 'Type your test feedback — what fired, what didn’t, which value felt wrong.'}">${esc(fbRec.text || '')}</textarea>
+      <div class="fb-rec-foot">
+        ${live || sr ? `<button class="mini-btn${recording ? ' rec-on' : ''}" type="button" data-act="fb-mic"${busyTr ? ' disabled' : ''}>${recording ? '■ Stop' : '● Talk'}</button>` : ''}
+        <span class="fb-hint">${busyTr ? 'Transcribing…'
+          : recording ? (live ? 'Recording — stop to transcribe.' : 'Listening (on-device browser speech)…')
+          : sr ? 'On-device speech recognition — keyless.' : ''}</span>
+        <button class="mini-btn accent" type="button" data-act="fb-save"${busyTr ? ' disabled' : ''}>Save feedback</button>
+        <button class="mini-btn" type="button" data-act="fb-cancel">Cancel</button>
+      </div>
+    </div>`;
+}
+
+function renderProposal(sc, p) {
+  const ver = (sc.version || 1) + 1;
+  const cur = paramsOf(sc);
+  const paramRows = (p.params || []).map(np => {
+    const op = cur.find(x => x.key === np.key);
+    if (op && +op.value === +np.value) return '';
+    return `
+      <div class="prop-param">
+        <span class="tune-label">${esc(np.label || np.key)}</span>
+        <span class="prop-old">${op ? fmtVal(op.value) : '—'}</span><span class="prop-arrow">→</span>
+        <input type="number" data-pparam="${esc(np.key)}" value="${+np.value}" min="${+np.min}" max="${+np.max}" step="${+np.step || 'any'}">
+        <span class="tune-val">${esc(np.unit || '')}</span>
+      </div>`;
+  }).join('');
+  const fieldRows = Object.entries(p.changes).map(([k, v]) => `
+    <div class="prop-field">
+      <span class="cmp-k">${esc(FIELD_LABELS[k] || k)}</span>
+      <div class="prop-old-text">${esc(String(sc[k] || '—'))}</div>
+      <textarea data-pfield="${esc(k)}">${esc(v)}</textarea>
+    </div>`).join('');
+  return `
+    <div class="prop">
+      <div class="fb-meta">
+        <span class="fb-chip accent">PROPOSED v${ver} — FROM YOUR FEEDBACK</span>
+        ${p.demo ? '<span class="msg-demo" title="Built-in heuristic — deploy the scenario-ai Edge Function for a real AI revision">DEMO HEURISTIC</span>' : ''}
+      </div>
+      ${p.none ? `
+        <p class="cmp-empty">${esc(p.note)}</p>
+        <div class="fb-rec-foot"><button class="mini-btn" type="button" data-act="p-discard">Close — the feedback stays on record</button></div>`
+    : `
+        ${fieldRows}
+        ${paramRows ? `<div class="prop-params">${paramRows}</div>` : ''}
+        <label class="cmp-k">Changelog note</label>
+        <input type="text" data-pnote value="${esc(p.note)}">
+        <div class="fb-rec-foot">
+          <button class="mini-btn accent" type="button" data-act="p-apply">Apply as v${ver}</button>
+          <button class="mini-btn" type="button" data-act="p-discard">Discard</button>
+        </div>`}
+    </div>`;
+}
+
+/* Feedback in, versions out — the loop's paper trail lives on the card. */
+function renderFeedbackBlock(sc, ver) {
+  const list = feedbackOf(sc).slice().reverse();
+  const openFb = feedbackOf(sc).filter(f => f.status === 'open');
+  const hist = historyOf(sc).slice().reverse();
+  const rec = fbRec && fbRec.id === sc.id;
+  const busy = proposalBusy === sc.id;
+  const prop = proposal && proposal.id === sc.id ? proposal : null;
+  return `
+    <div class="fb-block">
+      <div class="fb-head">
+        <span class="addr-tag">TEST FEEDBACK → NEW VERSION</span>
+        <span class="fb-actions">
+          ${rec ? '' : '<button class="mini-btn accent" type="button" data-act="fb-open">🎙 Record test feedback</button>'}
+          ${openFb.length && !busy && !prop ? `<button class="mini-btn" type="button" data-act="propose">✨ Propose v${ver + 1} from ${openFb.length} note${openFb.length > 1 ? 's' : ''}</button>` : ''}
+        </span>
+      </div>
+      ${rec ? renderRecorder() : ''}
+      ${busy ? '<p class="fb-busy">✨ Reading your feedback and drafting a revision…</p>' : ''}
+      ${prop ? renderProposal(sc, prop) : ''}
+      ${list.length ? list.map(f => `
+        <div class="fb-item">
+          <div class="fb-meta">
+            <span class="fb-chip${f.status === 'applied' ? ' ok' : ''}">${f.status === 'applied' ? 'APPLIED IN v' + esc(f.applied_version || '?') : 'OPEN'}</span>
+            <span class="fb-chip plain">ON v${esc(f.version || 1)}${f.via === 'voice' ? ' · 🎙' : ''}</span>
+            <span class="msg-time">${esc(fmtTime(f.at))}</span>
+          </div>
+          <p class="fb-text">&ldquo;${esc(f.text)}&rdquo;</p>
+        </div>`).join('')
+    : '<p class="cmp-empty" style="margin-top:10px">No feedback yet — run the test, then say (or type) what worked and what fired wrong. A new version gets proposed from it.</p>'}
+      ${hist.length ? `
+        <div class="ver-list">
+          <span class="addr-tag">VERSIONS</span>
+          <div class="ver-item">
+            <span class="fb-chip ok">v${ver} · CURRENT</span>
+            <span class="ver-note" title="${esc(sc.version_note || '')}">${esc(sc.version_note || (ver === 1 ? 'created' : ''))}</span>
+            <span class="msg-time">${esc(fmtTime(sc.version_at || sc.created_at))}</span>
+          </div>
+          ${hist.map(h => `
+          <div class="ver-item">
+            <span class="fb-chip plain">v${esc(h.version)}</span>
+            <span class="ver-note" title="${esc(h.note || '')}">${esc(h.note || '')}</span>
+            <span class="msg-time">${esc(fmtTime(h.at))}</span>
+            <button class="row-link" type="button" data-act="restore" data-ver="${esc(h.version)}">restore</button>
+          </div>`).join('')}
+        </div>` : ''}
+    </div>`;
 }
 
 function renderScenario(sc) {
   const st = statusOf(sc);
   const d = sc.destination_id && destById(sc.destination_id);
   const open = expandedId === sc.id;
+  const ver = sc.version || 1;
 
   const addrLine = d
     ? `<div class="sc-addr-line">📍 ${esc(d.addr || `${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}`)}</div>`
@@ -239,22 +491,27 @@ function renderScenario(sc) {
       </div>
     </div>`;
 
+  /* pending slider values (if any) drive what the definition shows */
+  const params = tune && tune.id === sc.id ? tune.params : paramsOf(sc);
+  const fp = t => fillParams(t, params);
+
   const body = !open ? '' : `
     <div class="sc-body">
       ${addrBlock}
       <div class="def-grid">
-        ${defCell('Trigger rule (testable)', sc.rule)}
-        ${defCell('Activity Recognition states', sc.ar_states)}
-        ${defCell('Other signals needed', sc.signals)}
-        ${defCell('Timing to talk', sc.timing)}
+        ${sc.rule ? `<div class="def"><dt>Trigger rule (testable)</dt><dd data-rule>${esc(fp(sc.rule))}</dd></div>` : ''}
+        ${defCell('Activity Recognition states', fp(sc.ar_states))}
+        ${defCell('Other signals needed', fp(sc.signals))}
+        ${defCell('Timing to talk', fp(sc.timing))}
       </div>
+      ${renderTune(sc, params, ver)}
       <div class="compare">
         <div class="cmp-col cmp-defined">
           <h4>DEFINED — WHAT SHOULD HAPPEN</h4>
           ${sc.otto_says ? `<div class="cmp-row"><span class="cmp-k">Otto asks</span><span class="cmp-v say">&ldquo;${esc(stripQuotes(sc.otto_says))}&rdquo;</span></div>` : ''}
           ${sc.learns ? `<div class="cmp-row"><span class="cmp-k">Expected tip type</span><span class="tip-chip">${esc(sc.learns)}</span></div>` : ''}
-          ${sc.ar_states ? `<div class="cmp-row"><span class="cmp-k">Expected activity (Google AR states)</span><span class="cmp-v mono-v">${esc(sc.ar_states)}</span></div>` : ''}
-          ${sc.test_steps ? `<div class="cmp-row"><span class="cmp-k">How to test it</span><span class="cmp-v">${esc(sc.test_steps)}</span></div>` : ''}
+          ${sc.ar_states ? `<div class="cmp-row"><span class="cmp-k">Expected activity (Google AR states)</span><span class="cmp-v mono-v">${esc(fp(sc.ar_states))}</span></div>` : ''}
+          ${sc.test_steps ? `<div class="cmp-row"><span class="cmp-k">How to test it</span><span class="cmp-v">${esc(fp(sc.test_steps))}</span></div>` : ''}
           ${!sc.otto_says && !sc.learns && !sc.test_steps ? '<p class="cmp-empty">Nothing defined yet — edit the scenario.</p>' : ''}
         </div>
         <div class="cmp-col cmp-heard">
@@ -262,12 +519,14 @@ function renderScenario(sc) {
           ${renderMessages(sc)}
         </div>
       </div>
+      ${renderFeedbackBlock(sc, ver)}
       <div class="verdict-row">
         <span class="verdict-label">Did Otto get it?</span>
         <button class="v-btn${sc.verdict === 'pass' ? ' on-pass' : ''}" type="button" data-verdict="pass">✓ PASS</button>
         <button class="v-btn${sc.verdict === 'partial' ? ' on-partial' : ''}" type="button" data-verdict="partial">~ PARTIAL</button>
         <button class="v-btn${sc.verdict === 'fail' ? ' on-fail' : ''}" type="button" data-verdict="fail">✗ FAIL</button>
         <span class="row-links">
+          <button class="row-link" type="button" data-act="spec" title="Download this scenario as a JSON spec — tuned values, versions, feedback, results">Spec JSON ⇩</button>
           <button class="row-link" type="button" data-act="edit">Edit scenario</button>
           <button class="row-link danger" type="button" data-act="del">Delete</button>
         </span>
@@ -282,6 +541,7 @@ function renderScenario(sc) {
           <h3>${esc(sc.title)}</h3>
           ${addrLine}
         </div>
+        <span class="ver" title="${esc(sc.version_note || 'version')}">v${ver}</span>
         <span class="badge badge-${st.key}">${esc(st.label)}</span>
       </header>
       ${body}
@@ -318,14 +578,14 @@ async function saveScenarioRow(row) {
     try {
       const saved = await Backend.insertScenarios([row]);
       if (Array.isArray(saved) && saved[0]) return saved[0];
-    } catch (e) { warn(e); }
+    } catch (e) { schemaHint(e); }
   }
   return { ...row, id: localId('s'), created_at: new Date().toISOString() };
 }
 
 async function patchScenario(sc, patch) {
   Object.assign(sc, patch);
-  if (Backend.enabled) Backend.updateScenario(sc.id, patch).catch(warn);
+  if (Backend.enabled) Backend.updateScenario(sc.id, patch).catch(schemaHint);
   persistLocal();
 }
 
@@ -355,15 +615,30 @@ async function setVerdict(sc, v) {
 }
 
 /* ---------- scenario form ---------- */
-let editing = null; // scenario being edited, or null for a new one
+let editing = null;    // scenario being edited, or null for a new one
+let formParams = [];   // param editor rows while the form is open
+
+function renderFormParams() {
+  el('f-params').innerHTML = formParams.map((p, i) => `
+    <div class="pe-row">
+      <input type="text" data-pe="${i}:label" placeholder="Label" value="${esc(p.label == null ? '' : p.label)}">
+      <input type="text" data-pe="${i}:key" placeholder="key_in_rule" class="pe-mono" value="${esc(p.key == null ? '' : p.key)}">
+      <input type="number" data-pe="${i}:value" placeholder="value" step="any" value="${esc(p.value == null ? '' : p.value)}">
+      <input type="number" data-pe="${i}:min" placeholder="min" step="any" value="${esc(p.min == null ? '' : p.min)}">
+      <input type="number" data-pe="${i}:max" placeholder="max" step="any" value="${esc(p.max == null ? '' : p.max)}">
+      <input type="text" data-pe="${i}:unit" placeholder="unit" value="${esc(p.unit == null ? '' : p.unit)}">
+      <button type="button" class="pe-del" data-pe-del="${i}" title="Remove this value">×</button>
+    </div>`).join('');
+}
 
 function openForm(sc) {
   editing = sc || null;
   el('form-title').textContent = sc ? 'Edit trigger scenario' : 'New trigger scenario';
-  el('form-save').textContent = sc ? 'Save changes' : 'Save & set address';
+  el('form-save').textContent = sc ? `Save as v${(sc.version || 1) + 1}` : 'Save & set address';
   el('form-hint').textContent = '';
   const next = scenarios.reduce((m, s) => Math.max(m, s.num || 0), 0) + 1;
   el('f-num').value = sc ? (sc.num != null ? sc.num : '') : next;
+  el('f-desc').value = sc ? sc.described || '' : '';
   el('f-title').value = sc ? sc.title || '' : '';
   el('f-rule').value = sc ? sc.rule || '' : '';
   el('f-ar').value = sc ? sc.ar_states || '' : '';
@@ -372,16 +647,54 @@ function openForm(sc) {
   el('f-says').value = sc ? sc.otto_says || '' : '';
   el('f-learns').value = sc ? sc.learns || '' : '';
   el('f-steps').value = sc ? sc.test_steps || '' : '';
+  formParams = sc ? paramsOf(sc).map(p => ({ ...p })) : [];
+  renderFormParams();
   el('form-sheet').hidden = false;
-  el('f-title').focus();
+  /* new scenario: the describe-first flow starts in the describe box */
+  el(sc ? 'f-title' : 'f-desc').focus();
+}
+
+/* Describe → draft: one plain-language description in, every sheet column
+ * out, tunable numbers extracted as params. AI when the backend is up;
+ * otherwise a built-in template, clearly labelled as such. */
+async function runDraft() {
+  const desc = el('f-desc').value.trim();
+  if (!desc) { el('form-hint').textContent = 'Describe the scenario first — one or two sentences are enough.'; return; }
+  const btn = el('f-draft');
+  btn.disabled = true;
+  btn.textContent = '✨ Drafting…';
+  let out = null;
+  let demo = !Backend.enabled;
+  if (Backend.enabled) {
+    try { out = await Backend.scenarioAI({ op: 'draft', description: desc }); }
+    catch (e) { warn(e); demo = true; } // function not deployed — fall through to the template
+  }
+  if (!out) out = demoDraft(desc);
+  btn.disabled = false;
+  btn.textContent = '✨ Draft the fields from this';
+  const f = (out && out.fields) || {};
+  const put = (id, v) => { if (typeof v === 'string' && v.trim()) el(id).value = v.trim(); };
+  put('f-title', f.title);
+  put('f-rule', f.rule);
+  put('f-ar', f.ar_states);
+  put('f-signals', f.signals);
+  put('f-timing', f.timing);
+  put('f-says', f.otto_says);
+  put('f-learns', f.learns);
+  put('f-steps', f.test_steps);
+  formParams = (cleanParams(out && out.params) || []).map(p => ({ ...p }));
+  renderFormParams();
+  el('form-hint').textContent = demo
+    ? 'Demo draft from a built-in template (no AI backend). Numbers in {braces} are the tunable values below — edit anything, then save.'
+    : 'AI draft — numbers in {braces} are the tunable values below. Check every field, then save.';
 }
 
 async function submitForm() {
   const title = el('f-title').value.trim();
-  if (!title) { el('form-hint').textContent = 'The scenario needs a name — the "Trigger scenario" column.'; return; }
+  if (!title) { el('form-hint').textContent = 'The scenario needs a name — describe it above and hit ✨ Draft, or type one.'; return; }
   const numRaw = el('f-num').value.trim();
+  const params = cleanParams(formParams) || [];
   const fields = {
-    num: numRaw === '' ? null : parseInt(numRaw, 10),
     title,
     rule: el('f-rule').value.trim() || null,
     ar_states: el('f-ar').value.trim() || null,
@@ -391,13 +704,26 @@ async function submitForm() {
     learns: el('f-learns').value.trim() || null,
     test_steps: el('f-steps').value.trim() || null,
   };
+  const extra = {
+    num: numRaw === '' ? null : parseInt(numRaw, 10),
+    described: el('f-desc').value.trim() || null,
+  };
   el('form-sheet').hidden = true;
   if (editing) {
-    await patchScenario(editing, fields);
+    /* definition changes cut a version; num/description alone do not */
+    const changed = SNAP_FIELDS.filter(k => String(fields[k] || '') !== String(editing[k] || ''));
+    const paramsChanged = JSON.stringify(params) !== JSON.stringify(paramsOf(editing));
+    if (changed.length || paramsChanged) {
+      const what = changed.map(k => FIELD_LABELS[k] || k).concat(paramsChanged ? ['tunable values'] : []);
+      tune = null;
+      await saveNewVersion(editing, { ...fields, ...extra, params }, 'Manual edit: ' + what.join(', '));
+    } else {
+      await patchScenario(editing, extra);
+    }
     render();
     map.refresh();
   } else {
-    const sc = await saveScenarioRow(fields);
+    const sc = await saveScenarioRow({ ...fields, ...extra, params, version: 1, version_at: new Date().toISOString() });
     scenarios.push(sc);
     expandedId = sc.id;
     persistLocal();
@@ -406,6 +732,436 @@ async function submitForm() {
     scrollToScenario(sc.id);
     openAddr(sc); // a scenario without an address cannot be tested — ask right away
   }
+}
+
+/* ---------- demo drafts ----------
+ * With no AI backend the describe→draft flow still works: keyword
+ * archetypes from the deck (parking, entrance, waiting, closure) plus a
+ * generic arrive-dwell-leave shape. Same philosophy as Otto's scripted
+ * demo — a labelled stand-in, never pretending to be the real thing.
+ * Detector-keyed params mean even a template draft tunes the phone. */
+const firstSentence = d => String(d).replace(/\s+/g, ' ').trim().replace(/[.!?].*$/, '').slice(0, 90);
+const DRAFT_TEMPLATES = [
+  {
+    re: /park|spot|loop|circl|kurv|stellplatz/i,
+    name: 'Parking loops',
+    fields: {
+      rule: 'Vehicle passes within ~{radius} m of the pin {passes_needed}× below {pass_speed_max} m/s without stopping, then stands ≥{stop_dwell_s} s within {stop_radius} m of the pin, then moves again.',
+      ar_states: 'IN_VEHICLE throughout the loops → STILL at the stop → IN_VEHICLE again',
+      signals: 'GPS trace vs pin; speed; pass count',
+      timing: 'Wait — ask once moving again after the stop',
+      otto_says: '“Is it hard to park here at this time? Where did you find a spot?”',
+      learns: 'ACCESS — parking / loading-zone tip',
+      test_steps: 'Drive to the pin, circle the block twice slowly without stopping, then park and stand ≥1 min, then drive off. Answer Otto when he speaks up.',
+    },
+    params: [
+      { key: 'radius', label: 'Pass radius', value: 150, min: 40, max: 400, step: 5, unit: 'm' },
+      { key: 'passes_needed', label: 'Slow passes needed', value: 2, min: 0, max: 5, step: 1, unit: '×' },
+      { key: 'pass_speed_max', label: 'Max pass speed', value: 9, min: 2, max: 15, step: 0.5, unit: 'm/s' },
+      { key: 'stop_dwell_s', label: 'Stop dwell', value: 45, min: 10, max: 180, step: 5, unit: 's' },
+      { key: 'stop_radius', label: 'Stop radius', value: 250, min: 50, max: 500, step: 10, unit: 'm' },
+    ],
+  },
+  {
+    re: /entrance|door|gate|eingang|way in|find the (entry|way)|access point/i,
+    name: 'Entrance hunt',
+    fields: {
+      rule: 'Vehicle stops within {stop_radius} m of the pin, then ON_FOOT for ≥{foot_search_s} s inside ~{radius} m of the pin without the debrief starting — the tester is hunting for the way in.',
+      ar_states: 'IN_VEHICLE → STILL (arrival) → ON_FOOT (searching) → STILL at the real entrance',
+      signals: 'GPS trace on foot vs pin; time on foot; no arrival confirmation',
+      timing: 'Wait — ask when back at the vehicle, not mid-search',
+      otto_says: '“Was the entrance easy to find? Where is it, exactly?”',
+      learns: 'ENTRANCE — where the real way in is',
+      test_steps: 'Park near the pin, walk to the wrong side of the building first, spend ~2 min searching, then return to the car and answer Otto.',
+    },
+    params: [
+      { key: 'stop_radius', label: 'Arrival stop radius', value: 120, min: 30, max: 300, step: 5, unit: 'm' },
+      { key: 'stop_dwell_s', label: 'Arrival stop dwell', value: 20, min: 5, max: 120, step: 5, unit: 's' },
+      { key: 'foot_search_s', label: 'On-foot search time', value: 90, min: 20, max: 300, step: 10, unit: 's' },
+      { key: 'radius', label: 'Search radius', value: 80, min: 20, max: 200, step: 5, unit: 'm' },
+      { key: 'passes_needed', label: 'Slow passes needed', value: 0, min: 0, max: 3, step: 1, unit: '×' },
+    ],
+  },
+  {
+    re: /wait|queue|reception|schlange|warten|line at/i,
+    name: 'Long wait',
+    fields: {
+      rule: 'STILL within {radius} m of the pin for ≥{stop_dwell_s} s — longer than a normal handover.',
+      ar_states: 'ON_FOOT or STILL near the pin — the long STILL is the signal',
+      signals: 'Dwell time vs pin; opening hours',
+      timing: 'Wait — ask on leaving, when hands are free',
+      otto_says: '“That took a while — how long did you wait, and is there a faster way here?”',
+      learns: 'INFO — realistic waiting time and how to skip it',
+      test_steps: 'Go to the pin, stand in the waiting area ≥5 min, then leave and answer Otto.',
+    },
+    params: [
+      { key: 'radius', label: 'Waiting radius', value: 60, min: 15, max: 200, step: 5, unit: 'm' },
+      { key: 'stop_dwell_s', label: 'Wait threshold', value: 300, min: 60, max: 1200, step: 30, unit: 's' },
+      { key: 'passes_needed', label: 'Slow passes needed', value: 0, min: 0, max: 3, step: 1, unit: '×' },
+    ],
+  },
+  {
+    re: /closed|blocked|block|construction|detour|shut|gesperrt|baustelle/i,
+    name: 'Blocked route',
+    fields: {
+      rule: 'Approach within {radius} m of the pin, then turn away without a stop of ≥{stop_dwell_s} s — the way is blocked.',
+      ar_states: 'IN_VEHICLE approach → slow / brief STILL → IN_VEHICLE away without arrival',
+      signals: 'GPS trace turning short of the pin; speed drop',
+      timing: 'Soon after turning away, once driving smoothly',
+      otto_says: '“Looks like you couldn’t get through — what’s blocking it, and is there a way around?”',
+      learns: 'CLOSURE — blocked route and the detour that works',
+      test_steps: 'Drive toward the pin, stop short as if blocked, turn around and drive off; answer Otto when he asks.',
+    },
+    params: [
+      { key: 'radius', label: 'Approach radius', value: 100, min: 30, max: 300, step: 5, unit: 'm' },
+      { key: 'stop_dwell_s', label: 'Real-stop threshold', value: 30, min: 10, max: 120, step: 5, unit: 's' },
+      { key: 'pass_speed_max', label: 'Max approach speed', value: 8, min: 2, max: 15, step: 0.5, unit: 'm/s' },
+      { key: 'passes_needed', label: 'Slow passes needed', value: 1, min: 0, max: 3, step: 1, unit: '×' },
+    ],
+  },
+  {
+    re: /./,
+    name: 'On-site debrief',
+    fields: {
+      rule: 'Arrive within {radius} m of the pin, dwell ≥{stop_dwell_s} s, then leave — Otto debriefs on departure.',
+      ar_states: 'Arrival → STILL near the pin → moving again',
+      signals: 'GPS trace vs pin; dwell time',
+      timing: 'On departure',
+      otto_says: '“What did you find here that the next driver should know?”',
+      learns: 'INFO — local knowledge for the next driver',
+      test_steps: 'Go to the pin, act out the described situation, then leave and answer Otto.',
+    },
+    params: [
+      { key: 'radius', label: 'Arrival radius', value: 100, min: 25, max: 300, step: 5, unit: 'm' },
+      { key: 'stop_dwell_s', label: 'Dwell threshold', value: 60, min: 10, max: 600, step: 10, unit: 's' },
+      { key: 'passes_needed', label: 'Slow passes needed', value: 0, min: 0, max: 3, step: 1, unit: '×' },
+    ],
+  },
+];
+function demoDraft(desc) {
+  const t = DRAFT_TEMPLATES.find(x => x.re.test(desc));
+  return {
+    fields: { ...t.fields, title: `${t.name} — ${firstSentence(desc)}` },
+    params: t.params.map(p => ({ ...p })),
+  };
+}
+
+/* ---------- tuning sliders ---------- */
+function onTuneInput(sc, card, slider) {
+  if (!tune || tune.id !== sc.id) tune = { id: sc.id, params: paramsOf(sc).map(p => ({ ...p })) };
+  const p = tune.params.find(x => x.key === slider.dataset.key);
+  if (!p) return;
+  p.value = +slider.value;
+  /* live DOM updates only — a full render would kill the drag */
+  const val = card.querySelector(`[data-val="${CSS.escape(p.key)}"]`);
+  if (val) val.textContent = fmtVal(p.value) + (p.unit ? ' ' + p.unit : '');
+  const rule = card.querySelector('[data-rule]');
+  if (rule) rule.textContent = fillParams(sc.rule, tune.params);
+  const diff = tuneDiff(paramsOf(sc), tune.params);
+  const dEl = card.querySelector('[data-diff]');
+  if (dEl) dEl.textContent = diff;
+  const foot = card.querySelector('.tune-foot');
+  if (foot) foot.hidden = !diff;
+  if (!diff) tune = null; // slid back onto the saved values
+}
+
+async function saveTuning(sc) {
+  if (!tune || tune.id !== sc.id) return;
+  const diff = tuneDiff(paramsOf(sc), tune.params);
+  const params = tune.params;
+  tune = null;
+  if (!diff) { render(); return; }
+  await saveNewVersion(sc, { params }, 'Tuned: ' + diff);
+  render();
+}
+
+async function restoreVersion(sc, verNum) {
+  const h = historyOf(sc).find(x => x.version === verNum);
+  if (!h) return;
+  tune = null;
+  await saveNewVersion(sc, { ...h.fields, params: (h.params || []).map(p => ({ ...p })) }, `Restored v${verNum}`);
+  render();
+  map.refresh(); // the title (and with it the pin label) may have changed
+}
+
+/* ---------- feedback capture ----------
+ * Live backend: MediaRecorder → the voice-note function transcribes.
+ * No backend: the browser's own SpeechRecognition — on-device, keyless.
+ * Either way the transcript lands in a textarea to be polished (or the
+ * whole note just typed) before it is saved against the scenario. */
+let fbMedia = null;  // MediaRecorder while a live clip is being taken
+let fbSpeech = null; // SpeechRecognition while on-device dictation runs
+const speechAvailable = () => !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+
+async function toggleFbMic(sc) {
+  if (!fbRec || fbRec.id !== sc.id) return;
+  if (fbRec.state === 'rec') { stopFbCapture(); return; }
+  if (Backend.enabled) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const rec = new MediaRecorder(stream);
+      const chunks = [];
+      rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+      rec.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        fbMedia = null;
+        if (!fbRec || fbRec.id !== sc.id) return; // cancelled while recording
+        fbRec.state = 'transcribing';
+        render();
+        try {
+          const d = await Backend.transcribe(
+            new Blob(chunks, { type: rec.mimeType || 'audio/webm' }),
+            `test feedback on trigger scenario "${shortTitle(sc)}" v${sc.version || 1}`,
+          );
+          if (fbRec && fbRec.id === sc.id) {
+            fbRec.text = (fbRec.text ? fbRec.text.trim() + ' ' : '') + (d.transcript || '');
+            fbRec.via = 'voice';
+          }
+        } catch (e) { warn(e); }
+        if (fbRec && fbRec.id === sc.id) { fbRec.state = 'idle'; render(); }
+      };
+      fbMedia = rec;
+      rec.start();
+      fbRec.state = 'rec';
+      render();
+    } catch { /* mic denied — typing still works */ }
+    return;
+  }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return;
+  const sr = new SR();
+  sr.continuous = true;
+  sr.interimResults = false;
+  sr.onresult = ev => {
+    if (!fbRec || fbRec.id !== sc.id) return;
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      if (ev.results[i].isFinal) {
+        const t = ev.results[i][0].transcript.trim();
+        if (t) fbRec.text = (fbRec.text ? fbRec.text.trim() + ' ' : '') + t;
+      }
+    }
+    fbRec.via = 'voice';
+    const ta = el('list').querySelector('[data-fb-text]');
+    if (ta) ta.value = fbRec.text;
+  };
+  sr.onend = () => {
+    fbSpeech = null;
+    if (fbRec && fbRec.state === 'rec') { fbRec.state = 'idle'; render(); }
+  };
+  fbSpeech = sr;
+  try {
+    sr.start();
+    fbRec.state = 'rec';
+    render();
+  } catch { fbSpeech = null; }
+}
+
+function stopFbCapture() {
+  if (fbMedia) { try { fbMedia.stop(); } catch { /* already stopped */ } } // onstop carries on
+  if (fbSpeech) {
+    const s = fbSpeech;
+    fbSpeech = null;
+    try { s.onend = null; s.stop(); } catch { /* already stopped */ }
+    if (fbRec && fbRec.state === 'rec') { fbRec.state = 'idle'; render(); }
+  }
+}
+
+async function saveFeedback(sc) {
+  if (!fbRec || fbRec.id !== sc.id) return;
+  stopFbCapture();
+  const ta = el('list').querySelector('[data-fb-text]');
+  const text = String((ta ? ta.value : fbRec.text) || '').trim();
+  const via = fbRec.via === 'voice' ? 'voice' : 'typed';
+  fbRec = null;
+  if (!text) { render(); return; }
+  const entry = {
+    id: localId('f'),
+    at: new Date().toISOString(),
+    version: sc.version || 1,
+    via, text,
+    status: 'open',
+  };
+  await patchScenario(sc, { feedback: feedbackOf(sc).concat([entry]) });
+  render();
+  runPropose(sc); // feedback in → a proposed next version comes straight back
+}
+
+/* ---------- propose a new version ---------- */
+async function runPropose(sc) {
+  const open = feedbackOf(sc).filter(f => f.status === 'open');
+  if (!open.length || proposalBusy) return;
+  proposal = null;
+  proposalBusy = sc.id;
+  render();
+  let out = null;
+  let demo = !Backend.enabled;
+  if (Backend.enabled) {
+    try {
+      out = await Backend.scenarioAI({
+        op: 'revise',
+        scenario: {
+          version: sc.version || 1,
+          fields: Object.fromEntries(SNAP_FIELDS.map(k => [k, sc[k] || null])),
+          params: paramsOf(sc),
+        },
+        feedback: open.map(f => f.text),
+        results: msgsOf(sc).slice(0, 3).map(m => ({
+          category: m.category || null,
+          title: m.title || null,
+          transcript: m.transcript || null,
+          ar_summary: m.ar_summary || null,
+        })),
+      });
+    } catch (e) { warn(e); demo = true; } // function not deployed — heuristic instead
+  }
+  if (!out) out = demoRevise(sc, open);
+  proposalBusy = null;
+  proposal = cleanProposal(sc, out, demo, open.map(f => f.id));
+  render();
+}
+
+function cleanProposal(sc, out, demo, fbIds) {
+  const changes = {};
+  const src = (out && (out.changes || out.fields)) || {};
+  SNAP_FIELDS.forEach(k => {
+    const v = src[k];
+    if (typeof v === 'string' && v.trim() && v.trim() !== String(sc[k] || '').trim()) changes[k] = v.trim();
+  });
+  let params = cleanParams(out && out.params);
+  if (params && JSON.stringify(params) === JSON.stringify(paramsOf(sc))) params = null;
+  const none = !Object.keys(changes).length && !params;
+  return {
+    id: sc.id, changes, params, demo, fb_ids: fbIds || [], none,
+    note: String((out && out.note) || '').trim().slice(0, 200)
+      || (none ? 'No concrete change derived from the feedback — it stays on record for the next pass.' : 'Revised from test feedback'),
+  };
+}
+
+/* The keyless stand-in for op:"revise": explicit numbers in the feedback
+ * move the nearest matching value; otherwise clear too-eager / never-fired
+ * wording nudges the thresholds. Anything subtler needs the real AI. */
+function demoRevise(sc, notes) {
+  const params = paramsOf(sc).map(p => ({ ...p }));
+  const text = notes.map(n => n.text).join(' \n ').toLowerCase();
+  const changed = new Set();
+  const setVal = (p, v) => {
+    v = Math.max(+p.min, Math.min(+p.max, v));
+    const step = +p.step || niceStep(+p.min, +p.max);
+    v = Math.round(v / step) * step;
+    if (+p.value !== v) { p.value = +v.toFixed(4); changed.add(p.key); }
+  };
+  /* "make it 80 m", "wait 2 minutes" — unit-matched, nearest current value */
+  const UNITS = [
+    [/^m\/s$/, 'm/s', 1], [/^km\/h$/, 'm/s', 1 / 3.6],
+    [/^(m|meters?|metres?)$/, 'm', 1],
+    [/^(s|secs?|seconds?)$/, 's', 1], [/^(min|minutes?)$/, 's', 60],
+    [/^(x|times?|pass(?:es)?|loops?)$/, '×', 1],
+  ];
+  for (const m of text.matchAll(/(\d+(?:[.,]\d+)?)\s*(m\/s|km\/h|meters?|metres?|minutes?|seconds?|secs?|times?|pass(?:es)?|loops?|min|m|s|x)\b/g)) {
+    const u = UNITS.find(([re]) => re.test(m[2]));
+    if (!u) continue;
+    const val = parseFloat(m[1].replace(',', '.')) * u[2];
+    const cands = params.filter(p => String(p.unit || '×') === u[1]);
+    if (!cands.length) continue;
+    setVal(cands.reduce((a, b) => (Math.abs(+a.value - val) <= Math.abs(+b.value - val) ? a : b)), val);
+  }
+  if (!changed.size) {
+    const eager = /(too (early|often|eager|sensitive|soon)|fired too|false (trigger|alarm)|zu früh|zu oft)/.test(text);
+    const late = /(never fired|didn.?t fire|did not fire|no trigger|too late|missed|nicht ausgelöst|zu spät)/.test(text);
+    const nudge = (key, f) => { const p = params.find(x => x.key === key); if (p) setVal(p, +p.value * f); };
+    const bump = (key, d) => { const p = params.find(x => x.key === key); if (p) setVal(p, +p.value + d); };
+    if (eager && !late) { bump('passes_needed', 1); nudge('stop_dwell_s', 1.5); nudge('radius', 0.8); }
+    if (late && !eager) { bump('passes_needed', -1); nudge('stop_dwell_s', 0.67); nudge('radius', 1.25); }
+  }
+  const diffs = tuneDiff(paramsOf(sc), params);
+  return {
+    changes: {},
+    params: changed.size ? params : null,
+    note: changed.size
+      ? 'Demo heuristic from feedback: ' + diffs
+      : 'Demo heuristic found no tunable change in the feedback — edit by hand, or deploy the scenario-ai function for a real analysis.',
+  };
+}
+
+async function applyProposal(sc) {
+  const p = proposal;
+  if (!p || p.id !== sc.id || p.none) { proposal = null; render(); return; }
+  const nextVer = (sc.version || 1) + 1;
+  const fields = {};
+  Object.entries(p.changes).forEach(([k, v]) => {
+    if (SNAP_FIELDS.includes(k) && String(v).trim() && String(v).trim() !== String(sc[k] || '').trim()) {
+      fields[k] = String(v).trim();
+    }
+  });
+  const feedback = feedbackOf(sc).map(f =>
+    (p.fb_ids.includes(f.id) && f.status === 'open') ? { ...f, status: 'applied', applied_version: nextVer } : f);
+  const patch = { ...fields, feedback };
+  if (p.params) patch.params = cleanParams(p.params) || paramsOf(sc);
+  proposal = null;
+  tune = null;
+  await saveNewVersion(sc, patch, p.note);
+  render();
+  map.refresh();
+}
+
+/* ---------- spec export ----------
+ * The end product of the loop: a machine-readable spec per scenario —
+ * tuned values, full version history, the feedback that drove it, and
+ * every structured test result — ready to build the real algorithm from. */
+const traceOf = m => {
+  let t = m.ar_trace;
+  if (typeof t === 'string') { try { t = JSON.parse(t); } catch { t = null; } }
+  return (t && typeof t === 'object') ? t : null;
+};
+function specOf(sc) {
+  const d = sc.destination_id && destById(sc.destination_id);
+  return {
+    num: sc.num == null ? null : sc.num,
+    title: sc.title,
+    version: sc.version || 1,
+    version_note: sc.version_note || null,
+    described: sc.described || null,
+    fields: Object.fromEntries(SNAP_FIELDS.filter(k => k !== 'title').map(k => [k, sc[k] || null])),
+    rule_resolved: sc.rule ? fillParams(sc.rule, paramsOf(sc)) : null,
+    params: paramsOf(sc),
+    destination: d ? { addr: d.addr || null, lat: d.lat, lng: d.lng } : null,
+    verdict: sc.verdict || null,
+    feedback: feedbackOf(sc),
+    history: historyOf(sc),
+    results: msgsOf(sc).map(m => {
+      const trace = traceOf(m);
+      return {
+        created_at: m.created_at || null,
+        category: m.category || null,
+        title: m.title || null,
+        transcript: m.transcript || null,
+        ar_summary: m.ar_summary || null,
+        trigger: (trace && trace.trigger) || null,
+        demo: !!m.demo,
+      };
+    }),
+  };
+}
+function downloadJson(name, data) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+const fileSlug = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+function exportSpec(sc) {
+  downloadJson(
+    `otto-scenario-${sc.num != null ? sc.num + '-' : ''}${fileSlug(shortTitle(sc))}-v${sc.version || 1}.json`,
+    { kind: 'otto-trigger-scenario', exported_at: new Date().toISOString(), build: window.BUILD, scenario: specOf(sc) },
+  );
+}
+function exportAllSpecs() {
+  if (!scenarios.length) return;
+  downloadJson(
+    `otto-trigger-scenarios-${new Date().toISOString().slice(0, 10)}.json`,
+    { kind: 'otto-trigger-scenarios', exported_at: new Date().toISOString(), build: window.BUILD, scenarios: scenarios.map(specOf) },
+  );
 }
 
 /* ---------- address picker ----------
@@ -645,22 +1401,32 @@ async function runImport() {
   if (added[0]) scrollToScenario(added[0].id);
 }
 
-/* The one worked example from the deck's "Otto triggers" sheet. */
+/* The one worked example from the deck's "Otto triggers" sheet — its
+ * numbers as {key} placeholders so the sliders are live from the start. */
 const SAMPLE = {
   num: 1,
   title: 'Parking loops — driver circles the block looking for parking',
-  rule: 'Vehicle passes within ~150 m of the stop 2–3 times at low speed without stopping. Deck says 3 slow loops; radius and count are drafts to tune.',
+  described: 'The driver has a delivery but cannot find parking, so they circle the block a few times slowly before finally stopping.',
+  rule: 'Vehicle passes within ~{radius} m of the stop {passes_needed}× below {pass_speed_max} m/s without stopping, then stands ≥{stop_dwell_s} s within {stop_radius} m. Deck says 3 slow loops; every number here is a slider.',
   ar_states: 'IN_VEHICLE the whole time',
   signals: 'GPS trace vs stop pin; speed',
   timing: 'Wait — ask when back in the car after the stop',
   otto_says: '“Is it hard to park here at this time? Where did you find a spot?”',
-  learns: 'Parking / loading-zone tip',
+  learns: 'ACCESS — parking / loading-zone tip',
   test_steps: 'Simulate a delivery address, drive around the block twice, then stop',
+  params: [
+    { key: 'radius', label: 'Pass radius', value: 150, min: 40, max: 400, step: 5, unit: 'm' },
+    { key: 'passes_needed', label: 'Slow passes needed', value: 2, min: 0, max: 5, step: 1, unit: '×' },
+    { key: 'pass_speed_max', label: 'Max pass speed', value: 9, min: 2, max: 15, step: 0.5, unit: 'm/s' },
+    { key: 'stop_dwell_s', label: 'Stop dwell', value: 45, min: 10, max: 180, step: 5, unit: 's' },
+    { key: 'stop_radius', label: 'Stop radius', value: 250, min: 50, max: 500, step: 10, unit: 'm' },
+  ],
+  version: 1,
 };
 
 async function loadSample() {
   el('import-sheet').hidden = true;
-  const sc = await saveScenarioRow({ ...SAMPLE });
+  const sc = await saveScenarioRow({ ...SAMPLE, version_at: new Date().toISOString() });
   scenarios.push(sc);
   expandedId = sc.id;
   persistLocal();
@@ -698,6 +1464,17 @@ el('list').addEventListener('click', e => {
       const d = sc.destination_id && destById(sc.destination_id);
       if (d) centerOn(d.lat, d.lng);
     }
+    else if (a === 'tune-save') saveTuning(sc);
+    else if (a === 'tune-reset') { tune = null; render(); }
+    else if (a === 'fb-open') { fbRec = { id: sc.id, text: '', via: null, state: 'idle' }; render(); }
+    else if (a === 'fb-mic') toggleFbMic(sc);
+    else if (a === 'fb-save') saveFeedback(sc);
+    else if (a === 'fb-cancel') { stopFbCapture(); fbRec = null; render(); }
+    else if (a === 'propose') runPropose(sc);
+    else if (a === 'p-apply') applyProposal(sc);
+    else if (a === 'p-discard') { proposal = null; render(); }
+    else if (a === 'restore') restoreVersion(sc, parseInt(act.dataset.ver, 10));
+    else if (a === 'spec') exportSpec(sc);
     return;
   }
 
@@ -708,9 +1485,50 @@ el('list').addEventListener('click', e => {
   }
 });
 
+/* sliders, the feedback textarea and the proposal edits all live inside
+ * the list — one delegated input handler, no re-render mid-typing */
+el('list').addEventListener('input', e => {
+  const card = e.target.closest('.sc');
+  if (!card) return;
+  const sc = scenarios.find(x => x.id === card.dataset.id);
+  if (!sc) return;
+  if (e.target.classList.contains('tune-slider')) { onTuneInput(sc, card, e.target); return; }
+  if (e.target.hasAttribute('data-fb-text')) {
+    if (fbRec && fbRec.id === sc.id) fbRec.text = e.target.value;
+    return;
+  }
+  if (proposal && proposal.id === sc.id) {
+    const pf = e.target.getAttribute('data-pfield');
+    if (pf) { proposal.changes[pf] = e.target.value; return; }
+    const pp = e.target.getAttribute('data-pparam');
+    if (pp) {
+      const p = (proposal.params || []).find(x => x.key === pp);
+      if (p && isFinite(parseFloat(e.target.value))) p.value = parseFloat(e.target.value);
+      return;
+    }
+    if (e.target.hasAttribute('data-pnote')) proposal.note = e.target.value;
+  }
+});
+
 el('new-open').onclick = () => openForm(null);
 el('form-cancel').onclick = () => { el('form-sheet').hidden = true; };
 el('form-save').onclick = submitForm;
+el('f-draft').onclick = runDraft;
+el('f-param-add').onclick = () => {
+  formParams.push({ key: '', label: '', value: '', min: '', max: '', unit: '' });
+  renderFormParams();
+};
+el('f-params').addEventListener('input', e => {
+  const spec = e.target.getAttribute('data-pe');
+  if (!spec) return;
+  const [i, prop] = spec.split(':');
+  if (formParams[+i]) formParams[+i][prop] = e.target.value;
+});
+el('f-params').addEventListener('click', e => {
+  const del = e.target.getAttribute('data-pe-del');
+  if (del != null) { formParams.splice(+del, 1); renderFormParams(); }
+});
+el('spec-all').onclick = exportAllSpecs;
 el('import-open').onclick = openImport;
 el('import-cancel').onclick = () => { el('import-sheet').hidden = true; };
 el('import-go').onclick = runImport;
@@ -741,9 +1559,11 @@ document.addEventListener('keydown', e => {
 
   if (Backend.enabled) {
     /* a dashboard left open while testers are out in the field: poll for
-     * fresh debriefs (REST only — no realtime channel in this kit) */
+     * fresh debriefs (REST only — no realtime channel in this kit).
+     * uiBusy: never repaint over a slider drag, a recording or an open
+     * proposal — ↻ REFRESH is there when it matters. */
     setInterval(async () => {
-      if (document.hidden) return;
+      if (document.hidden || uiBusy()) return;
       await loadAll();
       render();
       map.refresh();
@@ -753,6 +1573,7 @@ document.addEventListener('keydown', e => {
      * localStorage — the storage event keeps this page live */
     window.addEventListener('storage', async e => {
       if (e.key && ![LS_DEST, LS_MSGS, LS_SCEN].includes(e.key)) return;
+      if (uiBusy()) return;
       await loadAll();
       render();
       map.refresh();
