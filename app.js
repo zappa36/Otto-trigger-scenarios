@@ -112,6 +112,14 @@ document.addEventListener('visibilitychange', () => {
 
 function startTracking(sc, d) {
   ActivityRec.requestMotionPermission(); // needs the tap gesture on iOS
+  /* prime browser TTS inside this tap — Chrome refuses speak() from a
+   * page that never spoke during a user gesture, and the trigger fires
+   * minutes after the last tap (the wrapper's OttoTTS needs no priming) */
+  try {
+    if (!window.OttoTTS && 'speechSynthesis' in window) {
+      speechSynthesis.speak(new SpeechSynthesisUtterance(''));
+    }
+  } catch { /* optional */ }
   ActivityRec.start();
   tracking = {
     sc, d, trig: trigOf(sc), startedAt: Date.now(),
@@ -237,8 +245,22 @@ function detectorStep(snap) {
  * you. */
 function speakThen(text, done) {
   let called = false;
-  const finish = () => { if (!called) { called = true; done(); } };
+  const finish = () => {
+    if (called) return;
+    called = true;
+    window.__ottoTtsDone = null;
+    done();
+  };
+  const capMs = Math.min(20000, 2500 + String(text || '').length * 90);
   try {
+    /* Android wrapper: the OttoTTS bridge — WebViews have no Web Speech
+     * API at all, speechSynthesis.speak() there is a silent no-op */
+    if (window.OttoTTS && window.OttoTTS.speak && text) {
+      window.__ottoTtsDone = finish;
+      OttoTTS.speak(text);
+      setTimeout(finish, capMs);
+      return;
+    }
     if (!('speechSynthesis' in window) || !text) { setTimeout(finish, 1200); return; }
     speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
@@ -246,8 +268,8 @@ function speakThen(text, done) {
     u.onend = finish;
     u.onerror = finish;
     speechSynthesis.speak(u);
-    /* some WebViews never fire onend — cap the wait by text length */
-    setTimeout(finish, Math.min(20000, 2500 + text.length * 90));
+    /* some browsers never fire onend — cap the wait by text length */
+    setTimeout(finish, capMs);
   } catch { setTimeout(finish, 1200); }
 }
 
@@ -264,7 +286,10 @@ function fireTrigger(t) {
      * paces itself, and a demo that pretends to listen teaches wrong. */
     if (!voice.live) return;
     const mic = document.querySelector('#otto .vn-mic');
-    if (mic && !mic.hidden) mic.click();
+    if (mic && !mic.hidden) {
+      if (navigator.vibrate) navigator.vibrate([40, 60, 40]); // "listening now" — felt, not just seen
+      mic.click();
+    }
   });
 }
 
@@ -521,7 +546,10 @@ function openOtto(d) {
 
 function closeOtto() {
   voice.stop();
-  try { if ('speechSynthesis' in window) speechSynthesis.cancel(); } catch { /* optional */ }
+  try {
+    if (window.OttoTTS && OttoTTS.stop) OttoTTS.stop();
+    if ('speechSynthesis' in window) speechSynthesis.cancel();
+  } catch { /* optional */ }
   el('otto-screen').hidden = true;
   if (current) openCard(current); // back to the card, now with the new message
 }
