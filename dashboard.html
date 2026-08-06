@@ -645,6 +645,29 @@
   .prop-arrow { color: #aab6ff; text-align: center; }
   .prop .cmp-k { display: block; margin-top: 8px; }
 
+  /* run log — what the detector saw, fired or not */
+  .runs-block { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(140,165,200,.12); }
+  .runs-block .cmp-k { margin-bottom: 6px; }
+  .run-item {
+    padding: 8px 11px;
+    border-radius: 11px;
+    background: rgba(140,165,200,.06);
+    border: 1px solid rgba(140,165,200,.13);
+    margin-bottom: 7px;
+  }
+  .run-item:last-of-type { margin-bottom: 0; }
+  .run-chip {
+    padding: 3px 8px;
+    border-radius: 999px;
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: .09em;
+    border: 1px solid transparent;
+  }
+  .run-chip.ok   { color: #7ce0b8; border-color: rgba(70,211,154,.45);  background: rgba(70,211,154,.09); }
+  .run-chip.warn { color: #ffd95e; border-color: rgba(255,217,94,.45);  background: rgba(255,217,94,.09); }
+  .run-chip.bad  { color: #ffab8a; border-color: rgba(255,120,69,.5);   background: rgba(255,120,69,.1); }
+
   /* version history */
   .ver-list { margin-top: 11px; }
   .ver-item {
