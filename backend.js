@@ -116,5 +116,15 @@ const Backend = (() => {
       body: JSON.stringify(patch),
     }),
     deleteScenario: id => rest('/rest/v1/scenarios?id=eq.' + encodeURIComponent(id), { method: 'DELETE' }),
+
+    /* ---------- test-run log ----------
+     * Every tracked run, fired or not (app.js saves, dashboard.js reads).
+     * The runs where nothing happened are the ones debugging needs. */
+    insertRun: row => rest('/rest/v1/runs', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify([row]),
+    }),
+    listRuns: limit => rest(`/rest/v1/runs?select=*&order=created_at.desc&limit=${limit || 300}`),
   };
 })();

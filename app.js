@@ -25,6 +25,7 @@ const el = id => document.getElementById(id);
 const LS_DEST = 'od_destinations';
 const LS_MSGS = 'od_messages';
 const LS_SCEN = 'od_scenarios';
+const LS_RUNS = 'od_runs';
 
 let destinations = [];
 const messagesByDest = {};
@@ -122,7 +123,52 @@ function startTracking(sc, d) {
   updateCardTrack();
 }
 
+/* Every tracked run goes on the record when it ends — FIRED OR NOT. A
+ * silent run used to leave no data, and those are exactly the runs
+ * debugging a trigger needs: which stage (pass / stop / resume) it died
+ * at, under which knob values. Shown on the dashboard as the run log. */
+function saveRunLog() {
+  const tr = tracking;
+  if (!tr) return;
+  const now = Date.now();
+  if (now - tr.startedAt < 20000 && !tr.passes && !tr.fired) return; // an accidental tap is not a test run
+  const row = {
+    scenario_id: tr.sc.id,
+    scenario_version: tr.sc.version || 1,
+    destination_id: tr.d.id,
+    started_at: new Date(tr.startedAt).toISOString(),
+    ended_at: new Date(now).toISOString(),
+    fired: !!tr.fired,
+    fired_at: tr.firedAt ? new Date(tr.firedAt).toISOString() : null,
+    passes: tr.passes,
+    stop_seen: !!tr.stopped,
+    ar_summary: ActivityRec.summary(tr.startedAt) || null,
+    ar_trace: { source: ActivityRec.snapshot.source, segments: ActivityRec.segments(tr.startedAt) },
+    tuning: {
+      radius: tr.trig.radius,
+      exit_radius: tr.trig.exitRadius,
+      pass_speed_max: tr.trig.passSpeedMax,
+      pass_still_max_s: tr.trig.passStillMax / 1000,
+      passes_needed: tr.trig.passesNeeded,
+      stop_speed: tr.trig.stopSpeed,
+      stop_dwell_s: tr.trig.stopDwellMs / 1000,
+      stop_radius: tr.trig.stopRadius,
+      resume_speed: tr.trig.resumeSpeed,
+    },
+  };
+  if (Backend.enabled) {
+    Backend.insertRun(row).catch(e => console.warn('run log not saved — re-run schema.sql?', e.message));
+  } else {
+    try {
+      const runs = JSON.parse(localStorage.getItem(LS_RUNS) || '[]');
+      runs.unshift({ ...row, id: 'r' + Date.now().toString(36), created_at: row.ended_at });
+      localStorage.setItem(LS_RUNS, JSON.stringify(runs.slice(0, 50))); // enough history, bounded storage
+    } catch { /* private mode */ }
+  }
+}
+
 function stopTracking() {
+  saveRunLog(); // before ActivityRec.stop() — the summary reads the live history
   ActivityRec.stop();
   if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
   tracking = null;

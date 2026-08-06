@@ -124,7 +124,13 @@ dashboard runs that loop end to end:
    the full history with per-version notes (any version can be
    restored), and which feedback went into which version. Debriefs are
    stamped with the scenario version *and* the exact detector values the
-   run used, so results stay comparable across versions.
+   run used, so results stay comparable across versions. And every
+   tracked run is logged **even when nothing fires** — the dashboard's
+   run log says which stage it died at ("1 PASS · NO STOP", "STOP SEEN ·
+   NEVER RESUMED"), under which knob values, with the observed activity
+   trace; the status badge flips to "RAN n× · NO FIRE" so a silent test
+   is never mistaken for no test. (Runs land in the `runs` table —
+   re-run `schema.sql` once to create it.)
 6. **Export the algorithm.** **Spec JSON ⇩** on a scenario (or **⇩
    SPECS** in the header for all of them) downloads the machine-readable
    spec: resolved rule, tuned params with their ranges, version history,

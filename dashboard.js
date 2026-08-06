@@ -25,10 +25,12 @@ const esc = s => String(s == null ? '' : s)
 const LS_DEST = 'od_destinations';
 const LS_MSGS = 'od_messages';
 const LS_SCEN = 'od_scenarios';
+const LS_RUNS = 'od_runs';
 
 let scenarios = [];
 let destinations = [];
 let messagesByDest = {};
+let runsByScenario = {};
 let expandedId = null;
 
 /* in-flight UI state for the tuning loop — all per one scenario at a time */
@@ -167,13 +169,29 @@ function tuneDiff(saved, cur) {
 function msgsOf(sc) {
   return (sc.destination_id && messagesByDest[sc.destination_id]) || [];
 }
+const runsOf = sc => runsByScenario[sc.id] || [];
+
+/* Which stage did the run die at? The chip says it outright. */
+function runOutcome(r) {
+  if (r.fired) return { label: 'FIRED ✓', cls: 'ok' };
+  if (r.stop_seen) return { label: 'STOP SEEN · NEVER RESUMED', cls: 'warn' };
+  if (r.passes > 0) return { label: `${r.passes} PASS${r.passes === 1 ? '' : 'ES'} · NO STOP`, cls: 'warn' };
+  return { label: 'NO PASS REGISTERED', cls: 'bad' };
+}
 function statusOf(sc) {
   if (sc.verdict === 'pass') return { key: 'pass', label: 'PASS', rgb: '70,211,154', labelColor: '#7ce0b8', icon: '✓' };
   if (sc.verdict === 'partial') return { key: 'partial', label: 'PARTIAL', rgb: '255,217,94', labelColor: '#ffd95e', icon: '~' };
   if (sc.verdict === 'fail') return { key: 'fail', label: 'FAIL', rgb: '255,120,69', labelColor: '#ffab8a', icon: '✗' };
   if (!sc.destination_id || !destById(sc.destination_id)) return { key: 'nopin', label: 'NEEDS ADDRESS', rgb: '255,217,94', labelColor: '#ffd95e', icon: '?' };
   const n = msgsOf(sc).length;
-  if (!n) return { key: 'ready', label: 'AWAITING TEST', rgb: '255,107,107', labelColor: '#ff9b9b', icon: '▲' };
+  if (!n) {
+    /* runs without a debrief tell their own story — say it, don't hide
+     * it behind "awaiting test" as if nobody had been out there */
+    const runs = runsOf(sc);
+    if (runs.some(r => r.fired)) return { key: 'ready', label: 'FIRED · NO DEBRIEF', rgb: '255,107,107', labelColor: '#ff9b9b', icon: '▲' };
+    if (runs.length) return { key: 'ready', label: `RAN ${runs.length}× · NO FIRE`, rgb: '255,107,107', labelColor: '#ff9b9b', icon: '▲' };
+    return { key: 'ready', label: 'AWAITING TEST', rgb: '255,107,107', labelColor: '#ff9b9b', icon: '▲' };
+  }
   return { key: 'debriefed', label: 'DEBRIEFED · ' + n, rgb: '60,192,224', labelColor: '#7fd6ea', icon: '●' };
 }
 
@@ -252,6 +270,12 @@ async function loadAll() {
       scenarios = [];
       return;
     }
+    runsByScenario = {};
+    try {
+      ((await Backend.listRuns(300)) || []).forEach(r => {
+        if (r.scenario_id) (runsByScenario[r.scenario_id] = runsByScenario[r.scenario_id] || []).push(r);
+      });
+    } catch (e) { warn(e); /* runs table not created yet — the log just stays empty */ }
   } else {
     try { scenarios = JSON.parse(localStorage.getItem(LS_SCEN) || '[]'); } catch { scenarios = []; }
     try { destinations = JSON.parse(localStorage.getItem(LS_DEST) || '[]'); } catch { destinations = []; }
@@ -261,8 +285,16 @@ async function loadAll() {
         if (m.destination_id) (messagesByDest[m.destination_id] = messagesByDest[m.destination_id] || []).push(m);
       });
     } catch { /* private mode */ }
+    runsByScenario = {};
+    try {
+      (JSON.parse(localStorage.getItem(LS_RUNS) || '[]')).forEach(r => {
+        if (r.scenario_id) (runsByScenario[r.scenario_id] = runsByScenario[r.scenario_id] || []).push(r);
+      });
+    } catch { /* private mode */ }
   }
   Object.values(messagesByDest).forEach(list =>
+    list.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))));
+  Object.values(runsByScenario).forEach(list =>
     list.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))));
   scenarios.sort((a, b) =>
     ((a.num == null ? 1e9 : a.num) - (b.num == null ? 1e9 : b.num))
@@ -461,6 +493,36 @@ function renderFeedbackBlock(sc, ver) {
     </div>`;
 }
 
+/* The run log — one row per tracked test, fired or not. Sits under the
+ * debriefs: together they are everything the device saw. */
+function renderRuns(sc) {
+  const runs = runsOf(sc);
+  if (!runs.length) return '';
+  const rows = runs.slice(0, 4).map(r => {
+    const o = runOutcome(r);
+    let tuning = r.tuning;
+    if (typeof tuning === 'string') { try { tuning = JSON.parse(tuning); } catch { tuning = null; } }
+    const tip = tuning ? 'Ran with: ' + Object.entries(tuning).map(([k, v]) => k + '=' + v).join(', ') : '';
+    const durMin = r.started_at && r.ended_at
+      ? Math.max(1, Math.round((new Date(r.ended_at) - new Date(r.started_at)) / 60000)) : null;
+    return `
+      <div class="run-item" title="${esc(tip)}">
+        <div class="fb-meta">
+          <span class="run-chip ${o.cls}">${esc(o.label)}</span>
+          <span class="fb-chip plain">v${esc(r.scenario_version || '?')}${durMin ? ' · ' + durMin + ' MIN' : ''}</span>
+          <span class="msg-time">${esc(fmtTime(r.created_at || r.ended_at))}</span>
+        </div>
+        ${r.ar_summary ? `<div class="msg-ar" title="Activity observed on the device">AR&nbsp;·&nbsp;${esc(r.ar_summary)}</div>` : ''}
+      </div>`;
+  }).join('');
+  return `
+    <div class="runs-block">
+      <span class="cmp-k">Test runs — what the detector saw (hover a run for the knob values it used)</span>
+      ${rows}
+      ${runs.length > 4 ? `<p class="cmp-empty">+ ${runs.length - 4} earlier run${runs.length === 5 ? '' : 's'}</p>` : ''}
+    </div>`;
+}
+
 function renderScenario(sc) {
   const st = statusOf(sc);
   const d = sc.destination_id && destById(sc.destination_id);
@@ -517,6 +579,7 @@ function renderScenario(sc) {
         <div class="cmp-col cmp-heard">
           <h4>WHAT OTTO UNDERSTOOD</h4>
           ${renderMessages(sc)}
+          ${renderRuns(sc)}
         </div>
       </div>
       ${renderFeedbackBlock(sc, ver)}
@@ -598,9 +661,15 @@ async function deleteScenario(sc) {
     destinations = destinations.filter(x => x !== d);
     delete messagesByDest[d.id];
   }
+  delete runsByScenario[sc.id];
   if (Backend.enabled) {
-    Backend.deleteScenario(sc.id).catch(warn);
+    Backend.deleteScenario(sc.id).catch(warn); // runs cascade in SQL
     if (d) Backend.deleteDestination(d.id).catch(warn); // messages cascade in SQL
+  } else {
+    try {
+      localStorage.setItem(LS_RUNS, JSON.stringify(
+        (JSON.parse(localStorage.getItem(LS_RUNS) || '[]')).filter(r => r.scenario_id !== sc.id)));
+    } catch { /* private mode */ }
   }
   if (expandedId === sc.id) expandedId = null;
   persistLocal();
@@ -1202,6 +1271,16 @@ function specOf(sc) {
         demo: !!m.demo,
       };
     }),
+    runs: runsOf(sc).map(r => ({
+      started_at: r.started_at || null,
+      ended_at: r.ended_at || null,
+      scenario_version: r.scenario_version || null,
+      fired: !!r.fired,
+      passes: r.passes || 0,
+      stop_seen: !!r.stop_seen,
+      ar_summary: r.ar_summary || null,
+      tuning: r.tuning || null,
+    })),
   };
 }
 function downloadJson(name, data) {
@@ -1634,7 +1713,7 @@ document.addEventListener('keydown', e => {
     /* local demo mode: the phone app in another tab writes the same
      * localStorage — the storage event keeps this page live */
     window.addEventListener('storage', async e => {
-      if (e.key && ![LS_DEST, LS_MSGS, LS_SCEN].includes(e.key)) return;
+      if (e.key && ![LS_DEST, LS_MSGS, LS_SCEN, LS_RUNS].includes(e.key)) return;
       if (uiBusy()) return;
       await loadAll();
       render();

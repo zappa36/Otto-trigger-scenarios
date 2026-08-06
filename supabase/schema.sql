@@ -76,9 +76,33 @@ alter table public.scenarios add column if not exists feedback jsonb;
 
 create index if not exists scenarios_dest_idx on public.scenarios (destination_id);
 
+-- Every tracked test run, fired or not — the dashboard's run log. A run
+-- where nothing happened used to leave no data at all, and those are
+-- exactly the runs debugging a trigger needs: which stage (pass / stop /
+-- resume) it died at, under which knob values.
+create table if not exists public.runs (
+  id uuid primary key default gen_random_uuid(),
+  scenario_id uuid references public.scenarios (id) on delete cascade,
+  scenario_version integer,           -- the definition the run tested
+  destination_id uuid,                -- the pin at the time (no FK: pin may be re-set)
+  started_at timestamptz,
+  ended_at timestamptz,
+  fired boolean not null default false,
+  fired_at timestamptz,
+  passes integer not null default 0,  -- pass episodes the detector counted
+  stop_seen boolean not null default false,
+  ar_summary text,                    -- "ON_FOOT 4m → STILL 30s → ON_FOOT 1m"
+  ar_trace jsonb,                     -- segments (see activity-rec.js)
+  tuning jsonb,                       -- exact detector values the run used
+  created_at timestamptz not null default now()
+);
+
+create index if not exists runs_scenario_idx on public.runs (scenario_id, created_at desc);
+
 alter table public.destinations enable row level security;
 alter table public.messages enable row level security;
 alter table public.scenarios enable row level security;
+alter table public.runs enable row level security;
 
 -- ------------------------------------------------------------
 -- OPEN PILOT POLICIES (the default in this kit)
@@ -129,6 +153,14 @@ create policy "anyone updates scenarios" on public.scenarios
 drop policy if exists "anyone deletes scenarios" on public.scenarios;
 create policy "anyone deletes scenarios" on public.scenarios
   for delete to anon, authenticated using (true);
+
+drop policy if exists "anyone reads runs" on public.runs;
+create policy "anyone reads runs" on public.runs
+  for select to anon, authenticated using (true);
+
+drop policy if exists "anyone adds runs" on public.runs;
+create policy "anyone adds runs" on public.runs
+  for insert to anon, authenticated with check (true);
 
 -- ------------------------------------------------------------
 -- SIGNED-IN POLICIES
