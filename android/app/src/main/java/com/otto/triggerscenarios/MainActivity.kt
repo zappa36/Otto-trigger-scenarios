@@ -54,6 +54,7 @@ class MainActivity : ComponentActivity() {
         private const val ACTION_AR = "com.otto.triggerscenarios.AR_UPDATE"
         private const val ACTION_AR_TRANSITION = "com.otto.triggerscenarios.AR_TRANSITION"
         private const val PERMISSIONS_REQUEST = 1
+        private const val MIC_REQUEST = 2
         private const val AR_INTERVAL_MS = 2000L
 
         /* Google's DetectedActivity ints -> the names the sheet and the
@@ -74,6 +75,7 @@ class MainActivity : ComponentActivity() {
     private var arReceiver: BroadcastReceiver? = null
     private var arPendingIntent: PendingIntent? = null
     private var arTransitionIntent: PendingIntent? = null
+    private var pendingMicRequest: PermissionRequest? = null // web mic request awaiting the OS dialog
 
     /* ---------- native text-to-speech ----------
      * Android WebViews have NO Web Speech API — speechSynthesis.speak()
@@ -139,14 +141,25 @@ class MainActivity : ComponentActivity() {
                 callback?.invoke(origin, hasPermission(Manifest.permission.ACCESS_FINE_LOCATION), false)
             }
 
-            /* The Otto debrief's getUserMedia — grant the mic when the app has it. */
+            /* The Otto debrief's getUserMedia. A missing OS grant used to be
+             * an instant deny — the widget silently fell to the scripted
+             * demo and testers thought their voice was recorded. Now the
+             * OS dialog is raised on the spot and the web request waits
+             * for its answer. */
             override fun onPermissionRequest(request: PermissionRequest?) {
                 request ?: return
-                val wantsMic = request.resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE)
-                if (wantsMic && hasPermission(Manifest.permission.RECORD_AUDIO)) {
+                if (!request.resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE)) {
+                    request.deny()
+                    return
+                }
+                if (hasPermission(Manifest.permission.RECORD_AUDIO)) {
                     request.grant(arrayOf(PermissionRequest.RESOURCE_AUDIO_CAPTURE))
                 } else {
-                    request.deny()
+                    pendingMicRequest?.deny()
+                    pendingMicRequest = request
+                    ActivityCompat.requestPermissions(
+                        this@MainActivity, arrayOf(Manifest.permission.RECORD_AUDIO), MIC_REQUEST,
+                    )
                 }
             }
         }
@@ -212,6 +225,20 @@ class MainActivity : ComponentActivity() {
         requestCode: Int, permissions: Array<String>, grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == MIC_REQUEST) {
+            /* answer the web's getUserMedia with whatever the dialog said —
+             * a deny here degrades to the labelled scripted demo, as before */
+            val req = pendingMicRequest
+            pendingMicRequest = null
+            if (req != null) {
+                if (hasPermission(Manifest.permission.RECORD_AUDIO)) {
+                    req.grant(arrayOf(PermissionRequest.RESOURCE_AUDIO_CAPTURE))
+                } else {
+                    req.deny()
+                }
+            }
+            return
+        }
         if (requestCode != PERMISSIONS_REQUEST) return
         val arOk = Build.VERSION.SDK_INT < 29 || hasPermission(Manifest.permission.ACTIVITY_RECOGNITION)
         if (arOk) startActivityRecognition()
