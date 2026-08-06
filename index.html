@@ -35,7 +35,9 @@
     .phone { border-radius: 42px; box-shadow: 0 40px 90px rgba(0,0,0,.6), 0 0 0 1px rgba(140,165,200,.14); }
   }
 
-  #map { position: absolute; inset: 0; }
+  /* inset:0, and the kit's recenter button sits under the zoom pair (which
+     starts at 152px) so the three controls read as one column. */
+  #map { position: absolute; inset: 0; --fm-ctl-right: 14px; --fm-ctl-bottom: 101px; }
 
   /* ---------- HUD ---------- */
   .hud {
