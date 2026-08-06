@@ -5,25 +5,25 @@ package com.otto.triggerscenarios
  *
  * A fullscreen WebView loads the deployed web app unchanged. The
  * page's own GPS, mic and wake-lock keep working through the
- * WebChromeClient grants below. What the wrapper adds is the one
- * thing the web cannot have: Google's Activity Recognition API
- * from Play Services. Detected activities are piped into the
- * page through the seam activity-rec.js left open:
+ * WebChromeClient grants below. What the wrapper adds is what the
+ * web cannot have: native detection signals, hosted in a foreground
+ * service (ArEngineService — sampled AR, transition edges, step
+ * detector, significant motion, fused-location speed, Bluetooth car
+ * audio) so state changes land in under ~2 s instead of Play
+ * Services' batched 15–60 s. The service pushes through ArBridge and
+ * this activity forwards into the seams activity-rec.js left open:
  *
  *   ActivityRec.inject('IN_VEHICLE', 92)   // source: 'native'
+ *   ActivityRec.feed({lat, lng, speed})    // fused fixes at 1.5 s
  *
  * Injected states silence the page's own speed+cadence heuristic
  * while fresh, so the trigger detector and the dashboard traces
- * run on Google's states — no web-side changes needed.
+ * run on the native states — no web-side changes needed.
  * ============================================================ */
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.PendingIntent
-import android.content.BroadcastReceiver
-import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -41,40 +41,16 @@ import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.google.android.gms.location.ActivityRecognition
-import com.google.android.gms.location.ActivityRecognitionResult
-import com.google.android.gms.location.ActivityTransition
-import com.google.android.gms.location.ActivityTransitionRequest
-import com.google.android.gms.location.ActivityTransitionResult
-import com.google.android.gms.location.DetectedActivity
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
 
     companion object {
-        private const val ACTION_AR = "com.otto.triggerscenarios.AR_UPDATE"
-        private const val ACTION_AR_TRANSITION = "com.otto.triggerscenarios.AR_TRANSITION"
         private const val PERMISSIONS_REQUEST = 1
         private const val MIC_REQUEST = 2
-        private const val AR_INTERVAL_MS = 2000L
-
-        /* Google's DetectedActivity ints -> the names the sheet and the
-         * web module already speak. */
-        fun typeName(t: Int): String = when (t) {
-            DetectedActivity.IN_VEHICLE -> "IN_VEHICLE"
-            DetectedActivity.ON_BICYCLE -> "ON_BICYCLE"
-            DetectedActivity.ON_FOOT -> "ON_FOOT"
-            DetectedActivity.RUNNING -> "RUNNING"
-            DetectedActivity.STILL -> "STILL"
-            DetectedActivity.TILTING -> "TILTING"
-            DetectedActivity.WALKING -> "WALKING"
-            else -> "UNKNOWN"
-        }
     }
 
     private lateinit var webView: WebView
-    private var arReceiver: BroadcastReceiver? = null
-    private var arPendingIntent: PendingIntent? = null
-    private var arTransitionIntent: PendingIntent? = null
     private var pendingMicRequest: PermissionRequest? = null // web mic request awaiting the OS dialog
 
     /* ---------- native text-to-speech ----------
@@ -212,9 +188,15 @@ class MainActivity : ComponentActivity() {
             Manifest.permission.RECORD_AUDIO,
         )
         if (Build.VERSION.SDK_INT >= 29) wanted.add(Manifest.permission.ACTIVITY_RECOGNITION)
+        /* optional extras for the AR engine — denials degrade per-source:
+         * no notification permission hides the foreground note (the
+         * service still runs); no Bluetooth permission skips the car-audio
+         * shortcut */
+        if (Build.VERSION.SDK_INT >= 33) wanted.add(Manifest.permission.POST_NOTIFICATIONS)
+        if (Build.VERSION.SDK_INT >= 31) wanted.add(Manifest.permission.BLUETOOTH_CONNECT)
         val missing = wanted.filterNot { hasPermission(it) }
         if (missing.isEmpty()) {
-            startActivityRecognition()
+            startArEngine()
             loadAppOnce()
         } else {
             ActivityCompat.requestPermissions(this, missing.toTypedArray(), PERMISSIONS_REQUEST)
@@ -240,70 +222,37 @@ class MainActivity : ComponentActivity() {
             return
         }
         if (requestCode != PERMISSIONS_REQUEST) return
-        val arOk = Build.VERSION.SDK_INT < 29 || hasPermission(Manifest.permission.ACTIVITY_RECOGNITION)
-        if (arOk) startActivityRecognition()
+        startArEngine() // per-source permission checks live in the service
         /* now the page's first geolocation request sees the real grants
          * (denied grants degrade gracefully in the page) */
         loadAppOnce()
     }
 
-    /* ---------- the real Activity Recognition API ---------- */
-    @SuppressLint("MissingPermission", "UnspecifiedRegisterReceiverFlag")
-    private fun startActivityRecognition() {
-        if (arReceiver != null) return
-
-        arReceiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context?, intent: Intent?) {
-                intent ?: return
-                /* Transition events are the fast, pre-debounced edges —
-                 * inject them the moment they land. The sampled updates
-                 * keep confidence fresh between edges. */
-                if (ActivityTransitionResult.hasResult(intent)) {
-                    val last = ActivityTransitionResult.extractResult(intent)
-                        ?.transitionEvents?.lastOrNull() ?: return
-                    inject(typeName(last.activityType), 95)
-                    return
-                }
-                if (!ActivityRecognitionResult.hasResult(intent)) return
-                val most = ActivityRecognitionResult.extractResult(intent)
-                    ?.mostProbableActivity ?: return
-                inject(typeName(most.type), most.confidence)
-            }
-        }
-        val filter = IntentFilter().apply {
-            addAction(ACTION_AR)
-            addAction(ACTION_AR_TRANSITION)
-        }
-        ContextCompat.registerReceiver(this, arReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
-
-        val flags = PendingIntent.FLAG_UPDATE_CURRENT or
-            (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0)
-        arPendingIntent = PendingIntent.getBroadcast(
-            this, 0, Intent(ACTION_AR).setPackage(packageName), flags,
-        )
-        ActivityRecognition.getClient(this)
-            .requestActivityUpdates(AR_INTERVAL_MS, arPendingIntent!!)
-
-        /* enter-edges for every type the Transition API supports
-         * (ON_FOOT deliberately absent — it is not a valid transition type) */
-        val transitions = listOf(
-            DetectedActivity.IN_VEHICLE, DetectedActivity.ON_BICYCLE,
-            DetectedActivity.WALKING, DetectedActivity.RUNNING, DetectedActivity.STILL,
-        ).map {
-            ActivityTransition.Builder()
-                .setActivityType(it)
-                .setActivityTransition(ActivityTransition.ACTIVITY_TRANSITION_ENTER)
-                .build()
-        }
-        arTransitionIntent = PendingIntent.getBroadcast(
-            this, 1, Intent(ACTION_AR_TRANSITION).setPackage(packageName), flags,
-        )
-        ActivityRecognition.getClient(this)
-            .requestActivityTransitionUpdates(ActivityTransitionRequest(transitions), arTransitionIntent!!)
+    /* ---------- the AR engine (ArEngineService) ---------- */
+    private fun startArEngine() {
+        /* an Android-14 foreground service of type "location" may only
+         * start once location is actually granted — without it the page
+         * falls back to its own web heuristic, as always */
+        if (!hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)) return
+        ArBridge.onState = { state, conf -> injectState(state, conf) }
+        ArBridge.onFix = { lat, lng, speed, acc -> feedFix(lat, lng, speed, acc) }
+        ContextCompat.startForegroundService(this, Intent(this, ArEngineService::class.java))
     }
 
-    private fun inject(state: String, confidence: Int) {
-        val js = "window.ActivityRec&&ActivityRec.inject('$state',$confidence)"
+    private fun injectState(state: String, conf: Int) {
+        val js = if (state.isEmpty()) "window.ActivityRec&&ActivityRec.inject(null)"
+        else "window.ActivityRec&&ActivityRec.inject('$state',$conf)"
+        runOnUiThread { webView.evaluateJavascript(js, null) }
+    }
+
+    private fun feedFix(lat: Double, lng: Double, speed: Float, acc: Float) {
+        /* Locale.US: a comma decimal separator would break the JS literal */
+        val sp = if (speed < 0f) "null" else String.format(Locale.US, "%.2f", speed)
+        val js = String.format(
+            Locale.US,
+            "window.ActivityRec&&ActivityRec.feed({lat:%.6f,lng:%.6f,speed:%s,acc:%.1f})",
+            lat, lng, sp, acc,
+        )
         runOnUiThread { webView.evaluateJavascript(js, null) }
     }
 
@@ -311,12 +260,11 @@ class MainActivity : ComponentActivity() {
         tts?.stop()
         tts?.shutdown()
         tts = null
-        try {
-            arPendingIntent?.let { ActivityRecognition.getClient(this).removeActivityUpdates(it) }
-            arTransitionIntent?.let { ActivityRecognition.getClient(this).removeActivityTransitionUpdates(it) }
-        } catch (_: SecurityException) { /* permission got revoked */ }
-        arReceiver?.let { unregisterReceiver(it) }
-        arReceiver = null
+        /* the engine lives for the app, not beyond it — detach the bridge
+         * first so a straggling push cannot reach a dead WebView */
+        ArBridge.onState = null
+        ArBridge.onFix = null
+        stopService(Intent(this, ArEngineService::class.java))
         super.onDestroy()
     }
 }
