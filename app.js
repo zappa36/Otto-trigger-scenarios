@@ -192,6 +192,13 @@ function detectorStep(snap) {
     if (!tr.stopped && tr.passes >= cfg.passesNeeded && dwell >= cfg.stopDwellMs) {
       tr.stopped = true;
       updateCardTrack();
+      /* A resume gate at or below the standing gate is no gate at all —
+       * fire AT the stop. Walking debriefs want this: the smoothed speed
+       * of someone standing still never reaches even 0.5 m/s (run log
+       * 2026-08-06 12:53 proved it), so "wait for movement" would hold
+       * Otto silent forever. Driving scenarios keep resume_speed above
+       * stop_speed and behave as before. */
+      if (!tr.fired && cfg.resumeSpeed <= cfg.stopSpeed) fireTrigger(t);
     }
   } else {
     tr.stillStart = null;
