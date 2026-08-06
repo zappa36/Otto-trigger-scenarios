@@ -221,13 +221,44 @@ function detectorStep(snap) {
   }
 }
 
+/* ---------- hands-free debrief ----------
+ * A fired trigger opens Otto by itself: buzz, the question spoken ALOUD
+ * (speechSynthesis — built into the browser, keyless), and the mic
+ * starts listening the moment the question ends. The tester's only tap
+ * is the one that finishes their answer. No banner to notice, no
+ * screen to find — the whole point of a trigger is that Otto comes to
+ * you. */
+function speakThen(text, done) {
+  let called = false;
+  const finish = () => { if (!called) { called = true; done(); } };
+  try {
+    if (!('speechSynthesis' in window) || !text) { setTimeout(finish, 1200); return; }
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'en-US';
+    u.onend = finish;
+    u.onerror = finish;
+    speechSynthesis.speak(u);
+    /* some WebViews never fire onend — cap the wait by text length */
+    setTimeout(finish, Math.min(20000, 2500 + text.length * 90));
+  } catch { setTimeout(finish, 1200); }
+}
+
 function fireTrigger(t) {
   tracking.fired = true;
   tracking.firedAt = t;
-  el('tb-text').textContent = `${scenarioShort(tracking.sc)} — tap to answer Otto.`;
-  el('trigger-banner').hidden = false;
   if (navigator.vibrate) navigator.vibrate([120, 60, 120]);
   updateCardTrack();
+  const sc = tracking.sc;
+  openOtto(tracking.d);
+  speakThen(sc && sc.otto_says ? stripQuotes(sc.otto_says) : 'What did you find?', () => {
+    if (el('otto-screen').hidden) return; // they backed out while Otto was talking
+    /* live mode only: auto-tap the widget's own mic. The scripted demo
+     * paces itself, and a demo that pretends to listen teaches wrong. */
+    if (!voice.live) return;
+    const mic = document.querySelector('#otto .vn-mic');
+    if (mic && !mic.hidden) mic.click();
+  });
 }
 
 function updateArChip(snap) {
@@ -483,6 +514,7 @@ function openOtto(d) {
 
 function closeOtto() {
   voice.stop();
+  try { if ('speechSynthesis' in window) speechSynthesis.cancel(); } catch { /* optional */ }
   el('otto-screen').hidden = true;
   if (current) openCard(current); // back to the card, now with the new message
 }
