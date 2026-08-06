@@ -3,6 +3,11 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
+// CI passes -PbuildNumber=<workflow run number>, so the app version
+// matches the Actions run that built it ("1.7" = run #7). Local builds
+// are "1.dev".
+def buildNumber = String.valueOf(project.findProperty('buildNumber') ?: 'dev')
+
 android {
     namespace 'com.otto.triggerscenarios'
     compileSdk 34
@@ -11,8 +16,8 @@ android {
         applicationId "com.otto.triggerscenarios"
         minSdk 26
         targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        versionCode buildNumber.isInteger() ? buildNumber.toInteger() : 1
+        versionName "1.${buildNumber}"
     }
 
     /* A committed debug keystore (standard Android debug credentials —

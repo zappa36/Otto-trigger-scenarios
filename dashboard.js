@@ -172,6 +172,7 @@ function renderStats() {
   if (by.partial) verdicts.push(`${by.partial} partial`);
   if (by.fail) verdicts.push(`${by.fail} fail`);
   if (verdicts.length) parts.push(verdicts.join(' / '));
+  parts.push('build ' + window.BUILD);
   el('stats').textContent = parts.join(' · ');
 }
 

@@ -461,6 +461,17 @@ Geo.on(snap => {
   if (!el('card').hidden) updateCardDistance();
 });
 
+/* ---------- version chip ----------
+ * Web build is stamped at deploy time; the Android wrapper injects its
+ * own version after the page loads, so the chip shows both channels:
+ * "V 250806.1432-c05ebe0 · APP 1.7". */
+const renderBuild = () => {
+  el('build').textContent = 'V ' + window.BUILD
+    + (window.WRAPPER_VERSION ? ' · APP ' + window.WRAPPER_VERSION : '');
+};
+window.__setWrapperVersion = v => { window.WRAPPER_VERSION = String(v); renderBuild(); };
+renderBuild();
+
 /* ---------- boot ---------- */
 el('gps').onclick = () => Geo.locate();
 el('zoom-in').onclick = () => { const g = map.map; if (g) g.setZoom(Math.min(20, (g.getZoom() || 17) + 1)); };

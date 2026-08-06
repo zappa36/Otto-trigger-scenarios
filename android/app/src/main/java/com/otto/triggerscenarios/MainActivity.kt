@@ -122,6 +122,17 @@ class MainActivity : ComponentActivity() {
                 startActivity(Intent(Intent.ACTION_VIEW, url))
                 return true
             }
+
+            /* tell the page which wrapper build it lives in — shown in
+             * the version chip next to the web build stamp */
+            override fun onPageFinished(view: WebView?, url: String?) {
+                val ver = try {
+                    packageManager.getPackageInfo(packageName, 0).versionName ?: "?"
+                } catch (_: Exception) { "?" }
+                view?.evaluateJavascript(
+                    "window.__setWrapperVersion&&__setWrapperVersion('$ver')", null,
+                )
+            }
         }
 
         /* The page is loaded only after the permission dialog settles —
