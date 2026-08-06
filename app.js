@@ -614,6 +614,28 @@ el('card-otto').onclick = () => current && openOtto(current);
 el('card-remove').onclick = removeCurrent;
 el('otto-back').onclick = closeOtto;
 
+/* ↻ — pull fresh scenarios, pins and debriefs without reloading the
+ * page. The dashboard cuts new versions mid-session; testers were
+ * walking stale definitions without knowing. */
+el('reload').onclick = async () => {
+  const chip = el('reload');
+  if (chip.dataset.busy) return;
+  chip.dataset.busy = '1';
+  chip.textContent = '…';
+  try {
+    await boot();
+    /* keep whatever is open pointing at the fresh objects */
+    if (current && el('otto-screen').hidden) {
+      const d = destinations.find(x => x.id === current.id);
+      if (d) { current = d; if (!el('card').hidden) openCard(d); }
+      else { el('card').hidden = true; current = null; } // deleted on the dashboard
+    }
+  } finally {
+    delete chip.dataset.busy;
+    chip.textContent = '↻';
+  }
+};
+
 /* activity recognition + test tracking */
 el('ar').onclick = () => {
   if (tracking) { stopTracking(); return; }
@@ -638,6 +660,10 @@ el('tb-close').onclick = e => {
 };
 
 async function boot() {
+  /* boot doubles as reload (the ↻ chip) — start from a clean slate or
+   * every re-run would stack the same messages onto the lists again */
+  Object.keys(messagesByDest).forEach(k => delete messagesByDest[k]);
+  reportedIds.clear();
   if (Backend.enabled) {
     try {
       destinations = (await Backend.listDestinations()) || [];
