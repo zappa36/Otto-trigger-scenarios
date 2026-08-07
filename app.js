@@ -76,6 +76,13 @@ const TRIG = {
   stopDwellMs: 45e3,  // ms — standing this long near the pin is THE stop
   stopRadius: 250,    // m — where that stop may happen
   resumeSpeed: 3,     // m/s — moving again afterwards = back in the car -> fire
+  /* park-and-walk shape (selected by an arrival_radius param): park the
+   * vehicle near the pin, walk the rest, fire on arrival — measuring
+   * parking position vs walking distance */
+  parkRadiusMax: 400, // m — a vehicle stop this close to the pin counts as parking for it
+  parkStopMs: 30e3,   // ms — vehicle standing this long = parked (fallback when the AR flip lags)
+  arrivalRadius: 25,  // m — on foot this close to the pin = arrived
+  minWalkM: 50,       // m — a shorter walk is not worth a question
 };
 /* dashboard param key -> [TRIG field, factor] (dashboard stores seconds,
  * the detector runs on milliseconds) */
@@ -89,7 +96,15 @@ const TRIG_PARAM_KEYS = {
   stop_dwell_s: ['stopDwellMs', 1000],
   stop_radius: ['stopRadius', 1],
   resume_speed: ['resumeSpeed', 1],
+  park_radius_max: ['parkRadiusMax', 1],
+  park_stop_s: ['parkStopMs', 1000],
+  arrival_radius: ['arrivalRadius', 1],
+  min_walk_m: ['minWalkM', 1],
 };
+/* Which detector shape a scenario runs: an arrival_radius param selects
+ * park-and-walk; everything else keeps the pass→stop→resume pipeline. */
+const scenarioShape = sc =>
+  ((sc && Array.isArray(sc.params) && sc.params.some(p => p && p.key === 'arrival_radius')) ? 'parkwalk' : 'passstop');
 function trigOf(sc) {
   const t = { ...TRIG };
   (sc && Array.isArray(sc.params) ? sc.params : []).forEach(p => {
@@ -122,9 +137,12 @@ function startTracking(sc, d) {
   } catch { /* optional */ }
   ActivityRec.start();
   tracking = {
-    sc, d, trig: trigOf(sc), startedAt: Date.now(),
+    sc, d, trig: trigOf(sc), shape: scenarioShape(sc), startedAt: Date.now(),
     passes: 0, inside: false, insideMaxStill: 0, insideSpeedSum: 0, insideN: 0,
     stillStart: null, stopped: false, resumeN: 0, fired: false, firedAt: null,
+    /* park-and-walk shape */
+    sawVehicle: false, lastVehicleFix: null, vehicleStillSince: null,
+    parkedAt: null, walkM: 0, lastWalkFix: null,
   };
   acquireWakeLock();
   updateArChip(ActivityRec.snapshot);
@@ -151,7 +169,17 @@ function saveRunLog() {
     passes: tr.passes,
     stop_seen: !!tr.stopped,
     ar_summary: ActivityRec.summary(tr.startedAt) || null,
-    ar_trace: { source: ActivityRec.snapshot.source, segments: ActivityRec.segments(tr.startedAt) },
+    ar_trace: {
+      source: ActivityRec.snapshot.source,
+      segments: ActivityRec.segments(tr.startedAt),
+      ...(tr.shape === 'parkwalk' ? {
+        parkwalk: {
+          parked_at: tr.parkedAt ? { lat: tr.parkedAt.lat, lng: tr.parkedAt.lng } : null,
+          park_distance_m: tr.parkedAt ? Math.round(distM(tr.parkedAt, tr.d)) : null,
+          walk_m: Math.round(tr.walkM),
+        },
+      } : {}),
+    },
     tuning: {
       radius: tr.trig.radius,
       exit_radius: tr.trig.exitRadius,
@@ -185,7 +213,76 @@ function stopTracking() {
   updateCardTrack();
 }
 
+/* ---------- park-and-walk detector ----------
+ * Measures the relationship a single stop cannot: where the vehicle was
+ * left vs how far the tester walked to the pin. The IN_VEHICLE→on-foot
+ * flip (near-instant since the native AR engine) marks the parking
+ * spot; a sustained vehicle standstill is the fallback for a lagging
+ * flip. The on-foot leg accumulates until arrival at the pin — and only
+ * then does Otto speak, because only then is the walking distance a
+ * fact he can quote ({park_m}/{walk_m} in the scenario's question). */
+function parkWalkStep(snap) {
+  const tr = tracking;
+  const cfg = tr.trig;
+  const t = snap.t || Date.now();
+  const sp = snap.speed;
+  const pos = snap.position;
+  const dPin = distM(pos, tr.d);
+  const inVehicle = snap.state === 'IN_VEHICLE' || sp >= 4;
+
+  if (inVehicle) {
+    tr.sawVehicle = true;
+    tr.lastVehicleFix = { lat: pos.lat, lng: pos.lng, t };
+    /* rolling again after a "park" with no real walk = that was traffic
+     * (a light, a queue), not parking */
+    if (tr.parkedAt && !tr.fired && tr.walkM < 20) {
+      tr.parkedAt = null;
+      tr.walkM = 0;
+      tr.lastWalkFix = null;
+    }
+    /* fallback park: the vehicle standing long enough inside the park
+     * ring, even before any on-foot flip is seen */
+    if (!tr.parkedAt && sp <= cfg.stopSpeed && dPin <= cfg.parkRadiusMax && dPin > cfg.arrivalRadius) {
+      if (!tr.vehicleStillSince) tr.vehicleStillSince = t;
+      if (t - tr.vehicleStillSince >= cfg.parkStopMs) {
+        tr.parkedAt = { lat: pos.lat, lng: pos.lng, t };
+        updateCardTrack();
+      }
+    } else if (sp > cfg.stopSpeed) {
+      tr.vehicleStillSince = null;
+    }
+    updateCardTrack();
+    return;
+  }
+
+  /* on foot (or at least: no longer a vehicle) */
+  if (!tr.parkedAt && tr.sawVehicle) {
+    const at = tr.lastVehicleFix || { lat: pos.lat, lng: pos.lng, t };
+    const dPark = distM(at, tr.d);
+    if (dPark <= cfg.parkRadiusMax && dPark > cfg.arrivalRadius) {
+      tr.parkedAt = { lat: at.lat, lng: at.lng, t };
+      tr.walkM = 0;
+      tr.lastWalkFix = null;
+      updateCardTrack();
+    }
+  }
+  if (!tr.parkedAt || tr.fired) return;
+
+  /* accumulate the walked path, GPS jumps filtered out */
+  if (tr.lastWalkFix) {
+    const seg = distM(tr.lastWalkFix, pos);
+    if (seg > 1 && seg < 60) tr.walkM += seg;
+  }
+  tr.lastWalkFix = { lat: pos.lat, lng: pos.lng };
+  updateCardTrack();
+
+  /* arrival: at the pin, on foot, having genuinely walked */
+  const walked = Math.max(tr.walkM, distM(tr.parkedAt, pos));
+  if (dPin <= cfg.arrivalRadius && walked >= cfg.minWalkM) fireTrigger(t);
+}
+
 function detectorStep(snap) {
+  if (tracking.shape === 'parkwalk') { parkWalkStep(snap); return; }
   const tr = tracking;
   const cfg = tr.trig; // the scenario's tuned values (TRIG defaults otherwise)
   const t = snap.t || Date.now();
@@ -273,6 +370,15 @@ function speakThen(text, done) {
   } catch { setTimeout(finish, 1200); }
 }
 
+/* {park_m} / {walk_m} in a scenario's "Otto says" become the actual
+ * measured distances of THIS run — Otto quotes what he saw. */
+function resolveSays(text) {
+  const tr = tracking;
+  return String(text)
+    .replace(/\{park_m\}/g, tr && tr.parkedAt ? String(Math.round(distM(tr.parkedAt, tr.d))) : 'some')
+    .replace(/\{walk_m\}/g, tr ? String(Math.round(tr.walkM)) : 'some');
+}
+
 function fireTrigger(t) {
   tracking.fired = true;
   tracking.firedAt = t;
@@ -280,7 +386,7 @@ function fireTrigger(t) {
   updateCardTrack();
   const sc = tracking.sc;
   openOtto(tracking.d);
-  speakThen(sc && sc.otto_says ? stripQuotes(sc.otto_says) : 'What did you find?', () => {
+  speakThen(sc && sc.otto_says ? resolveSays(stripQuotes(sc.otto_says)) : 'What did you find?', () => {
     if (el('otto-screen').hidden) return; // they backed out while Otto was talking
     /* live mode only: auto-tap the widget's own mic. The scripted demo
      * paces itself, and a demo that pretends to listen teaches wrong. */
@@ -317,6 +423,14 @@ function updateCardTrack() {
   btn.textContent = isThis ? '■ Stop tracking' : '▶ Start test tracking';
   if (!sc || !isThis) { line.textContent = tracking || !sc ? '' : 'GPS + activity are recorded while tracking'; return; }
   const tr = tracking;
+  if (tr.shape === 'parkwalk') {
+    const bits = tr.fired ? ['TRIGGER FIRED']
+      : tr.parkedAt ? [`PARKED ${fmtDist(distM(tr.parkedAt, tr.d))} FROM PIN`, `WALKED ${Math.round(tr.walkM)} M`]
+      : tr.sawVehicle ? ['DRIVING — PARK TO CONTINUE']
+      : ['WAITING FOR THE DRIVE'];
+    line.textContent = 'TRACKING · ' + bits.join(' · ');
+    return;
+  }
   const bits = [`${tr.passes} SLOW PASS${tr.passes === 1 ? '' : 'ES'}`];
   if (tr.fired) bits.push('TRIGGER FIRED');
   else if (tr.stopped) bits.push('STOP SEEN — DRIVE ON TO FIRE');
@@ -389,6 +503,10 @@ function arExtras() {
           scenario_version: tracking.sc.version || 1,
           passes: tracking.passes,
           stopped: !!tracking.stopped,
+          ...(tracking.shape === 'parkwalk' && tracking.parkedAt ? {
+            park_distance_m: Math.round(distM(tracking.parkedAt, tracking.d)),
+            walk_m: Math.round(tracking.walkM),
+          } : {}),
           fired_at: tracking.firedAt ? new Date(tracking.firedAt).toISOString() : null,
           tuning: {
             radius: tracking.trig.radius,
@@ -494,7 +612,7 @@ const voiceOpts = () => {
     greeting: () => {
       const s = scenarioOf(current);
       /* the sheet's "Otto says" column IS the debrief opener */
-      if (s && s.otto_says) return stripQuotes(s.otto_says);
+      if (s && s.otto_says) return resolveSays(stripQuotes(s.otto_says));
       return current
         ? `This is ${current.title}${current.addr ? ' — ' + current.addr : ''}. What's the situation there? Tap the mic and describe what you see.`
         : 'Tap the mic and tell me what you found.';
