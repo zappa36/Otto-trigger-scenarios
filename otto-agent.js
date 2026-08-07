@@ -49,6 +49,13 @@
 const OttoAgent = (() => {
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+  /* ElevenLabs v3 voices take inline stage directions — "[happy]
+   * Goodbye!", "[laughs]" — which the TTS performs and the official
+   * widget hides from the transcript. Hide them the same way, on screen
+   * and in the stored conversation: they are delivery notes, not words
+   * anyone said. */
+  const stripAudioTags = s => String(s).replace(/\[[^\][]{1,40}\]/g, ' ').replace(/\s{2,}/g, ' ').trim();
+
   /* Same chrome as the voice-note kit — the widget file is used verbatim
    * and exports none of this, so the handful of shared constants are
    * repeated rather than the kit edited. The CSS is the kit's. */
@@ -284,7 +291,8 @@ const OttoAgent = (() => {
     }
     const chip = text => { ui.chip.textContent = text; ui.chip.hidden = false; };
     const say = (from, text) => {
-      if (!String(text || '').trim()) return;
+      if (from === 'ai') text = stripAudioTags(text);
+      if (!String(text || '').trim()) return; // a line that was ONLY a stage direction
       state.turns.push({ from, text: String(text).trim(), at: new Date().toISOString() });
       state.lastVoice = Date.now();
       render({ from, text }, from === 'ai' ? 'speaking' : 'listening');
@@ -504,9 +512,9 @@ const OttoAgent = (() => {
             case 'agent_response_correction': {
               /* the agent was cut off — what it actually got to say is
                * what the record should hold */
-              const c = (d.agent_response_correction_event || {}).corrected_agent_response;
+              const c = stripAudioTags((d.agent_response_correction_event || {}).corrected_agent_response || '');
               const last = state.turns[state.turns.length - 1];
-              if (c && last && last.from === 'ai') { last.text = String(c); render({ from: 'ai', text: last.text }); }
+              if (c && last && last.from === 'ai') { last.text = c; render({ from: 'ai', text: last.text }); }
               break;
             }
             case 'interruption':
