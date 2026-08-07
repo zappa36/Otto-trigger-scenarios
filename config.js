@@ -16,7 +16,9 @@
  *   2. GMAPS_BROWSER_KEY — live Google map tiles + house-number
  *      address search,
  *   3. an OpenAI key — as the voice-note Edge Function's secret,
- *      so Otto really transcribes; it never reaches the browser.
+ *      so Otto really transcribes; it never reaches the browser,
+ *   4. ELEVENLABS_AGENT_ID — Otto becomes a live conversation with
+ *      your own ElevenLabs agent instead of one clip at a time.
  * (The anon key and the Maps key are public in the browser by
  * design — RLS and key restrictions are the protection. The
  * env-var path keeps them out of the git history.)
@@ -31,6 +33,24 @@ if (String(window.SUPABASE_ANON_KEY).slice(0, 2) === '__') window.SUPABASE_ANON_
 window.GEOCODE_FN = 'geocode';
 window.VOICE_FN = 'voice-note';
 window.SCENARIO_AI_FN = 'scenario-ai';
+window.ELEVENLABS_TOKEN_FN = 'elevenlabs-token';
+
+/* ElevenLabs Conversational AI agent — Otto as a real conversation
+ * instead of one recorded clip at a time (otto-agent.js). Injected at
+ * deploy time from the ELEVENLABS_AGENT_ID env var.
+ *
+ * The agent id is NOT a secret: a public agent connects with it alone
+ * from the browser, which is how conversational widgets work everywhere.
+ * A PRIVATE agent additionally needs the elevenlabs-token Edge Function
+ * (holding the ELEVENLABS_API_KEY secret) to sign each conversation —
+ * the API key never reaches a phone either way.
+ *
+ * Empty -> Otto stays the recorded debrief; everything still runs.
+ * Quick test without deploying: open any page with ?agent=AGENT_ID
+ * (and ?noagent=1 forces the recorded debrief back). */
+window.ELEVENLABS_AGENT_ID = '__ELEVENLABS_AGENT_ID__';
+if (String(window.ELEVENLABS_AGENT_ID).slice(0, 2) === '__') window.ELEVENLABS_AGENT_ID = '';
+window.OTTO_AGENT = 'auto'; /* 'off' pins every debrief to the recorder */
 
 /* Table Otto's structured messages are written to. */
 window.VOICE_TABLE = 'messages';

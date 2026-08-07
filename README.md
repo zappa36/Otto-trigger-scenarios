@@ -8,7 +8,10 @@ On top of that loop sits a second surface,
 [`dashboard.html`](dashboard.html): define **Otto trigger scenarios**
 (straight out of the deck's "Otto triggers" sheet), give each one a clear
 Google-Maps address, send a tester out to act it out, and compare what
-Otto understood with what the scenario said should happen.
+Otto understood with what the scenario said should happen. Point
+`ELEVENLABS_AGENT_ID` at your own agent and Otto stops being a recorder
+and becomes a conversation — [with the scenario as its
+context](#otto-as-your-elevenlabs-agent).
 
 This is the original
 [driversense_rewards](https://github.com/zappa36/driversense_rewards)
@@ -149,6 +152,81 @@ with the "What Otto learns" column, and point `ASSISTANT_BRIEF` at
 trigger debriefs — `scenario-ai` reads `NOTE_CATEGORIES` too, so drafted
 scenarios expect tip types Otto can actually file.
 
+## Otto as your ElevenLabs agent
+
+A one-shot voice note cannot ask a follow-up, and a trigger scenario is
+exactly the situation where the follow-up is the point ("you circled
+twice and then parked 200 m away — what stopped you getting closer?").
+Point the app at an [ElevenLabs Conversational
+AI](https://elevenlabs.io/docs/agents-platform/overview) agent and the
+debrief becomes a real conversation: the agent's voice out, the phone's
+mic in, both interruptible, ended by the tester or by the agent.
+
+Set one environment variable and redeploy:
+
+| Variable | Where | What |
+|---|---|---|
+| `ELEVENLABS_AGENT_ID` | Vercel env vars | your agent's id — that is the whole setup for a **public** agent |
+| `ELEVENLABS_API_KEY` | the `elevenlabs-token` function's secrets | only for a **private** agent; the key never reaches a phone |
+
+Then deploy
+[`elevenlabs-token`](supabase/functions/elevenlabs-token/index.ts) if the
+agent is private (same `ALLOWED_ORIGINS` secret as the others; set
+`ELEVENLABS_AGENT_ID` on it too and the function can only ever sign
+conversations for that one agent), and re-run
+[`schema.sql`](supabase/schema.sql) for the two columns that hold the
+conversation. Quick test without deploying anything: open the phone page
+with `?agent=YOUR_AGENT_ID` (and `?noagent=1` forces the recorded
+debrief back). The mic self-test behind the version chip names which
+Otto the phone will actually open.
+
+**The scenario is what the agent is told about**, in three layers, so it
+works whether or not the agent's prompt was written for this app:
+
+1. **Dynamic variables** — reference them in your prompt as
+   `{{scenario_rule}}`, `{{expected_tip_type}}`, `{{park_distance_m}}`
+   and so on. The full set is `destination_title`,
+   `destination_address`, `destination_lat/lng`, `scenario_num`,
+   `scenario_title`, `scenario_version`, `scenario_question`,
+   `scenario_rule`, `scenario_ar_states`, `scenario_signals`,
+   `scenario_timing`, `scenario_test_steps`, `expected_tip_type`,
+   `trigger_fired`, `trigger_passes`, `trigger_stopped`,
+   `park_distance_m`, `walk_m`, `distance_to_pin_m`, `activity_state`,
+   `activity_summary`. Rules arrive with their tuned numbers already
+   filled in, and every measurement is what *this* run measured.
+2. **A contextual update** — the same briefing in plain sentences, sent
+   as the conversation opens, so an agent whose prompt names none of
+   those variables still knows which test just fired.
+3. **The first message** — the sheet's "Otto says" column, verbatim.
+   This is the *only* override sent: your prompt, voice, tools and
+   knowledge base are left exactly as you built them. (It needs
+   "first message" enabled under the agent's security → overrides
+   settings; if it is not, the session reconnects once without it and
+   the agent opens in its own words.)
+
+What comes back is the same debrief as before: the tester's side of the
+conversation is the transcript, structured into the same title +
+category the dashboard matches against the expected tip type, filed
+against the pin, flipping it green. The dashboard marks it `◆ AGENT` and
+carries the whole exchange turn by turn under **the conversation** —
+what Otto had to *ask* to get the answer is half of what a trigger
+scenario is being tested for, and it rides along into the exported
+spec JSON.
+
+Everything degrades the way the rest of the kit does. No agent id → the
+recorded debrief, unchanged. Agent configured but unreachable → the
+conversation hands over to the recorded debrief in place, mid-screen,
+and a fired trigger still gets its spoken question. No Supabase → the
+conversation still runs (the agent id is a browser credential by
+design); only the structuring and the shared row are missing, and the
+debrief is saved locally with its own first sentence as the title.
+
+Two things it does on purpose: it asks for the microphone at **"Start
+test tracking"**, not when the trigger fires — a permission dialog
+raised in traffic is a debrief lost — and it ends a conversation by
+itself after five minutes, or ninety seconds of silence, because both
+ends of that wire are metered by the minute.
+
 ## Activity recognition (and the Google AR API)
 
 The deck's trigger rules are written against
@@ -201,7 +279,10 @@ keeps a seam open for the real one:
   question out loud (browser speech synthesis, keyless) and starts
   listening the moment he finishes; the answer sends itself after a
   clear pause (say "stop" and fall quiet, or just pause) and Otto
-  speaks his reply too — a fully hands-free debrief. The thresholds sit in one `TRIG` block at the
+  speaks his reply too — a fully hands-free debrief. With an
+  [ElevenLabs agent configured](#otto-as-your-elevenlabs-agent) the same
+  fired trigger opens a live conversation instead, in your agent's own
+  voice, and the follow-ups are real. The thresholds sit in one `TRIG` block at the
   top of `app.js` — the deck calls them drafts to tune, and tuned they
   are: a scenario's params (the dashboard's sliders) override any of
   them per test run, `TRIG` is only the fallback. The card shows live
@@ -259,7 +340,10 @@ never carries them.
    search + street names; needs `GMAPS_SERVER_KEY`) and
    [`scenario-ai`](supabase/functions/scenario-ai/index.ts) (the
    dashboard's describe→draft and feedback→new-version loop; shares
-   `OPENAI_API_KEY`). Set `ALLOWED_ORIGINS` on all three. Optional
+   `OPENAI_API_KEY`) — plus
+   [`elevenlabs-token`](supabase/functions/elevenlabs-token/index.ts) if
+   Otto is a private ElevenLabs agent (see above; a public agent needs
+   no function at all). Set `ALLOWED_ORIGINS` on all of them. Optional
    persona tuning via `ASSISTANT_NAME`, `ASSISTANT_BRIEF`,
    `NOTE_CATEGORIES` — e.g.:
 
@@ -303,6 +387,7 @@ word). Everything else is the kit as extracted:
 | `field-map-kit` | `geolocate.js`, `field-map.js`, `field-map.css`, `supabase/functions/geocode/` | Position + live map |
 | new | `app.js`, `index.html`, `backend.js`, `config.js`, `supabase/schema.sql` | Destinations, the card, the wiring |
 | new | `dashboard.html`, `dashboard.js`, `supabase/functions/scenario-ai/` | Trigger scenarios: define, pin, compare, verdict — and the tuning loop (draft, sliders, feedback, versions, spec export) |
+| new | `otto-agent.js`, `supabase/functions/elevenlabs-token/` | Otto as your own ElevenLabs agent: the same debrief as a live conversation, with the scenario as its context |
 
 The dashboard composes through the same seams: `FieldMap.mount` draws the
 scenario pins (status as `color`/`icon`), `Geo.simulate` centres the
@@ -346,6 +431,7 @@ The composition happens entirely through the kits' public seams:
 |---|---|
 | `index.html` | Phone shell: map, HUD, card, Otto screen (pins come from the dashboard) |
 | `app.js` | Destinations, messages, the card, Otto wiring |
+| `otto-agent.js` | Otto as a live ElevenLabs agent conversation — the kit's mount seams over a WebSocket, with the scenario as its context |
 | `dashboard.html` | Desktop shell: scenario list, map, form / address / import sheets |
 | `dashboard.js` | Trigger scenarios: CRUD, describe→draft, tunable-value sliders, voice feedback → proposed versions, history, spec export, Excel paste-import, address pinning, compare + verdict |
 | `activity-rec.js` | Google-AR-style activity states from web signals; `inject()`/`feed()` seams for the real Android API |
@@ -354,5 +440,5 @@ The composition happens entirely through the kits' public seams:
 | `vercel.json`, `scripts/vercel-build.sh` | Deploy-time injection of `GMAPS_BROWSER_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY` |
 | `voice-note.js/.css` | from voice-notes-kit + hands-free pause-to-send |
 | `geolocate.js`, `field-map.js/.css` | verbatim from field-map-kit |
-| `supabase/schema.sql` | `destinations` + `messages` + `scenarios` (incl. params / versions / feedback), RLS |
-| `supabase/functions/` | `voice-note` (kit + trailing-"stop" strip) + `geocode` (verbatim) + `scenario-ai` (draft & revise) |
+| `supabase/schema.sql` | `destinations` + `messages` (incl. the agent conversation) + `scenarios` (incl. params / versions / feedback), RLS |
+| `supabase/functions/` | `voice-note` (kit + trailing-"stop" strip + a text path for agent conversations) + `geocode` (verbatim) + `scenario-ai` (draft & revise) + `elevenlabs-token` (signed URLs for a private agent) |

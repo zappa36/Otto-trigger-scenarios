@@ -24,6 +24,8 @@ create table if not exists public.messages (
   lng double precision,
   ar_summary text,                  -- observed activity, compact ("IN_VEHICLE 4m → STILL 50s")
   ar_trace jsonb,                   -- segments + any fired trigger (see activity-rec.js)
+  via text,                         -- which Otto took the debrief: 'elevenlabs' or null (recorded)
+  convo jsonb,                      -- the conversation, turn by turn: [{from:'ai'|'me',text,at}]
   created_at timestamptz not null default now()
 );
 
@@ -32,6 +34,13 @@ create table if not exists public.messages (
 -- is being tracked (states inferred on-device; see activity-rec.js).
 alter table public.messages add column if not exists ar_summary text;
 alter table public.messages add column if not exists ar_trace jsonb;
+
+-- Conversation columns, for databases created before Otto could BE an
+-- ElevenLabs agent (otto-agent.js). The transcript column still holds
+-- what the tester said — `convo` adds what was asked back, which is
+-- where a trigger scenario's follow-up questions live.
+alter table public.messages add column if not exists via text;
+alter table public.messages add column if not exists convo jsonb;
 
 create index if not exists messages_dest_idx on public.messages (destination_id, created_at desc);
 

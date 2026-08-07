@@ -2,8 +2,9 @@
 # ============================================================
 # Vercel build: bake env vars into config.js.
 #
-# All three values are public in the browser anyway (the anon key
-# by Supabase's design, the Maps key referrer-locked) — injecting
+# Every value here is public in the browser anyway (the anon key
+# by Supabase's design, the Maps key referrer-locked, the
+# ElevenLabs AGENT id by design) — injecting
 # them at build time just keeps them out of the git history of a
 # public repo. A variable that is not set leaves its placeholder,
 # and config.js's runtime guard turns that into demo mode.
@@ -30,6 +31,9 @@ sub() { # sub ENV_NAME PLACEHOLDER
 sub GMAPS_BROWSER_KEY __GMAPS_KEY__
 sub SUPABASE_URL __SUPABASE_URL__
 sub SUPABASE_ANON_KEY __SUPABASE_ANON_KEY__
+# the ElevenLabs AGENT id — public like the others (the API key it may
+# need lives in the elevenlabs-token function's secrets, never here)
+sub ELEVENLABS_AGENT_ID __ELEVENLABS_AGENT_ID__
 
 # deploy stamp: UTC date.time plus the commit, e.g. 250806.1432-c05ebe0
 b="$(date -u +'%y%m%d.%H%M')"

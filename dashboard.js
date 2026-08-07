@@ -353,17 +353,29 @@ function renderMessages(sc) {
     let trace = m.ar_trace;
     if (typeof trace === 'string') { try { trace = JSON.parse(trace); } catch { trace = null; } }
     const trig = trace && trace.trigger;
+    /* An agent debrief is a conversation, not a clip: the transcript is
+     * still what the tester said, and this is what Otto asked to get it.
+     * The follow-ups are half of what a trigger scenario is being tested
+     * for, so they belong next to the answer. */
+    let convo = m.convo;
+    if (typeof convo === 'string') { try { convo = JSON.parse(convo); } catch { convo = null; } }
+    if (!Array.isArray(convo) || convo.length < 2) convo = null;
     return `
       <div class="msg">
         <div class="msg-top">
           <span class="msg-cat${match ? ' match' : ''}">${esc(m.category || 'INFO')}${match ? ' · = EXPECTED TYPE' : ''}</span>
           ${m.demo ? '<span class="msg-demo">DEMO</span>' : ''}
+          ${m.via === 'elevenlabs' ? '<span class="msg-via" title="Debriefed by your ElevenLabs agent — a live conversation, not a recorded clip">◆ AGENT</span>' : ''}
           <span class="msg-time">${esc(fmtTime(m.created_at))}</span>
         </div>
         ${m.title ? `<div class="msg-title">${esc(m.title)}</div>` : ''}
         ${m.transcript ? `<p class="msg-tr">&ldquo;${esc(m.transcript)}&rdquo;</p>` : ''}
         ${trig ? `<span class="trig-chip" title="${esc(trig.tuning ? 'Ran with: ' + Object.entries(trig.tuning).map(([k, v]) => k + '=' + v).join(', ') : '')}">TRIGGER FIRED · ${esc(trig.passes)} PASS${trig.passes === 1 ? '' : 'ES'}${trig.stopped ? ' + STOP' : ''}${trig.scenario_version ? ' · v' + esc(trig.scenario_version) : ''}</span>` : ''}
         ${m.ar_summary ? `<div class="msg-ar" title="Activity observed on the device (${esc((trace && trace.source) || 'web')} inference)">AR&nbsp;·&nbsp;${esc(m.ar_summary)}</div>` : ''}
+        ${convo ? `<details class="msg-convo">
+          <summary>THE CONVERSATION · ${convo.length} TURNS</summary>
+          ${convo.map(t => `<div class="msg-turn ${t.from === 'me' ? 'me' : 'ai'}"><b>${t.from === 'me' ? 'TESTER' : 'OTTO'}</b>${esc(t.text || '')}</div>`).join('')}
+        </details>` : ''}
       </div>`;
   }).join('');
 }
@@ -1304,6 +1316,15 @@ function specOf(sc) {
         transcript: m.transcript || null,
         ar_summary: m.ar_summary || null,
         trigger: (trace && trace.trigger) || null,
+        /* who took the debrief, and — for an agent conversation — the
+         * follow-ups it took to get the answer. Whoever builds the
+         * production trigger reads this to see what Otto had to ask. */
+        via: m.via || 'recorded',
+        conversation: (() => {
+          let c = m.convo;
+          if (typeof c === 'string') { try { c = JSON.parse(c); } catch { c = null; } }
+          return Array.isArray(c) ? c : null;
+        })(),
         demo: !!m.demo,
       };
     }),

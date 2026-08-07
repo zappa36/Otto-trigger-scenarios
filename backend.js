@@ -78,6 +78,26 @@ const Backend = (() => {
       if (!r.ok) throw new Error(d.error || `${voiceFn} ${r.status}`);
       return d;
     },
+    /* ---------- otto-agent.js surface ----------
+     * The ElevenLabs conversation is spoken and transcribed at the other
+     * end of the wire, so only the structuring leg of the voice function
+     * is wanted: the same title + category the dashboard compares
+     * against the scenario's expected tip type. */
+    async structureText({ transcript, context }) {
+      const r = await fetch(`${url}/functions/v1/${voiceFn}`, {
+        method: 'POST',
+        headers: { apikey: key, Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript, context: context || '' }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || `${voiceFn} ${r.status}`);
+      return d;
+    },
+    /* A signed URL for a PRIVATE agent — the ElevenLabs key lives in the
+     * function's secrets, never here. A public agent never calls this. */
+    agentToken: agentId => fn(window.ELEVENLABS_TOKEN_FN || 'elevenlabs-token', { agent_id: agentId }, 10000),
+
     saveNote: row => rest(`/rest/v1/${table}`, {
       method: 'POST',
       headers: { Prefer: 'return=representation' },
