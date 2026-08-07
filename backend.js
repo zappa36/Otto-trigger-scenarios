@@ -140,10 +140,14 @@ const Backend = (() => {
     /* ---------- test-run log ----------
      * Every tracked run, fired or not (app.js saves, dashboard.js reads).
      * The runs where nothing happened are the ones debugging needs. */
+    /* keepalive: the app flushes an abandoned run as the page dies, and
+     * a normal fetch dies with it (the row is tiny, well under the
+     * keepalive body cap) */
     insertRun: row => rest('/rest/v1/runs', {
       method: 'POST',
       headers: { Prefer: 'return=representation' },
       body: JSON.stringify([row]),
+      keepalive: true,
     }),
     listRuns: limit => rest(`/rest/v1/runs?select=*&order=created_at.desc&limit=${limit || 300}`),
   };
