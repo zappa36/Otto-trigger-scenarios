@@ -167,6 +167,12 @@ function saveRunLog() {
   if (!tr) return;
   const now = Date.now();
   if (now - tr.startedAt < 20000 && !tr.passes && !tr.fired) return; // an accidental tap is not a test run
+  /* This may now be called more than once per run (mid-run flush on
+   * pagehide, then the proper stop) — log only when the picture changed,
+   * so a flush-then-stop doesn't count one walk as two runs. */
+  const sig = [tr.fixN || 0, tr.passes, !!tr.stopped, !!tr.fired].join('|');
+  if (tr.loggedSig === sig) return;
+  tr.loggedSig = sig;
   const row = {
     scenario_id: tr.sc.id,
     scenario_version: tr.sc.version || 1,
@@ -181,6 +187,9 @@ function saveRunLog() {
     ar_trace: {
       source: ActivityRec.snapshot.source,
       segments: ActivityRec.segments(tr.startedAt),
+      /* was the raw signal even there? 0 fixes = GPS never delivered
+       * speed (permissions / screen off), not a detector failure */
+      gps: { fixes: tr.fixN || 0, max_speed_mps: Math.round((tr.maxSp || 0) * 10) / 10 },
       ...(tr.shape === 'parkwalk' ? {
         parkwalk: {
           parked_at: tr.parkedAt ? { lat: tr.parkedAt.lat, lng: tr.parkedAt.lng } : null,
@@ -211,6 +220,17 @@ function saveRunLog() {
     } catch { /* private mode */ }
   }
 }
+
+/* A run that ended by the app being closed or the phone locking used to
+ * evaporate — and an abandoned run is exactly the kind the log exists
+ * for. Flush it while the page can still speak (the insert rides a
+ * keepalive fetch, so the row outlives the tab); if the tester comes
+ * back and finishes properly, the changed-picture guard in saveRunLog
+ * keeps the walk from counting as two runs. */
+window.addEventListener('pagehide', () => { if (tracking) saveRunLog(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden' && tracking) saveRunLog();
+});
 
 function stopTracking() {
   saveRunLog(); // before ActivityRec.stop() — the summary reads the live history
@@ -291,6 +311,11 @@ function parkWalkStep(snap) {
 }
 
 function detectorStep(snap) {
+  /* evidence counters, before any shape logic: when a run comes back
+   * with 0 fixes or a max speed of 0, the diagnosis is GPS, not the
+   * detector — the distinction a stuck-on-UNKNOWN chip cannot make */
+  tracking.fixN = (tracking.fixN || 0) + 1;
+  tracking.maxSp = Math.max(tracking.maxSp || 0, snap.speed);
   if (tracking.shape === 'parkwalk') { parkWalkStep(snap); return; }
   const tr = tracking;
   const cfg = tr.trig; // the scenario's tuned values (TRIG defaults otherwise)
