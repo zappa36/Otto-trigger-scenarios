@@ -174,9 +174,20 @@ const runsOf = sc => runsByScenario[sc.id] || [];
 /* Which stage did the run die at? The chip says it outright. */
 function runOutcome(r) {
   if (r.fired) return { label: 'FIRED ✓', cls: 'ok' };
+  const pw = runParkwalk(r);
+  if (pw) {
+    if (pw.parked_at) return { label: `PARKED ${pw.park_distance_m} M · NEVER ARRIVED`, cls: 'warn' };
+    return { label: 'NO PARKING DETECTED', cls: 'bad' };
+  }
   if (r.stop_seen) return { label: 'STOP SEEN · NEVER RESUMED', cls: 'warn' };
   if (r.passes > 0) return { label: `${r.passes} PASS${r.passes === 1 ? '' : 'ES'} · NO STOP`, cls: 'warn' };
   return { label: 'NO PASS REGISTERED', cls: 'bad' };
+}
+/* park-and-walk runs carry their measurements in the trace */
+function runParkwalk(r) {
+  let t = r.ar_trace;
+  if (typeof t === 'string') { try { t = JSON.parse(t); } catch { t = null; } }
+  return (t && typeof t === 'object' && t.parkwalk) || null;
 }
 function statusOf(sc) {
   if (sc.verdict === 'pass') return { key: 'pass', label: 'PASS', rgb: '70,211,154', labelColor: '#7ce0b8', icon: '✓' };
@@ -512,6 +523,11 @@ function renderRuns(sc) {
           <span class="fb-chip plain">v${esc(r.scenario_version || '?')}${durMin ? ' · ' + durMin + ' MIN' : ''}</span>
           <span class="msg-time">${esc(fmtTime(r.created_at || r.ended_at))}</span>
         </div>
+        ${(() => {
+    const pw = runParkwalk(r);
+    return pw && pw.parked_at
+      ? `<div class="msg-ar" title="Parking position vs walking distance, measured on the run">PARKED&nbsp;${esc(pw.park_distance_m)}&nbsp;M FROM PIN&nbsp;·&nbsp;WALKED&nbsp;${esc(pw.walk_m)}&nbsp;M</div>` : '';
+  })()}
         ${r.ar_summary ? `<div class="msg-ar" title="Activity observed on the device">AR&nbsp;·&nbsp;${esc(r.ar_summary)}</div>` : ''}
       </div>`;
   }).join('');
@@ -873,6 +889,26 @@ async function submitForm() {
  * Detector-keyed params mean even a template draft tunes the phone. */
 const firstSentence = d => String(d).replace(/\s+/g, ' ').trim().replace(/[.!?].*$/, '').slice(0, 90);
 const DRAFT_TEMPLATES = [
+  {
+    /* before the loops template — "park" alone would swallow these */
+    re: /park.*(walk|distance|position|far)|walk.*(park|from the car)|best (parking|spot)|parking position/i,
+    name: 'Park & walk',
+    fields: {
+      rule: 'Driver parks within {park_radius_max} m of the pin (vehicle→walking flip, or the vehicle standing ≥{park_stop_s} s), then walks ≥{min_walk_m} m and arrives within {arrival_radius} m of the pin on foot.',
+      ar_states: 'IN_VEHICLE → WALKING (the flip marks the parking spot) → STILL at the destination',
+      signals: 'Parking position vs pin; walked path length; walk time',
+      timing: 'On arrival at the destination, on foot — only then is the walking distance a fact',
+      otto_says: '“You parked about {park_m} m away and walked {walk_m} m — was there nothing closer, or is that the smart spot for this address?”',
+      learns: 'ACCESS — the real parking spot for this address',
+      test_steps: 'Drive to a few hundred meters from the pin, park properly, walk the rest of the way. Otto speaks when you reach the destination, quoting your measured distances.',
+    },
+    params: [
+      { key: 'park_radius_max', label: 'Parking counts within', value: 400, min: 100, max: 800, step: 25, unit: 'm' },
+      { key: 'park_stop_s', label: 'Vehicle standstill = parked', value: 30, min: 10, max: 120, step: 5, unit: 's' },
+      { key: 'arrival_radius', label: 'Arrived within', value: 25, min: 10, max: 60, step: 5, unit: 'm' },
+      { key: 'min_walk_m', label: 'Minimum walk', value: 50, min: 20, max: 300, step: 10, unit: 'm' },
+    ],
+  },
   {
     re: /park|spot|loop|circl|kurv|stellplatz/i,
     name: 'Parking loops',

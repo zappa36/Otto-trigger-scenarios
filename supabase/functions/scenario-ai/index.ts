@@ -33,7 +33,11 @@ const CATEGORIES = csv('NOTE_CATEGORIES', 'ACCESS,CLOSURE,HAZARD,ENTRANCE,HOURS,
 // is tunable end-to-end from day one.
 const DETECTOR_KEYS =
   'radius (m), exit_radius (m), pass_speed_max (m/s), pass_still_max_s (s), ' +
-  'passes_needed (×), stop_speed (m/s), stop_dwell_s (s), stop_radius (m), resume_speed (m/s)';
+  'passes_needed (×), stop_speed (m/s), stop_dwell_s (s), stop_radius (m), resume_speed (m/s); ' +
+  'for park-then-walk scenarios use instead: park_radius_max (m), park_stop_s (s), ' +
+  'arrival_radius (m), min_walk_m (m) — an arrival_radius param switches the phone to the ' +
+  'park-and-walk detector (park the vehicle, walk, fire on arrival), and {park_m}/{walk_m} in ' +
+  'otto_says are replaced with the measured distances when Otto speaks';
 
 const PARAM_SHAPE = '{"key":string,"label":string,"value":number,"min":number,"max":number,"step":number,"unit":string}';
 const FIELDS = 'title, rule, ar_states, signals, timing, otto_says, learns, test_steps';
