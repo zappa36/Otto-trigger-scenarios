@@ -6,6 +6,10 @@
  * Composes the two extracted kits WITHOUT modifying them:
  *   geolocate.js + field-map.js  (field-map-kit)   position + live map
  *   voice-note.js                (voice-notes-kit) the Otto debrief
+ *   otto-agent.js                                  the same debrief as a
+ *     live ElevenLabs conversation when an agent is configured; it wears
+ *     the kit's mount seams, so openOtto picks one or the other and
+ *     nothing else here has to know which.
  *
  * This file owns the domain the kits deliberately left out:
  * destinations (real addresses pinned on the map), the card,
@@ -135,6 +139,11 @@ function startTracking(sc, d) {
       speechSynthesis.speak(new SpeechSynthesisUtterance(''));
     }
   } catch { /* optional */ }
+  /* same problem, louder, for the ElevenLabs agent: it needs an audio
+   * context that was born in a gesture AND a microphone that was already
+   * said yes to. Ask now, on the pavement, not when the trigger fires in
+   * traffic — a permission dialog nobody sees is a debrief lost. */
+  OttoAgent.prime();
   ActivityRec.start();
   tracking = {
     sc, d, trig: trigOf(sc), shape: scenarioShape(sc), startedAt: Date.now(),
@@ -384,8 +393,18 @@ function fireTrigger(t) {
   tracking.firedAt = t;
   if (navigator.vibrate) navigator.vibrate([120, 60, 120]);
   updateCardTrack();
-  const sc = tracking.sc;
   openOtto(tracking.d);
+  /* With the ElevenLabs agent on the line there is nothing to stage: it
+   * opens with the scenario's question in its own voice and listens
+   * straight through. The block below is the keyless path. */
+  if (voice.agent) return;
+  openingQuestion();
+}
+
+/* The keyless hands-free opener: the question spoken by the browser,
+ * then the kit's own mic tapped for them. */
+function openingQuestion() {
+  const sc = tracking && tracking.sc;
   speakThen(sc && sc.otto_says ? resolveSays(stripQuotes(sc.otto_says)) : 'What did you find?', () => {
     if (el('otto-screen').hidden) return; // they backed out while Otto was talking
     /* live mode only: auto-tap the widget's own mic. The scripted demo
@@ -637,8 +656,9 @@ const voiceOpts = () => {
     onSaved(res) {
       /* Otto's reply gets the same voice as his question — text-only
        * feedback goes unnoticed by someone watching the road. Scripted
-       * demo replies stay silent: nothing was actually heard. */
-      if (!res.demo && res.reply) speakThen(String(res.reply), () => {});
+       * demo replies stay silent: nothing was actually heard, and the
+       * agent already said its piece in its own voice (res.spoken). */
+      if (!res.demo && !res.spoken && res.reply) speakThen(String(res.reply), () => {});
       if (!current) return;
       recordMessage(current.id, {
         ...res.row,
@@ -652,9 +672,109 @@ const voiceOpts = () => {
       map.refresh(); // the pin flips to reported
       /* debrief delivered for a fired trigger — that test run is complete */
       if (tracking && tracking.fired && tracking.d.id === current.id) stopTracking();
+      if (!el('card').hidden) openCard(current); // the debrief lands in the card's list
     },
   };
 };
+
+/* ---------- the scenario, as the agent hears it ----------
+ * An ElevenLabs agent is told about the test in three ways, in
+ * descending order of how much the agent's own prompt has to know:
+ *
+ *   1. dynamic variables — {{scenario_rule}}, {{park_distance_m}} …
+ *      substituted into a prompt that names them,
+ *   2. a contextual update — the same thing in plain sentences, for a
+ *      prompt that names none of them,
+ *   3. the first message — the sheet's "Otto says", verbatim.
+ *
+ * Everything measured is what THIS run measured: the agent asks about
+ * the two loops it can see, not about loops in general. */
+function agentVars() {
+  const d = current;
+  const sc = d && scenarioOf(d);
+  const tr = tracking && d && tracking.d.id === d.id ? tracking : null;
+  const p = sc && sc.params;
+  const v = {
+    destination_title: d ? d.title : '',
+    destination_address: d ? (d.addr || `${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}`) : '',
+    destination_lat: d ? d.lat : '',
+    destination_lng: d ? d.lng : '',
+    scenario_num: sc && sc.num != null ? sc.num : '',
+    scenario_title: sc ? sc.title : '',
+    scenario_version: sc ? (sc.version || 1) : '',
+    scenario_question: sc && sc.otto_says ? resolveSays(stripQuotes(sc.otto_says)) : '',
+    scenario_rule: sc ? fillParams(sc.rule, p) : '',
+    scenario_ar_states: sc ? sc.ar_states || '' : '',
+    scenario_signals: sc ? sc.signals || '' : '',
+    scenario_timing: sc ? fillParams(sc.timing, p) : '',
+    scenario_test_steps: sc ? fillParams(sc.test_steps, p) : '',
+    /* the "What Otto learns" column: the tip type this debrief is
+     * supposed to come back with, so the agent can steer towards it */
+    expected_tip_type: sc ? sc.learns || '' : '',
+    trigger_fired: tr && tr.fired ? 'yes' : 'no',
+    trigger_passes: tr ? tr.passes : '',
+    trigger_stopped: tr ? (tr.stopped ? 'yes' : 'no') : '',
+    /* only the park-and-walk shape measures these — on a pass/stop run
+     * they are a constant zero, and "you walked 0 m" is the kind of
+     * detail that makes an agent sound like it was not there */
+    park_distance_m: tr && tr.shape === 'parkwalk' && tr.parkedAt ? Math.round(distM(tr.parkedAt, tr.d)) : '',
+    walk_m: tr && tr.shape === 'parkwalk' ? Math.round(tr.walkM) : '',
+    activity_state: ActivityRec.active ? ActivityRec.state : '',
+    activity_summary: ActivityRec.active ? (ActivityRec.summary(tr ? tr.startedAt : Date.now() - 15 * 60e3) || '') : '',
+  };
+  const pos = LiveGeo.position;
+  if (pos && d) v.distance_to_pin_m = Math.round(distM(pos, d));
+  return v;
+}
+
+function agentBriefing() {
+  const v = agentVars();
+  const lines = [];
+  /* sheet cells rarely end in a full stop; a briefing that runs two
+   * sentences together reads as one confused one */
+  const sentence = s => { const t = String(s).trim(); return /[.!?]$/.test(t) ? t : t + '.'; };
+  lines.push(`You are Otto, debriefing a field tester who has just acted out a trigger scenario at ${v.destination_title || 'a destination'}${v.destination_address ? ` (${v.destination_address})` : ''}.`);
+  if (v.scenario_title) lines.push(`Scenario${v.scenario_num !== '' ? ' #' + v.scenario_num : ''}: ${sentence(v.scenario_title + ' (v' + v.scenario_version + ')')}`);
+  if (v.scenario_rule) lines.push(`The trigger rule under test: ${sentence(v.scenario_rule)}`);
+  if (v.expected_tip_type) lines.push(`What this debrief should end up teaching us (tip type): ${v.expected_tip_type}.`);
+  if (v.trigger_fired === 'yes') {
+    const bits = [];
+    if (v.trigger_passes !== '' && v.trigger_passes > 0) bits.push(`${v.trigger_passes} slow pass${v.trigger_passes === 1 ? '' : 'es'} near the pin`);
+    if (v.trigger_stopped === 'yes') bits.push('a stop');
+    if (v.park_distance_m !== '') bits.push(`parked ${v.park_distance_m} m from the pin`);
+    if (v.walk_m !== '') bits.push(`walked ${v.walk_m} m`);
+    lines.push(`The trigger fired on this run${bits.length ? ': the phone measured ' + bits.join(', ') + '.' : '.'}`);
+  } else {
+    lines.push('This debrief was opened by hand — the trigger did not fire on this run.');
+  }
+  if (v.activity_summary) lines.push(`Activity the phone observed: ${v.activity_summary}.`);
+  lines.push('Ask about what they actually found on the ground, keep it to a couple of short questions, and let them go.');
+  return lines.join(' ');
+}
+
+/* Otto is the ElevenLabs agent when one is configured, and the recorded
+ * debrief otherwise — same mount seams either way (see otto-agent.js),
+ * so everything below this line is written once. A conversation that
+ * cannot be opened falls back in place rather than dead-ending. */
+function mountOtto(recorderOnly) {
+  if (!recorderOnly && OttoAgent.available()) {
+    return OttoAgent.mount({
+      ...voiceOpts(),
+      vars: agentVars,
+      briefing: agentBriefing,
+      onFallback() {
+        voice = mountOtto(true);
+        /* a trigger that fired still owes the tester its question */
+        if (tracking && tracking.fired && current && tracking.d.id === current.id) openingQuestion();
+      },
+    });
+  }
+  return VoiceNote.mount(voiceOpts());
+}
+
+/* Mounted idle behind the hidden screen: the recorder, never the agent —
+ * mounting the agent opens a live (metered) line, so that waits for the
+ * screen it belongs to. */
 let voice = VoiceNote.mount(voiceOpts());
 
 function openOtto(d) {
@@ -663,11 +783,15 @@ function openOtto(d) {
   el('otto-dest').textContent = d.title;
   el('otto-screen').hidden = false;
   voice.destroy();
-  voice = VoiceNote.mount(voiceOpts()); // mount() starts it
+  voice = mountOtto(false); // mount() starts it
 }
 
 function closeOtto() {
-  voice.stop();
+  /* Backing out of a conversation is not the same as throwing it away:
+   * the tester answered the question, so the agent files what was said
+   * before the line closes. */
+  if (voice.agent) voice.end();
+  else voice.stop();
   try {
     if (window.OttoTTS && OttoTTS.stop) OttoTTS.stop();
     if ('speechSynthesis' in window) speechSynthesis.cancel();
@@ -770,6 +894,12 @@ el('build').onclick = async () => {
   const out = [];
   out.push('backend: ' + (Backend.enabled ? 'ON' : 'OFF — demo mode'));
   out.push('secure context: ' + (window.isSecureContext ? 'yes' : 'NO'));
+  /* which Otto this phone will actually open — the whole point of this
+   * self-test is that a silent fallback never masquerades as the real
+   * thing, and there are now two real things to tell apart */
+  out.push('ElevenLabs agent: ' + (OttoAgent.agentId()
+    ? (OttoAgent.available() ? 'ON — ' + OttoAgent.agentId() : 'configured but UNUSABLE here')
+    : 'not configured — recorded debrief'));
   out.push('wrapper TTS: ' + (window.OttoTTS ? 'yes' : 'no (browser)'));
   const md = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
   out.push('mediaDevices.getUserMedia: ' + (md ? 'yes' : 'MISSING'));

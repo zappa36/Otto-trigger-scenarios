@@ -7,6 +7,13 @@
 //      and a short spoken-style reply,
 //   3. returns { transcript, reply, note: { title, category } }.
 //
+// It also takes text with no audio at all — POST JSON
+// { transcript, context } instead of the multipart clip and step 1
+// is skipped. That is the ElevenLabs agent's path (otto-agent.js):
+// the conversation was already spoken and transcribed at the other
+// end of the wire, but the debrief still has to become the same
+// title + category the dashboard compares against the scenario.
+//
 // The OpenAI key lives ONLY in this function's secrets — it is never
 // shipped to the browser or committed. Set it once:
 //   Dashboard -> Edge Functions -> Secrets -> add OPENAI_API_KEY
@@ -55,27 +62,41 @@ Deno.serve(async (req) => {
   if (!key) return fail(500, 'OPENAI_API_KEY secret is not set');
 
   try {
-    const form = await req.formData();
-    const audio = form.get('audio');
-    const context = String(form.get('context') || 'this place').slice(0, 120);
-    if (!(audio instanceof File)) return fail(400, 'no audio clip');
-    if (audio.size > MAX_CLIP_BYTES) return fail(413, 'clip too long — keep it under ~60 seconds');
+    // Two ways in: a clip to transcribe (multipart), or text that was
+    // already spoken somewhere else (JSON) — the agent conversation.
+    const asJson = (req.headers.get('content-type') || '').includes('application/json');
 
-    // 1) speech -> text
-    const tf = new FormData();
-    tf.append('file', audio, audio.name || 'clip.webm');
-    tf.append('model', 'gpt-4o-mini-transcribe'); // 'whisper-1' also works here
-    const tr = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${key}` },
-      body: tf,
-    });
-    if (!tr.ok) return fail(502, `transcription failed: ${(await tr.text()).slice(0, 300)}`);
-    // The widget ends a clip on a pause and tells people they may say
-    // "stop" — that closing word is a control signal, not content.
-    const transcript = String((await tr.json()).text || '').trim()
-      .replace(/[,.!?\s]*\b(stop|stopp|basta)\b[.!?\s]*$/i, '').trim();
-    if (!transcript) return fail(422, 'heard nothing — try again closer to the mic');
+    let transcript = '';
+    let context = 'this place';
+
+    if (asJson) {
+      const body = await req.json().catch(() => ({}));
+      context = String(body.context || 'this place').slice(0, 120);
+      transcript = String(body.transcript || '').trim().slice(0, 6000);
+      if (!transcript) return fail(400, 'no transcript');
+    } else {
+      const form = await req.formData();
+      const audio = form.get('audio');
+      context = String(form.get('context') || 'this place').slice(0, 120);
+      if (!(audio instanceof File)) return fail(400, 'no audio clip');
+      if (audio.size > MAX_CLIP_BYTES) return fail(413, 'clip too long — keep it under ~60 seconds');
+
+      // 1) speech -> text
+      const tf = new FormData();
+      tf.append('file', audio, audio.name || 'clip.webm');
+      tf.append('model', 'gpt-4o-mini-transcribe'); // 'whisper-1' also works here
+      const tr = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${key}` },
+        body: tf,
+      });
+      if (!tr.ok) return fail(502, `transcription failed: ${(await tr.text()).slice(0, 300)}`);
+      // The widget ends a clip on a pause and tells people they may say
+      // "stop" — that closing word is a control signal, not content.
+      transcript = String((await tr.json()).text || '').trim()
+        .replace(/[,.!?\s]*\b(stop|stopp|basta)\b[.!?\s]*$/i, '').trim();
+      if (!transcript) return fail(422, 'heard nothing — try again closer to the mic');
+    }
 
     // 2) structure the observation + the assistant's reply
     const cr = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -96,7 +117,10 @@ Deno.serve(async (req) => {
               'note.title: an actionable summary for the next person, max 60 characters, e.g. "Lift broken — take the stairs". ' +
               `note.category: exactly one of ${CATEGORIES.join(', ')}.`,
           },
-          { role: 'user', content: `Context: ${context}\nTranscribed voice note: "${transcript}"` },
+          {
+            role: 'user',
+            content: `Context: ${context}\n${asJson ? 'What they told the assistant' : 'Transcribed voice note'}: "${transcript}"`,
+          },
         ],
       }),
     });

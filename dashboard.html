@@ -313,6 +313,27 @@
     background: rgba(70,211,154,.1);
   }
   .msg-demo { font-family: ui-monospace, monospace; font-size: 9px; letter-spacing: .1em; color: #ffd95e; }
+  /* the debrief was a live agent conversation, not a recorded clip */
+  .msg-via { font-family: ui-monospace, monospace; font-size: 9px; letter-spacing: .1em; color: #c3a6ff; }
+  .msg-convo { margin-top: 7px; font-size: 12.5px; }
+  .msg-convo > summary {
+    cursor: pointer;
+    font-family: ui-monospace, monospace;
+    font-size: 9.5px;
+    letter-spacing: .1em;
+    color: #8e9bb0;
+  }
+  .msg-convo > summary:hover { color: #c3a6ff; }
+  .msg-turn { margin-top: 6px; padding-left: 9px; border-left: 2px solid rgba(195,166,255,.35); }
+  .msg-turn.me { border-left-color: rgba(127,214,234,.45); }
+  .msg-turn b {
+    display: block;
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: .1em;
+    color: #8e9bb0;
+    margin-bottom: 1px;
+  }
   .msg-time { margin-left: auto; font-size: 10.5px; color: #6d7a8c; }
   .msg-title { font-weight: 600; }
   .msg-tr { margin: 3px 0 0; color: #aeb9c8; font-size: 12.5px; }
