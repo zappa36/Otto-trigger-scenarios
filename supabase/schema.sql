@@ -103,8 +103,15 @@ create table if not exists public.runs (
   ar_summary text,                    -- "ON_FOOT 4m → STILL 30s → ON_FOOT 1m"
   ar_trace jsonb,                     -- segments (see activity-rec.js)
   tuning jsonb,                       -- exact detector values the run used
+  fixes jsonb,                        -- raw fix stream, packed (see recordFix in app.js)
   created_at timestamptz not null default now()
 );
+
+-- The raw fix stream, for databases created before it: what the detector
+-- SAW (t/lat/lng/speed/state at ~1 Hz), where ar_trace only says what it
+-- concluded. This is what lets a run be replayed offline against other
+-- detector values — see scripts/tune_triggers.py.
+alter table public.runs add column if not exists fixes jsonb;
 
 create index if not exists runs_scenario_idx on public.runs (scenario_id, created_at desc);
 

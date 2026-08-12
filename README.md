@@ -140,6 +140,39 @@ dashboard runs that loop end to end:
    feedback trail, and every structured test result — ready to hand to
    whoever builds the production trigger.
 
+### Replay runs offline, tune on the record
+
+Every tracked run also records its **raw fix stream** (`runs.fixes`:
+position, speed and AR state at ~1 Hz, downsampled on long runs) — what
+the detector *saw*, where `ar_trace` only says what it concluded. That
+makes a run replayable, and
+[`scripts/tune_triggers.py`](scripts/tune_triggers.py) (standard-library
+Python, like the rest of the kit has no dependencies) runs the whole
+loop on recorded data instead of another drive:
+
+```sh
+# does the offline port agree with what the phone did? (run this first)
+python3 scripts/tune_triggers.py --url https://XYZ.supabase.co --key ANON_KEY
+
+# mark what SHOULD have happened, per run (1 = speak, 0 = stay quiet)
+python3 scripts/tune_triggers.py --url ... --key ... --emit-labels labels.csv
+
+# search the knob space against those labels; smallest change wins
+python3 scripts/tune_triggers.py --url ... --key ... --labels labels.csv \
+    --search 3000 --out tuned.json
+```
+
+The search stays inside each scenario's slider ranges, reports
+before/after accuracy per scenario ("1/2 → 2/2 correct ·
+`stop_dwell_s: 45 → 67`"), and writes `tuned.json` in the dashboard's
+own params shape. Deliberately minimal: it prefers the smallest change
+that fits the labels, so what comes out reads like a changelog entry,
+not a black box. A handful of honestly-labelled runs per scenario is
+enough to start — and the same fix streams are the training data for
+anything more ambitious later (a learned trigger model needs exactly
+this: what was seen, plus what should have happened). Runs logged
+before the `fixes` column are skipped with a count.
+
 Going live is the same story as the rest of the app: re-run
 [`supabase/schema.sql`](supabase/schema.sql) (safe to re-run — it adds
 the `scenarios` table and the tuning-loop columns), and deploy

@@ -122,6 +122,33 @@ function trigOf(sc) {
 let tracking = null;  // { sc, d, trig, startedAt, passes, ... } while a test runs
 let wakeLock = null;
 
+/* ---------- the raw fix stream ----------
+ * The run log's ar_trace says what the detector CONCLUDED; replaying a
+ * run offline (scripts/tune_triggers.py) needs what it SAW. Sample the
+ * per-fix signal at 1 Hz into a packed array; when the buffer fills,
+ * drop every other sample and halve the rate — a long run keeps full
+ * coverage at coarser resolution, and the row stays small enough for
+ * the keepalive fetch that flushes abandoned runs (~64 KB budget). */
+const FIX_CAP = 900;
+const FIX_STATES = ['UNKNOWN', 'STILL', 'ON_FOOT', 'IN_VEHICLE'];
+function recordFix(tr, snap) {
+  const t = snap.t || Date.now();
+  if (t - (tr.lastSampleAt || 0) < tr.fixEveryMs) return;
+  tr.lastSampleAt = t;
+  tr.fixes.push([
+    Math.round((t - tr.startedAt) / 100) / 10,   // seconds since the run started
+    Math.round(snap.position.lat * 1e5) / 1e5,   // ~1 m
+    Math.round(snap.position.lng * 1e5) / 1e5,
+    Math.round(snap.speed * 10) / 10,            // m/s
+    Math.max(0, FIX_STATES.indexOf(snap.state)),
+    snap.cadence ? 1 : 0,
+  ]);
+  if (tr.fixes.length >= FIX_CAP) {
+    tr.fixes = tr.fixes.filter((_, i) => i % 2 === 0);
+    tr.fixEveryMs *= 2;
+  }
+}
+
 async function acquireWakeLock() {
   try { if (navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch { /* optional */ }
 }
@@ -152,6 +179,8 @@ function startTracking(sc, d) {
     /* park-and-walk shape */
     sawVehicle: false, lastVehicleFix: null, vehicleStillSince: null,
     parkedAt: null, walkM: 0, lastWalkFix: null,
+    /* raw fix stream (recordFix) */
+    fixes: [], fixEveryMs: 1000, lastSampleAt: 0,
   };
   acquireWakeLock();
   updateArChip(ActivityRec.snapshot);
@@ -199,6 +228,7 @@ function saveRunLog() {
       } : {}),
     },
     tuning: {
+      shape: tr.shape,
       radius: tr.trig.radius,
       exit_radius: tr.trig.exitRadius,
       pass_speed_max: tr.trig.passSpeedMax,
@@ -208,7 +238,22 @@ function saveRunLog() {
       stop_dwell_s: tr.trig.stopDwellMs / 1000,
       stop_radius: tr.trig.stopRadius,
       resume_speed: tr.trig.resumeSpeed,
+      /* the park-and-walk knobs were missing here — a parkwalk run whose
+       * tuning only listed the pass/stop values could not be replayed */
+      ...(tr.shape === 'parkwalk' ? {
+        park_radius_max: tr.trig.parkRadiusMax,
+        park_stop_s: tr.trig.parkStopMs / 1000,
+        arrival_radius: tr.trig.arrivalRadius,
+        min_walk_m: tr.trig.minWalkM,
+      } : {}),
     },
+    fixes: tr.fixes && tr.fixes.length ? {
+      v: 1,
+      cols: ['t_s', 'lat', 'lng', 'speed_mps', 'state', 'stepping'],
+      states: FIX_STATES,
+      sample_s: tr.fixEveryMs / 1000,
+      rows: tr.fixes,
+    } : null,
   };
   if (Backend.enabled) {
     Backend.insertRun(row).catch(e => console.warn('run log not saved — re-run schema.sql?', e.message));
@@ -216,7 +261,13 @@ function saveRunLog() {
     try {
       const runs = JSON.parse(localStorage.getItem(LS_RUNS) || '[]');
       runs.unshift({ ...row, id: 'r' + Date.now().toString(36), created_at: row.ended_at });
-      localStorage.setItem(LS_RUNS, JSON.stringify(runs.slice(0, 50))); // enough history, bounded storage
+      const keep = runs.slice(0, 50); // enough history, bounded storage
+      try {
+        localStorage.setItem(LS_RUNS, JSON.stringify(keep));
+      } catch {
+        /* quota: the fix streams are the bulk — keep them on recent runs only */
+        localStorage.setItem(LS_RUNS, JSON.stringify(keep.map((r, i) => i < 10 ? r : { ...r, fixes: null })));
+      }
     } catch { /* private mode */ }
   }
 }
@@ -316,6 +367,7 @@ function detectorStep(snap) {
    * detector — the distinction a stuck-on-UNKNOWN chip cannot make */
   tracking.fixN = (tracking.fixN || 0) + 1;
   tracking.maxSp = Math.max(tracking.maxSp || 0, snap.speed);
+  recordFix(tracking, snap);
   if (tracking.shape === 'parkwalk') { parkWalkStep(snap); return; }
   const tr = tracking;
   const cfg = tr.trig; // the scenario's tuned values (TRIG defaults otherwise)
