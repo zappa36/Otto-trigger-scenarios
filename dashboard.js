@@ -532,6 +532,9 @@ function renderRuns(sc) {
       <div class="run-item" title="${esc(tip)}">
         <div class="fb-meta">
           <span class="run-chip ${o.cls}">${esc(o.label)}</span>
+          ${r.should_fire == null ? '' : r.should_fire === !!r.fired
+    ? '<span class="run-chip ok" title="The tester confirmed the outcome at run end">✓ RIGHT CALL</span>'
+    : `<span class="run-chip bad" title="The tester's verdict at run end — ground truth for tuning">${r.fired ? '✗ FALSE ALARM' : '✗ SHOULD HAVE SPOKEN'}</span>`}
           <span class="fb-chip plain">v${esc(r.scenario_version || '?')}${durMin ? ' · ' + durMin + ' MIN' : ''}</span>
           <span class="msg-time">${esc(fmtTime(r.created_at || r.ended_at))}</span>
         </div>

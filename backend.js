@@ -149,6 +149,13 @@ const Backend = (() => {
       body: JSON.stringify([row]),
       keepalive: true,
     }),
+    /* the tester's one-tap verdict at run end ("should Otto have
+     * spoken?") lands on the row after the fact */
+    updateRun: (id, patch) => rest('/rest/v1/runs?id=eq.' + encodeURIComponent(id), {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify(patch),
+    }),
     listRuns: limit => rest(`/rest/v1/runs?select=*&order=created_at.desc&limit=${limit || 300}`),
   };
 })();

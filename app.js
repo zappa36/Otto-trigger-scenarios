@@ -120,6 +120,7 @@ function trigOf(sc) {
   return t;
 }
 let tracking = null;  // { sc, d, trig, startedAt, passes, ... } while a test runs
+let lastRun = null;   // the just-logged run, awaiting the tester's verdict (askRunVerdict)
 let wakeLock = null;
 
 /* ---------- the raw fix stream ----------
@@ -172,6 +173,8 @@ function startTracking(sc, d) {
    * traffic — a permission dialog nobody sees is a debrief lost. */
   OttoAgent.prime();
   ActivityRec.start();
+  lastRun = null; // a new run makes the old verdict question stale
+  el('verdict-banner').hidden = true;
   tracking = {
     sc, d, trig: trigOf(sc), shape: scenarioShape(sc), startedAt: Date.now(),
     passes: 0, inside: false, insideMaxStill: 0, insideSpeedSum: 0, insideN: 0,
@@ -202,6 +205,7 @@ function saveRunLog() {
   const sig = [tr.fixN || 0, tr.passes, !!tr.stopped, !!tr.fired].join('|');
   if (tr.loggedSig === sig) return;
   tr.loggedSig = sig;
+  lastRun = { fired: !!tr.fired, id: null, saved: null, local: !Backend.enabled, answered: false };
   const row = {
     scenario_id: tr.sc.id,
     scenario_version: tr.sc.version || 1,
@@ -256,11 +260,15 @@ function saveRunLog() {
     } : null,
   };
   if (Backend.enabled) {
-    Backend.insertRun(row).catch(e => console.warn('run log not saved — re-run schema.sql?', e.message));
+    const lr = lastRun;
+    lr.saved = Backend.insertRun(row)
+      .then(rows => { lr.id = rows && rows[0] && rows[0].id; })
+      .catch(e => console.warn('run log not saved — re-run schema.sql?', e.message));
   } else {
     try {
       const runs = JSON.parse(localStorage.getItem(LS_RUNS) || '[]');
-      runs.unshift({ ...row, id: 'r' + Date.now().toString(36), created_at: row.ended_at });
+      lastRun.id = 'r' + Date.now().toString(36);
+      runs.unshift({ ...row, id: lastRun.id, created_at: row.ended_at });
       const keep = runs.slice(0, 50); // enough history, bounded storage
       try {
         localStorage.setItem(LS_RUNS, JSON.stringify(keep));
@@ -291,6 +299,45 @@ function stopTracking() {
   el('trigger-banner').hidden = true;
   updateArChip(ActivityRec.snapshot);
   updateCardTrack();
+  askRunVerdict();
+}
+
+/* ---------- the verdict bar ----------
+ * "Should Otto have spoken?" is the ground truth every knob-tuning and
+ * every learned trigger needs — and the only person who knows is the
+ * tester, in the seconds after the run, before the memory fades. So ask
+ * RIGHT THERE, one tap, the moment tracking stops; the answer lands on
+ * the run row (runs.should_fire) and the offline tuner reads it as its
+ * labels. Skipping is fine — an unanswered run is null, not a guess. */
+function askRunVerdict() {
+  if (!lastRun || lastRun.answered) return;
+  el('vb-text').textContent = lastRun.fired
+    ? 'Otto spoke on this run. Right call?'
+    : 'Otto stayed quiet the whole run. Right call?';
+  el('vb-wrong').textContent = lastRun.fired ? '✗ False alarm' : '✗ Should have spoken';
+  el('verdict-banner').hidden = false;
+}
+
+function answerRunVerdict(right) {
+  const lr = lastRun;
+  el('verdict-banner').hidden = true;
+  if (!lr || lr.answered) return;
+  lr.answered = true;
+  const should = right ? lr.fired : !lr.fired;
+  if (navigator.vibrate) navigator.vibrate(30); // "got it" — felt, not shown
+  if (lr.local) {
+    try {
+      const runs = JSON.parse(localStorage.getItem(LS_RUNS) || '[]');
+      const r = runs.find(x => x.id === lr.id);
+      if (r) { r.should_fire = should; localStorage.setItem(LS_RUNS, JSON.stringify(runs)); }
+    } catch { /* private mode */ }
+  } else {
+    /* the insert may still be in flight — chain, don't race it */
+    Promise.resolve(lr.saved).then(() => {
+      if (lr.id) Backend.updateRun(lr.id, { should_fire: should })
+        .catch(e => console.warn('verdict not saved — re-run schema.sql?', e.message));
+    });
+  }
 }
 
 /* ---------- park-and-walk detector ----------
@@ -1046,6 +1093,9 @@ el('trigger-banner').onclick = () => {
   el('trigger-banner').hidden = true;
   if (tracking) openOtto(tracking.d);
 };
+el('vb-right').onclick = () => answerRunVerdict(true);
+el('vb-wrong').onclick = () => answerRunVerdict(false);
+el('vb-skip').onclick = () => { el('verdict-banner').hidden = true; };
 el('tb-close').onclick = e => {
   e.stopPropagation();
   el('trigger-banner').hidden = true;

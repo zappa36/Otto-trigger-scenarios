@@ -104,6 +104,7 @@ create table if not exists public.runs (
   ar_trace jsonb,                     -- segments (see activity-rec.js)
   tuning jsonb,                       -- exact detector values the run used
   fixes jsonb,                        -- raw fix stream, packed (see recordFix in app.js)
+  should_fire boolean,                -- tester's verdict at run end; null = not answered
   created_at timestamptz not null default now()
 );
 
@@ -112,6 +113,13 @@ create table if not exists public.runs (
 -- concluded. This is what lets a run be replayed offline against other
 -- detector values — see scripts/tune_triggers.py.
 alter table public.runs add column if not exists fixes jsonb;
+
+-- The tester's one-tap verdict, asked on the phone the moment tracking
+-- stops ("Otto spoke / stayed quiet — right call?"), while the run is
+-- still fresh in their head. should_fire = what SHOULD have happened;
+-- fired = what did. Together they are the ground truth the offline
+-- tuner (and any learned trigger later) trains against.
+alter table public.runs add column if not exists should_fire boolean;
 
 create index if not exists runs_scenario_idx on public.runs (scenario_id, created_at desc);
 
@@ -177,6 +185,11 @@ create policy "anyone reads runs" on public.runs
 drop policy if exists "anyone adds runs" on public.runs;
 create policy "anyone adds runs" on public.runs
   for insert to anon, authenticated with check (true);
+
+-- the phone patches the tester's verdict onto a run after it was logged
+drop policy if exists "anyone updates runs" on public.runs;
+create policy "anyone updates runs" on public.runs
+  for update to anon, authenticated using (true) with check (true);
 
 -- ------------------------------------------------------------
 -- SIGNED-IN POLICIES

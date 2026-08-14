@@ -131,6 +131,51 @@
     cursor: pointer;
   }
 
+  /* the verdict bar — one tap of ground truth while the run is fresh.
+     Same slot as the trigger banner; tracking has just stopped, so the
+     slot is free. */
+  #verdict-banner {
+    position: absolute;
+    left: 12px; right: 12px; top: 100px;
+    z-index: 12;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid rgba(95,224,176,.5);
+    background: linear-gradient(180deg, rgba(10,44,34,.96), rgba(7,26,20,.96));
+  }
+  #verdict-banner[hidden] { display: none; }
+  #vb-title {
+    display: block;
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 9.5px;
+    letter-spacing: .14em;
+    color: #7ce0b8;
+    margin-bottom: 2px;
+  }
+  #vb-text { font-size: 13px; color: #d9f2e6; }
+  .vb-btns { display: flex; gap: 8px; margin-top: 10px; }
+  .vb-btn {
+    flex: 1;
+    padding: 10px 8px;
+    border-radius: 10px;
+    border: 1px solid rgba(95,224,176,.45);
+    background: rgba(95,224,176,.1);
+    color: #7ce0b8;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  .vb-btn.no { border-color: rgba(255,120,69,.5); background: rgba(255,120,69,.08); color: #ffab8a; }
+  #vb-skip {
+    flex: none;
+    width: 38px;
+    border-radius: 10px;
+    border: 1px solid rgba(140,165,200,.25);
+    background: transparent;
+    color: #94a1b2;
+    font-size: 14px;
+    cursor: pointer;
+  }
+
   /* ---------- map zoom controls (live Google map only) ---------- */
   #map-zoom {
     position: absolute;
@@ -332,6 +377,16 @@
       <span id="tb-text"></span>
     </div>
     <button id="tb-close" type="button" aria-label="Dismiss">×</button>
+  </div>
+
+  <div id="verdict-banner" hidden>
+    <b id="vb-title">RUN LOGGED — YOUR CALL</b>
+    <span id="vb-text"></span>
+    <div class="vb-btns">
+      <button id="vb-right" class="vb-btn" type="button">✓ Right call</button>
+      <button id="vb-wrong" class="vb-btn no" type="button">✗ Wrong</button>
+      <button id="vb-skip" type="button" aria-label="Skip">×</button>
+    </div>
   </div>
 
   <div id="hint" hidden>

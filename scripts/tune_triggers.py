@@ -14,10 +14,12 @@ Three things it does, in increasing order of ambition:
            the port reproduces the recorded outcome. Run this first; a
            low match rate means replay results cannot be trusted yet.
 
-  labels   Emit a CSV template (one row per run) for a human to mark
-           what SHOULD have happened (`should_fire` = 1/0). The recorded
-           outcome is pre-filled — correct the rows where the detector
-           got it wrong. This file is the ground truth for tuning.
+  labels   The ground truth is normally already there: the phone asks
+           the tester "right call?" the moment tracking stops, and the
+           answer lands on the run (`runs.should_fire`). Those verdicts
+           are picked up automatically. For runs answered wrong (or
+           skipped in the field), --emit-labels writes a CSV to correct
+           by hand; --labels overlays it on top of the phone verdicts.
 
   search   Random-search the knob space per scenario, scoring each
            candidate by agreement with the labels; write the winners as
@@ -294,10 +296,13 @@ def verify(triples):
 def emit_labels(triples, path):
     with open(path, 'w', newline='', encoding='utf-8') as f:
         w = csv.writer(f)
-        w.writerow(['run_id', 'should_fire', 'recorded_fired', 'scenario', 'started_at'])
+        w.writerow(['run_id', 'should_fire', 'recorded_fired', 'field_verdict', 'scenario', 'started_at'])
         for run, sc, _ in triples:
-            w.writerow([run.get('id'), 1 if run.get('fired') else 0,
+            phone = run.get('should_fire')  # the tester's in-the-field answer, if any
+            w.writerow([run.get('id'),
+                        (1 if phone else 0) if phone is not None else (1 if run.get('fired') else 0),
                         1 if run.get('fired') else 0,
+                        '' if phone is None else (1 if phone else 0),
                         (sc or {}).get('title') or '', run.get('started_at') or ''])
     print(f'\nwrote {path} — set should_fire to what SHOULD have happened '
           '(1 = Otto should have spoken, 0 = he should have stayed quiet), then re-run with '
@@ -402,9 +407,10 @@ def main():
     ap.add_argument('--key', help='Supabase anon key')
     ap.add_argument('--input', help='offline dump: {"runs":[],"scenarios":[],"destinations":[]}')
     ap.add_argument('--emit-labels', metavar='CSV', help='write the labeling template and exit')
-    ap.add_argument('--labels', metavar='CSV', help='ground truth (run_id, should_fire)')
+    ap.add_argument('--labels', metavar='CSV',
+                    help='override/extend the phone verdicts (run_id, should_fire)')
     ap.add_argument('--search', type=int, metavar='N', default=0,
-                    help='random-search N candidates per scenario (needs --labels)')
+                    help='random-search N candidates per scenario against the labels')
     ap.add_argument('--out', metavar='JSON', help='where --search writes tuned params')
     ap.add_argument('--seed', type=int, default=7, help='search RNG seed (default 7)')
     args = ap.parse_args()
@@ -420,10 +426,20 @@ def main():
         emit_labels(triples, args.emit_labels)
         return
     if args.search:
-        if not args.labels:
-            sys.exit('--search needs --labels (make one with --emit-labels first)')
+        # ground truth: the verdicts testers tapped on the phone at run
+        # end, with any CSV corrections layered on top
+        labels = {run['id']: bool(run['should_fire'])
+                  for run, _, _ in triples if run.get('should_fire') is not None}
+        if args.labels:
+            labels.update(read_labels(args.labels))
+        if not labels:
+            sys.exit('no ground truth yet — answer the "right call?" question on the phone '
+                     'after a run, or make a CSV with --emit-labels and pass it via --labels')
+        print(f'{len(labels)} labeled run(s) '
+              f'({sum(1 for run, _, _ in triples if run.get("should_fire") is not None)} '
+              'from phone verdicts)')
         verify(triples)
-        search(triples, read_labels(args.labels), args.search, args.out)
+        search(triples, labels, args.search, args.out)
         return
     verify(triples)
 
