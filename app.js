@@ -303,38 +303,53 @@ function stopTracking() {
 }
 
 /* ---------- the verdict bar ----------
- * "Should Otto have spoken?" is the ground truth every knob-tuning and
- * every learned trigger needs — and the only person who knows is the
- * tester, in the seconds after the run, before the memory fades. So ask
- * RIGHT THERE, one tap, the moment tracking stops; the answer lands on
- * the run row (runs.should_fire) and the offline tuner reads it as its
- * labels. Skipping is fine — an unanswered run is null, not a guess. */
+ * "Should Otto have spoken — and WHEN?" is the ground truth every
+ * knob-tuning and every learned trigger needs, and the only person who
+ * knows is the tester, in the seconds after the run, before the memory
+ * fades. So ask RIGHT THERE, one tap, the moment tracking stops. A run
+ * where Otto spoke gets the full timing question (right timing / too
+ * early / too late / false alarm); a silent run only gets right call /
+ * should have spoken — timing without a fire is not a thing. The
+ * verdict lands on the run row (runs.verdict + the derived
+ * runs.should_fire) and the offline tuner reads both: should_fire as
+ * its labels, early/late as which direction to move the fire. Skipping
+ * is fine — an unanswered run is null, not a guess. */
 function askRunVerdict() {
   if (!lastRun || lastRun.answered) return;
-  el('vb-text').textContent = lastRun.fired
-    ? 'Otto spoke on this run. Right call?'
+  const fired = lastRun.fired;
+  el('vb-text').textContent = fired
+    ? 'Otto spoke on this run — how was his timing?'
     : 'Otto stayed quiet the whole run. Right call?';
-  el('vb-wrong').textContent = lastRun.fired ? '✗ False alarm' : '✗ Should have spoken';
+  el('vb-right').textContent = fired ? '✓ Right timing' : '✓ Right call';
+  el('vb-wrong').textContent = fired ? '✗ False alarm' : '✗ Should have spoken';
+  el('vb-early').hidden = !fired;
+  el('vb-late').hidden = !fired;
   el('verdict-banner').hidden = false;
 }
 
-function answerRunVerdict(right) {
+function answerRunVerdict(kind) {
   const lr = lastRun;
   el('verdict-banner').hidden = true;
   if (!lr || lr.answered) return;
   lr.answered = true;
-  const should = right ? lr.fired : !lr.fired;
+  /* early and late still mean "a debrief was warranted" — the fire was
+   * right, the moment was wrong */
+  const should = kind === 'on_time' || kind === 'early' || kind === 'late' || kind === 'missed';
   if (navigator.vibrate) navigator.vibrate(30); // "got it" — felt, not shown
   if (lr.local) {
     try {
       const runs = JSON.parse(localStorage.getItem(LS_RUNS) || '[]');
       const r = runs.find(x => x.id === lr.id);
-      if (r) { r.should_fire = should; localStorage.setItem(LS_RUNS, JSON.stringify(runs)); }
+      if (r) {
+        r.should_fire = should;
+        r.verdict = kind;
+        localStorage.setItem(LS_RUNS, JSON.stringify(runs));
+      }
     } catch { /* private mode */ }
   } else {
     /* the insert may still be in flight — chain, don't race it */
     Promise.resolve(lr.saved).then(() => {
-      if (lr.id) Backend.updateRun(lr.id, { should_fire: should })
+      if (lr.id) Backend.updateRun(lr.id, { should_fire: should, verdict: kind })
         .catch(e => console.warn('verdict not saved — re-run schema.sql?', e.message));
     });
   }
@@ -1093,8 +1108,10 @@ el('trigger-banner').onclick = () => {
   el('trigger-banner').hidden = true;
   if (tracking) openOtto(tracking.d);
 };
-el('vb-right').onclick = () => answerRunVerdict(true);
-el('vb-wrong').onclick = () => answerRunVerdict(false);
+el('vb-right').onclick = () => answerRunVerdict(lastRun && lastRun.fired ? 'on_time' : 'quiet_right');
+el('vb-early').onclick = () => answerRunVerdict('early');
+el('vb-late').onclick = () => answerRunVerdict('late');
+el('vb-wrong').onclick = () => answerRunVerdict(lastRun && lastRun.fired ? 'false_alarm' : 'missed');
 el('vb-skip').onclick = () => { el('verdict-banner').hidden = true; };
 el('tb-close').onclick = e => {
   e.stopPropagation();

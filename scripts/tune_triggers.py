@@ -15,16 +15,22 @@ Three things it does, in increasing order of ambition:
            low match rate means replay results cannot be trusted yet.
 
   labels   The ground truth is normally already there: the phone asks
-           the tester "right call?" the moment tracking stops, and the
-           answer lands on the run (`runs.should_fire`). Those verdicts
-           are picked up automatically. For runs answered wrong (or
-           skipped in the field), --emit-labels writes a CSV to correct
-           by hand; --labels overlays it on top of the phone verdicts.
+           the tester the moment tracking stops — a fired run gets the
+           timing question (right timing / too early / too late / false
+           alarm), a silent run gets right call / should have spoken —
+           and the answer lands on the run (`runs.verdict` +
+           `runs.should_fire`). Those verdicts are picked up
+           automatically. For runs answered wrong (or skipped in the
+           field), --emit-labels writes a CSV to correct by hand;
+           --labels overlays it on top of the phone verdicts.
 
-  search   Random-search the knob space per scenario, scoring each
-           candidate by agreement with the labels; write the winners as
-           dashboard-shaped params JSON, ready to paste into a scenario
-           (or hand-apply with the sliders).
+  search   Random-search the knob space per scenario. Candidates are
+           scored by agreement with the labels first; among equals, a
+           run judged "too early" rewards candidates whose replay fires
+           later than the current knobs did (and "too late" the other
+           way). Winners are written as dashboard-shaped params JSON,
+           ready to paste into a scenario (or hand-apply with the
+           sliders).
 
 Data comes straight from Supabase (the pilot policies let the anon key
 read) or from a JSON file:
@@ -320,15 +326,29 @@ def read_labels(path):
 
 
 def search_scenario(entries, base_cfg, keys, ranges, iters):
-    """Random search; score = label agreement, tie-break = least drift."""
+    """Random search; score = label agreement, then timing (a run judged
+    'early' rewards candidates that fire later than the current knobs
+    did, 'late' the other way), then least drift."""
+    base_t = {}
+    for run, sc, dest, _should, _verdict in entries:
+        res = replay(run, base_cfg, sc, dest)
+        base_t[run['id']] = res['fired_t'] if res else None
+
     def score(cfg):
-        hits = 0
-        for run, sc, dest, should in entries:
+        hits = timing = 0
+        for run, sc, dest, should, verdict in entries:
             res = replay(run, cfg, sc, dest)
-            if res and res['fired'] == should:
+            fired = bool(res and res['fired'])
+            if fired == should:
                 hits += 1
+            b = base_t.get(run['id'])
+            if (fired and verdict in ('early', 'late')
+                    and b is not None and res['fired_t'] is not None):
+                dt = res['fired_t'] - b
+                if (verdict == 'early' and dt > 1) or (verdict == 'late' and dt < -1):
+                    timing += 1
         drift = sum(abs(cfg[k] - base_cfg[k]) / (ranges[k][1] - ranges[k][0] or 1) for k in keys)
-        return hits, -drift
+        return hits, timing, -drift
     best_cfg, best = dict(base_cfg), score(base_cfg)
     for _ in range(iters):
         cand = dict(base_cfg)
@@ -349,20 +369,21 @@ def search_scenario(entries, base_cfg, keys, ranges, iters):
             s = score(trial)
             if s >= best:
                 best_cfg, best = trial, s
-    return best_cfg, best[0], score(dict(base_cfg))[0]
+    return best_cfg, best[0], score(dict(base_cfg))[0], best[1]
 
 
 def search(triples, labels, iters, out_path):
     by_sc = {}
     for run, sc, dest in triples:
         if run.get('id') in labels and sc:
-            by_sc.setdefault(sc['id'], []).append((run, sc, dest, labels[run['id']]))
+            by_sc.setdefault(sc['id'], []).append(
+                (run, sc, dest, labels[run['id']], run.get('verdict')))
     if not by_sc:
         sys.exit('no labeled, replayable runs matched a scenario — check the labels CSV')
     print(f'\nSEARCH — {iters} candidates per scenario, scored on labeled runs\n')
     out = {}
     for sc_id, entries in by_sc.items():
-        run0, sc, dest0, _ = entries[0]
+        run0, sc = entries[0][0], entries[0][1]
         base = cfg_for(run0, sc)
         keys = SEARCH_KEYS[shape_of(run0, sc)]
         # a scenario's own param ranges bound the search; ±60% otherwise
@@ -375,9 +396,11 @@ def search(triples, labels, iters, out_path):
             except (TypeError, KeyError, ValueError):
                 lo, hi = base[k] * 0.4, base[k] * 1.6
             ranges[k] = (min(lo, hi), max(lo, hi)) if hi > lo else (base[k] * 0.4, base[k] * 1.6)
-        tuned, after, before = search_scenario(entries, base, keys, ranges, iters)
+        tuned, after, before, timing = search_scenario(entries, base, keys, ranges, iters)
         n = len(entries)
-        print(f'{(sc.get("title") or sc_id)[:44]:<46} {before}/{n} -> {after}/{n} correct')
+        n_timing = sum(1 for e in entries if e[4] in ('early', 'late'))
+        timing_note = f' · timing moved right on {timing}/{n_timing}' if n_timing else ''
+        print(f'{(sc.get("title") or sc_id)[:44]:<46} {before}/{n} -> {after}/{n} correct{timing_note}')
         for k in keys:
             if tuned[k] != base[k]:
                 print(f'    {k}: {base[k]:g} -> {tuned[k]:g}')

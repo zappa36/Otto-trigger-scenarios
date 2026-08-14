@@ -146,12 +146,14 @@ Every tracked run also records its **raw fix stream** (`runs.fixes`:
 position, speed and AR state at ~1 Hz, downsampled on long runs) — what
 the detector *saw*, where `ar_trace` only says what it concluded. And
 the moment tracking stops, the phone asks the tester for **the verdict
-while the run is still fresh**: *"Otto spoke on this run. Right call?"*
-— one tap, ✓ or ✗, skippable. That answer lands on the run
-(`runs.should_fire`) and shows on the dashboard's run log ("✓ RIGHT
-CALL" / "✗ FALSE ALARM" / "✗ SHOULD HAVE SPOKEN"). Together the two are
-ground truth: what was seen, plus what should have happened — collected
-in the field, judged in the field, nothing to remember later.
+while the run is still fresh** — one tap, skippable. A run where Otto
+spoke gets the timing question (*"how was his timing?"* — ✓ right
+timing / ⏱ too early / ⏱ too late / ✗ false alarm); a silent run gets
+✓ right call / ✗ should have spoken. The answer lands on the run
+(`runs.verdict` + `runs.should_fire`) and shows on the dashboard's run
+log as a chip. Together the two are ground truth: what was seen, plus
+what should have happened *and when* — collected in the field, judged
+in the field, nothing to remember later.
 
 [`scripts/tune_triggers.py`](scripts/tune_triggers.py) (standard-library
 Python — like the rest of the kit, no dependencies) then runs the whole

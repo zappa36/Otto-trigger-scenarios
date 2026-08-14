@@ -516,6 +516,25 @@ function renderFeedbackBlock(sc, ver) {
     </div>`;
 }
 
+/* The tester's in-the-field verdict on a run, as a chip. Runs judged
+ * before the timing question existed only carry should_fire — those
+ * fall back to the plain right/wrong reading. */
+function runVerdictChip(r) {
+  const tip = 'The tester’s verdict at run end — ground truth for tuning';
+  const byVerdict = {
+    on_time: ['ok', '✓ RIGHT TIMING'],
+    quiet_right: ['ok', '✓ RIGHT CALL'],
+    early: ['warn', '⏱ TOO EARLY'],
+    late: ['warn', '⏱ TOO LATE'],
+    false_alarm: ['bad', '✗ FALSE ALARM'],
+    missed: ['bad', '✗ SHOULD HAVE SPOKEN'],
+  }[r.verdict];
+  const v = byVerdict || (r.should_fire == null ? null
+    : r.should_fire === !!r.fired ? ['ok', '✓ RIGHT CALL']
+    : r.fired ? ['bad', '✗ FALSE ALARM'] : ['bad', '✗ SHOULD HAVE SPOKEN']);
+  return v ? `<span class="run-chip ${v[0]}" title="${esc(tip)}">${v[1]}</span>` : '';
+}
+
 /* The run log — one row per tracked test, fired or not. Sits under the
  * debriefs: together they are everything the device saw. */
 function renderRuns(sc) {
@@ -532,9 +551,7 @@ function renderRuns(sc) {
       <div class="run-item" title="${esc(tip)}">
         <div class="fb-meta">
           <span class="run-chip ${o.cls}">${esc(o.label)}</span>
-          ${r.should_fire == null ? '' : r.should_fire === !!r.fired
-    ? '<span class="run-chip ok" title="The tester confirmed the outcome at run end">✓ RIGHT CALL</span>'
-    : `<span class="run-chip bad" title="The tester's verdict at run end — ground truth for tuning">${r.fired ? '✗ FALSE ALARM' : '✗ SHOULD HAVE SPOKEN'}</span>`}
+          ${runVerdictChip(r)}
           <span class="fb-chip plain">v${esc(r.scenario_version || '?')}${durMin ? ' · ' + durMin + ' MIN' : ''}</span>
           <span class="msg-time">${esc(fmtTime(r.created_at || r.ended_at))}</span>
         </div>

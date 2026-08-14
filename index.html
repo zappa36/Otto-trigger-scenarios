@@ -164,7 +164,9 @@
     font-size: 12.5px;
     cursor: pointer;
   }
+  .vb-btn.mid { border-color: rgba(255,217,94,.45); background: rgba(255,217,94,.08); color: #ffd95e; }
   .vb-btn.no { border-color: rgba(255,120,69,.5); background: rgba(255,120,69,.08); color: #ffab8a; }
+  .vb-btn[hidden] { display: none; }
   #vb-skip {
     flex: none;
     width: 38px;
@@ -383,9 +385,13 @@
     <b id="vb-title">RUN LOGGED — YOUR CALL</b>
     <span id="vb-text"></span>
     <div class="vb-btns">
-      <button id="vb-right" class="vb-btn" type="button">✓ Right call</button>
-      <button id="vb-wrong" class="vb-btn no" type="button">✗ Wrong</button>
+      <button id="vb-right" class="vb-btn" type="button">✓ Right timing</button>
       <button id="vb-skip" type="button" aria-label="Skip">×</button>
+    </div>
+    <div class="vb-btns">
+      <button id="vb-early" class="vb-btn mid" type="button">⏱ Too early</button>
+      <button id="vb-late" class="vb-btn mid" type="button">⏱ Too late</button>
+      <button id="vb-wrong" class="vb-btn no" type="button">✗ False alarm</button>
     </div>
   </div>
 
