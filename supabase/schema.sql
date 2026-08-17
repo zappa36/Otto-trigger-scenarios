@@ -103,8 +103,28 @@ create table if not exists public.runs (
   ar_summary text,                    -- "ON_FOOT 4m → STILL 30s → ON_FOOT 1m"
   ar_trace jsonb,                     -- segments (see activity-rec.js)
   tuning jsonb,                       -- exact detector values the run used
+  fixes jsonb,                        -- raw fix stream, packed (see recordFix in app.js)
+  should_fire boolean,                -- tester's verdict at run end; null = not answered
+  verdict text,                       -- the full answer: on_time / early / late / false_alarm / quiet_right / missed
   created_at timestamptz not null default now()
 );
+
+-- The raw fix stream, for databases created before it: what the detector
+-- SAW (t/lat/lng/speed/state at ~1 Hz), where ar_trace only says what it
+-- concluded. This is what lets a run be replayed offline against other
+-- detector values — see scripts/tune_triggers.py.
+alter table public.runs add column if not exists fixes jsonb;
+
+-- The tester's one-tap verdict, asked on the phone the moment tracking
+-- stops, while the run is still fresh in their head. A fired run gets
+-- the timing question (on_time / early / late / false_alarm); a silent
+-- run gets quiet_right / missed. should_fire is the boolean the tuner
+-- labels with (early and late still mean a debrief was warranted);
+-- verdict keeps the full answer, so "too early" can pull the fire
+-- later. Together with `fixes` this is the ground truth the offline
+-- tuner (and any learned trigger later) trains against.
+alter table public.runs add column if not exists should_fire boolean;
+alter table public.runs add column if not exists verdict text;
 
 create index if not exists runs_scenario_idx on public.runs (scenario_id, created_at desc);
 
@@ -170,6 +190,11 @@ create policy "anyone reads runs" on public.runs
 drop policy if exists "anyone adds runs" on public.runs;
 create policy "anyone adds runs" on public.runs
   for insert to anon, authenticated with check (true);
+
+-- the phone patches the tester's verdict onto a run after it was logged
+drop policy if exists "anyone updates runs" on public.runs;
+create policy "anyone updates runs" on public.runs
+  for update to anon, authenticated using (true) with check (true);
 
 -- ------------------------------------------------------------
 -- SIGNED-IN POLICIES

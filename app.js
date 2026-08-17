@@ -120,7 +120,35 @@ function trigOf(sc) {
   return t;
 }
 let tracking = null;  // { sc, d, trig, startedAt, passes, ... } while a test runs
+let lastRun = null;   // the just-logged run, awaiting the tester's verdict (askRunVerdict)
 let wakeLock = null;
+
+/* ---------- the raw fix stream ----------
+ * The run log's ar_trace says what the detector CONCLUDED; replaying a
+ * run offline (scripts/tune_triggers.py) needs what it SAW. Sample the
+ * per-fix signal at 1 Hz into a packed array; when the buffer fills,
+ * drop every other sample and halve the rate — a long run keeps full
+ * coverage at coarser resolution, and the row stays small enough for
+ * the keepalive fetch that flushes abandoned runs (~64 KB budget). */
+const FIX_CAP = 900;
+const FIX_STATES = ['UNKNOWN', 'STILL', 'ON_FOOT', 'IN_VEHICLE'];
+function recordFix(tr, snap) {
+  const t = snap.t || Date.now();
+  if (t - (tr.lastSampleAt || 0) < tr.fixEveryMs) return;
+  tr.lastSampleAt = t;
+  tr.fixes.push([
+    Math.round((t - tr.startedAt) / 100) / 10,   // seconds since the run started
+    Math.round(snap.position.lat * 1e5) / 1e5,   // ~1 m
+    Math.round(snap.position.lng * 1e5) / 1e5,
+    Math.round(snap.speed * 10) / 10,            // m/s
+    Math.max(0, FIX_STATES.indexOf(snap.state)),
+    snap.cadence ? 1 : 0,
+  ]);
+  if (tr.fixes.length >= FIX_CAP) {
+    tr.fixes = tr.fixes.filter((_, i) => i % 2 === 0);
+    tr.fixEveryMs *= 2;
+  }
+}
 
 async function acquireWakeLock() {
   try { if (navigator.wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch { /* optional */ }
@@ -145,6 +173,8 @@ function startTracking(sc, d) {
    * traffic — a permission dialog nobody sees is a debrief lost. */
   OttoAgent.prime();
   ActivityRec.start();
+  lastRun = null; // a new run makes the old verdict question stale
+  el('verdict-banner').hidden = true;
   tracking = {
     sc, d, trig: trigOf(sc), shape: scenarioShape(sc), startedAt: Date.now(),
     passes: 0, inside: false, insideMaxStill: 0, insideSpeedSum: 0, insideN: 0,
@@ -152,6 +182,8 @@ function startTracking(sc, d) {
     /* park-and-walk shape */
     sawVehicle: false, lastVehicleFix: null, vehicleStillSince: null,
     parkedAt: null, walkM: 0, lastWalkFix: null,
+    /* raw fix stream (recordFix) */
+    fixes: [], fixEveryMs: 1000, lastSampleAt: 0,
   };
   acquireWakeLock();
   updateArChip(ActivityRec.snapshot);
@@ -173,6 +205,7 @@ function saveRunLog() {
   const sig = [tr.fixN || 0, tr.passes, !!tr.stopped, !!tr.fired].join('|');
   if (tr.loggedSig === sig) return;
   tr.loggedSig = sig;
+  lastRun = { fired: !!tr.fired, id: null, saved: null, local: !Backend.enabled, answered: false };
   const row = {
     scenario_id: tr.sc.id,
     scenario_version: tr.sc.version || 1,
@@ -199,6 +232,7 @@ function saveRunLog() {
       } : {}),
     },
     tuning: {
+      shape: tr.shape,
       radius: tr.trig.radius,
       exit_radius: tr.trig.exitRadius,
       pass_speed_max: tr.trig.passSpeedMax,
@@ -208,15 +242,40 @@ function saveRunLog() {
       stop_dwell_s: tr.trig.stopDwellMs / 1000,
       stop_radius: tr.trig.stopRadius,
       resume_speed: tr.trig.resumeSpeed,
+      /* the park-and-walk knobs were missing here — a parkwalk run whose
+       * tuning only listed the pass/stop values could not be replayed */
+      ...(tr.shape === 'parkwalk' ? {
+        park_radius_max: tr.trig.parkRadiusMax,
+        park_stop_s: tr.trig.parkStopMs / 1000,
+        arrival_radius: tr.trig.arrivalRadius,
+        min_walk_m: tr.trig.minWalkM,
+      } : {}),
     },
+    fixes: tr.fixes && tr.fixes.length ? {
+      v: 1,
+      cols: ['t_s', 'lat', 'lng', 'speed_mps', 'state', 'stepping'],
+      states: FIX_STATES,
+      sample_s: tr.fixEveryMs / 1000,
+      rows: tr.fixes,
+    } : null,
   };
   if (Backend.enabled) {
-    Backend.insertRun(row).catch(e => console.warn('run log not saved — re-run schema.sql?', e.message));
+    const lr = lastRun;
+    lr.saved = Backend.insertRun(row)
+      .then(rows => { lr.id = rows && rows[0] && rows[0].id; })
+      .catch(e => console.warn('run log not saved — re-run schema.sql?', e.message));
   } else {
     try {
       const runs = JSON.parse(localStorage.getItem(LS_RUNS) || '[]');
-      runs.unshift({ ...row, id: 'r' + Date.now().toString(36), created_at: row.ended_at });
-      localStorage.setItem(LS_RUNS, JSON.stringify(runs.slice(0, 50))); // enough history, bounded storage
+      lastRun.id = 'r' + Date.now().toString(36);
+      runs.unshift({ ...row, id: lastRun.id, created_at: row.ended_at });
+      const keep = runs.slice(0, 50); // enough history, bounded storage
+      try {
+        localStorage.setItem(LS_RUNS, JSON.stringify(keep));
+      } catch {
+        /* quota: the fix streams are the bulk — keep them on recent runs only */
+        localStorage.setItem(LS_RUNS, JSON.stringify(keep.map((r, i) => i < 10 ? r : { ...r, fixes: null })));
+      }
     } catch { /* private mode */ }
   }
 }
@@ -240,6 +299,60 @@ function stopTracking() {
   el('trigger-banner').hidden = true;
   updateArChip(ActivityRec.snapshot);
   updateCardTrack();
+  askRunVerdict();
+}
+
+/* ---------- the verdict bar ----------
+ * "Should Otto have spoken — and WHEN?" is the ground truth every
+ * knob-tuning and every learned trigger needs, and the only person who
+ * knows is the tester, in the seconds after the run, before the memory
+ * fades. So ask RIGHT THERE, one tap, the moment tracking stops. A run
+ * where Otto spoke gets the full timing question (right timing / too
+ * early / too late / false alarm); a silent run only gets right call /
+ * should have spoken — timing without a fire is not a thing. The
+ * verdict lands on the run row (runs.verdict + the derived
+ * runs.should_fire) and the offline tuner reads both: should_fire as
+ * its labels, early/late as which direction to move the fire. Skipping
+ * is fine — an unanswered run is null, not a guess. */
+function askRunVerdict() {
+  if (!lastRun || lastRun.answered) return;
+  const fired = lastRun.fired;
+  el('vb-text').textContent = fired
+    ? 'Otto spoke on this run — how was his timing?'
+    : 'Otto stayed quiet the whole run. Right call?';
+  el('vb-right').textContent = fired ? '✓ Right timing' : '✓ Right call';
+  el('vb-wrong').textContent = fired ? '✗ False alarm' : '✗ Should have spoken';
+  el('vb-early').hidden = !fired;
+  el('vb-late').hidden = !fired;
+  el('verdict-banner').hidden = false;
+}
+
+function answerRunVerdict(kind) {
+  const lr = lastRun;
+  el('verdict-banner').hidden = true;
+  if (!lr || lr.answered) return;
+  lr.answered = true;
+  /* early and late still mean "a debrief was warranted" — the fire was
+   * right, the moment was wrong */
+  const should = kind === 'on_time' || kind === 'early' || kind === 'late' || kind === 'missed';
+  if (navigator.vibrate) navigator.vibrate(30); // "got it" — felt, not shown
+  if (lr.local) {
+    try {
+      const runs = JSON.parse(localStorage.getItem(LS_RUNS) || '[]');
+      const r = runs.find(x => x.id === lr.id);
+      if (r) {
+        r.should_fire = should;
+        r.verdict = kind;
+        localStorage.setItem(LS_RUNS, JSON.stringify(runs));
+      }
+    } catch { /* private mode */ }
+  } else {
+    /* the insert may still be in flight — chain, don't race it */
+    Promise.resolve(lr.saved).then(() => {
+      if (lr.id) Backend.updateRun(lr.id, { should_fire: should, verdict: kind })
+        .catch(e => console.warn('verdict not saved — re-run schema.sql?', e.message));
+    });
+  }
 }
 
 /* ---------- park-and-walk detector ----------
@@ -316,6 +429,7 @@ function detectorStep(snap) {
    * detector — the distinction a stuck-on-UNKNOWN chip cannot make */
   tracking.fixN = (tracking.fixN || 0) + 1;
   tracking.maxSp = Math.max(tracking.maxSp || 0, snap.speed);
+  recordFix(tracking, snap);
   if (tracking.shape === 'parkwalk') { parkWalkStep(snap); return; }
   const tr = tracking;
   const cfg = tr.trig; // the scenario's tuned values (TRIG defaults otherwise)
@@ -994,6 +1108,11 @@ el('trigger-banner').onclick = () => {
   el('trigger-banner').hidden = true;
   if (tracking) openOtto(tracking.d);
 };
+el('vb-right').onclick = () => answerRunVerdict(lastRun && lastRun.fired ? 'on_time' : 'quiet_right');
+el('vb-early').onclick = () => answerRunVerdict('early');
+el('vb-late').onclick = () => answerRunVerdict('late');
+el('vb-wrong').onclick = () => answerRunVerdict(lastRun && lastRun.fired ? 'false_alarm' : 'missed');
+el('vb-skip').onclick = () => { el('verdict-banner').hidden = true; };
 el('tb-close').onclick = e => {
   e.stopPropagation();
   el('trigger-banner').hidden = true;

@@ -140,6 +140,48 @@ dashboard runs that loop end to end:
    feedback trail, and every structured test result — ready to hand to
    whoever builds the production trigger.
 
+### Replay runs offline, tune on the record
+
+Every tracked run also records its **raw fix stream** (`runs.fixes`:
+position, speed and AR state at ~1 Hz, downsampled on long runs) — what
+the detector *saw*, where `ar_trace` only says what it concluded. And
+the moment tracking stops, the phone asks the tester for **the verdict
+while the run is still fresh** — one tap, skippable. A run where Otto
+spoke gets the timing question (*"how was his timing?"* — ✓ right
+timing / ⏱ too early / ⏱ too late / ✗ false alarm); a silent run gets
+✓ right call / ✗ should have spoken. The answer lands on the run
+(`runs.verdict` + `runs.should_fire`) and shows on the dashboard's run
+log as a chip. Together the two are ground truth: what was seen, plus
+what should have happened *and when* — collected in the field, judged
+in the field, nothing to remember later.
+
+[`scripts/tune_triggers.py`](scripts/tune_triggers.py) (standard-library
+Python — like the rest of the kit, no dependencies) then runs the whole
+tuning loop on that record instead of another drive:
+
+```sh
+# does the offline port agree with what the phone did? (run this first)
+python3 scripts/tune_triggers.py --url https://XYZ.supabase.co --key ANON_KEY
+
+# search the knob space against the field verdicts; smallest change wins
+python3 scripts/tune_triggers.py --url ... --key ... --search 3000 --out tuned.json
+
+# verdicts skipped or fat-fingered in the field? correct them in a CSV
+python3 scripts/tune_triggers.py --url ... --key ... --emit-labels labels.csv
+python3 scripts/tune_triggers.py --url ... --key ... --labels labels.csv --search 3000
+```
+
+The search stays inside each scenario's slider ranges, reports
+before/after accuracy per scenario ("1/2 → 2/2 correct ·
+`stop_dwell_s: 45 → 67`"), and writes `tuned.json` in the dashboard's
+own params shape. Deliberately minimal: it prefers the smallest change
+that fits the verdicts, so what comes out reads like a changelog entry,
+not a black box. A handful of judged runs per scenario is enough to
+start — and the same fix streams are the training data for anything
+more ambitious later (a learned trigger model needs exactly this
+record). Runs logged before the `fixes` column are skipped with a
+count.
+
 Going live is the same story as the rest of the app: re-run
 [`supabase/schema.sql`](supabase/schema.sql) (safe to re-run — it adds
 the `scenarios` table and the tuning-loop columns), and deploy
