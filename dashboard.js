@@ -401,7 +401,9 @@ function renderTune(sc, params, ver) {
         <button class="mini-btn accent" type="button" data-act="tune-save">Save tuning as v${ver + 1}</button>
         <button class="mini-btn" type="button" data-act="tune-reset">Reset</button>
       </div>
-      ${drivesPhone ? '<p class="tune-note">These values drive the phone’s live trigger detector on the next test run.</p>' : ''}
+      ${drivesPhone
+    ? '<p class="tune-note">These values drive the phone’s live trigger detector on the next test run.</p>'
+    : `<p class="tune-note warn">⚠ None of these keys (${esc(params.map(p => p.key).join(', '))}) is a detector knob — the phone runs on its built-in defaults and these sliders only change the rule text. Rename them to detector keys (${esc(DETECTOR_KEYS.slice(0, 4).join(', '))}, …) to make them live.</p>`}
     </div>`;
 }
 
