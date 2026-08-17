@@ -120,7 +120,8 @@ function cleanParams(list) {
 }
 /* Param keys the phone's live detector consumes (trigOf in app.js). */
 const DETECTOR_KEYS = ['radius', 'exit_radius', 'pass_speed_max', 'pass_still_max_s',
-  'passes_needed', 'stop_speed', 'stop_dwell_s', 'stop_radius', 'resume_speed'];
+  'passes_needed', 'stop_speed', 'stop_dwell_s', 'still_grace_s', 'stop_radius', 'resume_speed',
+  'park_radius_max', 'park_stop_s', 'arrival_radius', 'min_walk_m'];
 
 /* ---------- versions ----------
  * Every change to the definition — a tuned slider, an applied feedback

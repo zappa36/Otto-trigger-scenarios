@@ -77,7 +77,8 @@ const TRIG = {
   passStillMax: 25e3, // ms — standing longer than this inside makes it a stop, not a pass
   passesNeeded: 2,    // deck says 2–3 slow loops
   stopSpeed: 0.6,     // m/s — below this you are standing
-  stopDwellMs: 45e3,  // ms — standing this long near the pin is THE stop
+  stopDwellMs: 45e3,  // ms — CUMULATIVE standing time near the pin that makes THE stop
+  stillGraceMs: 30e3, // ms — a shorter interruption pauses the dwell clock, a longer one resets it
   stopRadius: 250,    // m — where that stop may happen
   resumeSpeed: 3,     // m/s — moving again afterwards = back in the car -> fire
   /* park-and-walk shape (selected by an arrival_radius param): park the
@@ -98,6 +99,7 @@ const TRIG_PARAM_KEYS = {
   passes_needed: ['passesNeeded', 1],
   stop_speed: ['stopSpeed', 1],
   stop_dwell_s: ['stopDwellMs', 1000],
+  still_grace_s: ['stillGraceMs', 1000],
   stop_radius: ['stopRadius', 1],
   resume_speed: ['resumeSpeed', 1],
   park_radius_max: ['parkRadiusMax', 1],
@@ -178,7 +180,8 @@ function startTracking(sc, d) {
   tracking = {
     sc, d, trig: trigOf(sc), shape: scenarioShape(sc), startedAt: Date.now(),
     passes: 0, inside: false, insideMaxStill: 0, insideSpeedSum: 0, insideN: 0,
-    stillStart: null, stopped: false, resumeN: 0, fired: false, firedAt: null,
+    dwellMs: 0, contStillStart: null, stillBreakStart: null, prevT: null,
+    stopped: false, resumeN: 0, fired: false, firedAt: null,
     /* park-and-walk shape */
     sawVehicle: false, lastVehicleFix: null, vehicleStillSince: null,
     parkedAt: null, walkM: 0, lastWalkFix: null,
@@ -240,6 +243,7 @@ function saveRunLog() {
       passes_needed: tr.trig.passesNeeded,
       stop_speed: tr.trig.stopSpeed,
       stop_dwell_s: tr.trig.stopDwellMs / 1000,
+      still_grace_s: tr.trig.stillGraceMs / 1000,
       stop_radius: tr.trig.stopRadius,
       resume_speed: tr.trig.resumeSpeed,
       /* the park-and-walk knobs were missing here — a parkwalk run whose
@@ -437,12 +441,24 @@ function detectorStep(snap) {
   const sp = snap.speed;
   const dist = distM(snap.position, tr.d);
 
-  /* the stop: standing near the pin long enough, after the loops */
-  if (sp <= cfg.stopSpeed && dist <= cfg.stopRadius) {
-    if (!tr.stillStart) tr.stillStart = t;
-    const dwell = t - tr.stillStart;
-    if (tr.inside) tr.insideMaxStill = Math.max(tr.insideMaxStill, dwell);
-    if (!tr.stopped && tr.passes >= cfg.passesNeeded && dwell >= cfg.stopDwellMs) {
+  /* the stop: CUMULATIVE stillness near the pin, after the loops.
+   * Continuous dwell dies indoors: GPS noise breaks a standing streak
+   * every couple of minutes, so a 5-minute rule could physically never
+   * commit (run log 2026-08-17 — 50 min inside, longest unbroken STILL
+   * ~2 min). Brief noise now PAUSES the dwell clock; only a sustained
+   * interruption (stillGraceMs — genuine walking off, driving away)
+   * starts the count over. The pass classifier below keeps judging by
+   * the longest UNBROKEN still, so a stop-and-go queue still reads as
+   * a pass, not a stop. */
+  const still = sp <= cfg.stopSpeed && dist <= cfg.stopRadius;
+  const dt = tr.prevT != null ? Math.max(0, Math.min(t - tr.prevT, 15000)) : 0;
+  tr.prevT = t;
+  if (still) {
+    tr.dwellMs += dt;
+    tr.stillBreakStart = null;
+    if (!tr.contStillStart) tr.contStillStart = t;
+    if (tr.inside) tr.insideMaxStill = Math.max(tr.insideMaxStill, t - tr.contStillStart);
+    if (!tr.stopped && tr.passes >= cfg.passesNeeded && tr.dwellMs >= cfg.stopDwellMs) {
       tr.stopped = true;
       updateCardTrack();
       /* A resume gate at or below the standing gate is no gate at all —
@@ -454,7 +470,11 @@ function detectorStep(snap) {
       if (!tr.fired && cfg.resumeSpeed <= cfg.stopSpeed) fireTrigger(t);
     }
   } else {
-    tr.stillStart = null;
+    tr.contStillStart = null;
+    if (tr.dwellMs > 0) {
+      if (!tr.stillBreakStart) tr.stillBreakStart = t;
+      if (t - tr.stillBreakStart >= cfg.stillGraceMs) { tr.dwellMs = 0; tr.stillBreakStart = null; }
+    }
   }
 
   /* pass episodes: in through the pass circle and out again, slow, no stop */
