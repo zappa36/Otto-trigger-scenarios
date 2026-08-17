@@ -61,14 +61,14 @@ import urllib.request
 DEFAULTS = {
     'radius': 150, 'exit_radius': 190, 'pass_speed_max': 9,
     'pass_still_max_s': 25, 'passes_needed': 2,
-    'stop_speed': 0.6, 'stop_dwell_s': 45, 'stop_radius': 250,
+    'stop_speed': 0.6, 'stop_dwell_s': 45, 'still_grace_s': 30, 'stop_radius': 250,
     'resume_speed': 3,
     'park_radius_max': 400, 'park_stop_s': 30,
     'arrival_radius': 25, 'min_walk_m': 50,
 }
 SEARCH_KEYS = {
     'passstop': ['radius', 'pass_speed_max', 'pass_still_max_s', 'passes_needed',
-                 'stop_speed', 'stop_dwell_s', 'stop_radius', 'resume_speed'],
+                 'stop_speed', 'stop_dwell_s', 'still_grace_s', 'stop_radius', 'resume_speed'],
     'parkwalk': ['park_radius_max', 'park_stop_s', 'arrival_radius', 'min_walk_m'],
 }
 INT_KEYS = {'passes_needed'}
@@ -134,29 +134,42 @@ def shape_of(run, scenario):
 
 
 def replay_passstop(samples, cfg, dest):
-    """Port of detectorStep in app.js (pass -> stop -> resume)."""
+    """Port of detectorStep in app.js (pass -> stop -> resume). The stop
+    dwell is CUMULATIVE: brief interruptions (GPS noise indoors) pause
+    the clock, only a break longer than still_grace_s resets it. Pass
+    classification keeps using the longest UNBROKEN still."""
     exit_r = cfg['exit_radius']
     if exit_r <= cfg['radius']:
         exit_r = round(cfg['radius'] * 1.25)  # same hysteresis guard as trigOf
     passes, inside = 0, False
     inside_max_still = inside_speed_sum = inside_n = 0
-    still_start, stopped, resume_n = None, False, 0
+    dwell_s, cont_start, break_start = 0.0, None, None
+    prev_t, stopped, resume_n = None, False, 0
     fired, fired_t = False, None
     for s in samples:
         t, sp = s['t'], s['sp']
         dist = dist_m(s['lat'], s['lng'], dest['lat'], dest['lng'])
-        if sp <= cfg['stop_speed'] and dist <= cfg['stop_radius']:
-            if still_start is None:
-                still_start = t
-            dwell = t - still_start
+        still = sp <= cfg['stop_speed'] and dist <= cfg['stop_radius']
+        dt = max(0.0, min(t - prev_t, 15.0)) if prev_t is not None else 0.0
+        prev_t = t
+        if still:
+            dwell_s += dt
+            break_start = None
+            if cont_start is None:
+                cont_start = t
             if inside:
-                inside_max_still = max(inside_max_still, dwell)
-            if not stopped and passes >= cfg['passes_needed'] and dwell >= cfg['stop_dwell_s']:
+                inside_max_still = max(inside_max_still, t - cont_start)
+            if not stopped and passes >= cfg['passes_needed'] and dwell_s >= cfg['stop_dwell_s']:
                 stopped = True
                 if not fired and cfg['resume_speed'] <= cfg['stop_speed']:
                     fired, fired_t = True, t  # walking debriefs fire AT the stop
         else:
-            still_start = None
+            cont_start = None
+            if dwell_s > 0:
+                if break_start is None:
+                    break_start = t
+                if t - break_start >= cfg['still_grace_s']:
+                    dwell_s, break_start = 0.0, None
         if not inside and dist <= cfg['radius']:
             inside, inside_max_still, inside_speed_sum, inside_n = True, 0, 0, 0
         if inside:

@@ -120,7 +120,8 @@ function cleanParams(list) {
 }
 /* Param keys the phone's live detector consumes (trigOf in app.js). */
 const DETECTOR_KEYS = ['radius', 'exit_radius', 'pass_speed_max', 'pass_still_max_s',
-  'passes_needed', 'stop_speed', 'stop_dwell_s', 'stop_radius', 'resume_speed'];
+  'passes_needed', 'stop_speed', 'stop_dwell_s', 'still_grace_s', 'stop_radius', 'resume_speed',
+  'park_radius_max', 'park_stop_s', 'arrival_radius', 'min_walk_m'];
 
 /* ---------- versions ----------
  * Every change to the definition — a tuned slider, an applied feedback
@@ -401,7 +402,9 @@ function renderTune(sc, params, ver) {
         <button class="mini-btn accent" type="button" data-act="tune-save">Save tuning as v${ver + 1}</button>
         <button class="mini-btn" type="button" data-act="tune-reset">Reset</button>
       </div>
-      ${drivesPhone ? '<p class="tune-note">These values drive the phone’s live trigger detector on the next test run.</p>' : ''}
+      ${drivesPhone
+    ? '<p class="tune-note">These values drive the phone’s live trigger detector on the next test run.</p>'
+    : `<p class="tune-note warn">⚠ None of these keys (${esc(params.map(p => p.key).join(', '))}) is a detector knob — the phone runs on its built-in defaults and these sliders only change the rule text. Rename them to detector keys (${esc(DETECTOR_KEYS.slice(0, 4).join(', '))}, …) to make them live.</p>`}
     </div>`;
 }
 
