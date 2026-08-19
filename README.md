@@ -184,7 +184,8 @@ count.
 
 Going live is the same story as the rest of the app: re-run
 [`supabase/schema.sql`](supabase/schema.sql) (safe to re-run — it adds
-the `scenarios` table and the tuning-loop columns), and deploy
+the `scenarios` table, the tuning-loop columns and the pre-arrival
+notes columns), and deploy
 [`scenario-ai`](supabase/functions/scenario-ai/index.ts) next to
 `voice-note` (same `OPENAI_API_KEY` and `ALLOWED_ORIGINS` secrets) for
 real drafts and revisions. Worth doing at the same time: set the voice
@@ -228,7 +229,10 @@ works whether or not the agent's prompt was written for this app:
 1. **Dynamic variables** — reference them in your prompt as
    `{{scenario_rule}}`, `{{expected_tip_type}}`, `{{park_distance_m}}`
    and so on. The full set is `destination_title`,
-   `destination_address`, `destination_lat/lng`, `scenario_num`,
+   `destination_address`, `destination_lat/lng`,
+   `destination_consignee`, `destination_floor`, `destination_notes`
+   (the [pre-arrival notes](#pre-arrival-notes--otto-reads-before-you-arrive)
+   on file), `scenario_num`,
    `scenario_title`, `scenario_version`, `scenario_question`,
    `scenario_rule`, `scenario_ar_states`, `scenario_signals`,
    `scenario_timing`, `scenario_test_steps`, `expected_tip_type`,
@@ -268,6 +272,52 @@ test tracking"**, not when the trigger fires — a permission dialog
 raised in traffic is a debrief lost — and it ends a conversation by
 itself after five minutes, or ninety seconds of silence, because both
 ends of that wire are metered by the minute.
+
+## Pre-arrival notes — Otto reads before you arrive
+
+A note that has to be read off a screen at the door helps nobody in
+traffic. So when a destination has notes on file, **Otto reads them
+aloud on the way in** — once, hands-free, the first time the phone
+comes within ~350 m of the pin (the `NOTES` block in `app.js`; driving
+back out past ~700 m re-arms it, so a new approach is a new reading):
+
+> "Heads up — Kollwitzstraße 18, about 300 meters ahead. Delivery is
+> for Maria Weber, floor 4. From dispatch: the elevator is broken, use
+> the stairs. A driver reported: entrance blocked — use the side door."
+
+Three kinds of notes feed that briefing, in that order:
+
+- **Consignee details** — name and floor/unit, set in the dashboard's
+  **PRE-ARRIVAL NOTES** block on any pinned scenario (they live on the
+  destination row).
+- **Dispatcher notes** — free-text building notes ("the elevator is
+  broken"), added and removed in the same block. Newest first; the
+  newest three are read.
+- **What other drivers found** — the latest two real debriefs already
+  filed against the pin: the structured title where Otto made one, the
+  raw words otherwise. Demo debriefs stay out, as everywhere — nothing
+  counts them as real data.
+
+The reading uses the same keyless browser speech as the sample trigger
+(the Android wrapper's own TTS when installed), with a banner as the
+visual record — tap it to open the card, ✕ to stop the reading
+mid-sentence. The destination card shows the same notes under
+**PRE-ARRIVAL NOTES** with a 🔊 replay button for the kerb. A fired
+trigger or an open debrief always outranks a reading. And with
+[Otto as an ElevenLabs agent](#otto-as-your-elevenlabs-agent), the
+debrief that follows knows what was read on the way in
+(`{{destination_consignee}}`, `{{destination_floor}}`,
+`{{destination_notes}}`, plus a line in the contextual update), so it
+can follow up on the notes instead of hearing about them cold.
+
+Approaches are judged on fresh fixes only — the continuous stream
+while activity recognition is armed (it arms itself at app open), the
+Geo kit's one-shot fixes otherwise; a cached position never narrates
+an approach that happened an hour ago. Live, the notes ride the
+`destinations` row (re-run `schema.sql` once for the three columns —
+`consignee`, `floor`, `notes`) and land in the exported spec JSON;
+keyless, localStorage — the dashboard and the phone keep each other
+fresh the same way scenarios do.
 
 ## Activity recognition (and the Google AR API)
 
@@ -482,5 +532,5 @@ The composition happens entirely through the kits' public seams:
 | `vercel.json`, `scripts/vercel-build.sh` | Deploy-time injection of `GMAPS_BROWSER_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY` |
 | `voice-note.js/.css` | from voice-notes-kit + hands-free pause-to-send |
 | `geolocate.js`, `field-map.js/.css` | verbatim from field-map-kit |
-| `supabase/schema.sql` | `destinations` + `messages` (incl. the agent conversation) + `scenarios` (incl. params / versions / feedback), RLS |
+| `supabase/schema.sql` | `destinations` (incl. pre-arrival notes: consignee / floor / dispatcher notes) + `messages` (incl. the agent conversation) + `scenarios` (incl. params / versions / feedback), RLS |
 | `supabase/functions/` | `voice-note` (kit + trailing-"stop" strip + a text path for agent conversations) + `geocode` (verbatim) + `scenario-ai` (draft & revise) + `elevenlabs-token` (signed URLs for a private agent) |

@@ -10,8 +10,20 @@ create table if not exists public.destinations (
   addr text,                        -- full address, when known
   lat double precision not null,
   lng double precision not null,
+  consignee text,                   -- who the delivery is for ("Maria Weber")
+  floor text,                       -- floor / unit ("4th floor", "Apt 12B")
+  notes jsonb,                      -- dispatcher notes, newest first: [{id,text,at,by}]
   created_at timestamptz not null default now()
 );
+
+-- Pre-arrival notes columns for databases created before them — what
+-- Otto reads ALOUD as a driver approaches the pin: the consignee, the
+-- floor, and building notes a dispatcher saved on the dashboard.
+-- (Notes left by other drivers need no column: they are the messages
+-- already filed against the destination.) Safe to re-run.
+alter table public.destinations add column if not exists consignee text;
+alter table public.destinations add column if not exists floor text;
+alter table public.destinations add column if not exists notes jsonb;
 
 create table if not exists public.messages (
   id uuid primary key default gen_random_uuid(),
