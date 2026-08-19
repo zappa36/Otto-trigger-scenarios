@@ -47,12 +47,19 @@ const warn = e => console.warn('dashboard:', e && e.message ? e.message : e);
 const schemaHint = e => {
   warn(e);
   if (Backend.enabled && /column|schema|400/i.test(String(e && e.message))) {
-    el('stats').textContent = 'Save failed — the scenarios table is missing newer columns. Re-run supabase/schema.sql, then ↻ REFRESH.';
+    el('stats').textContent = 'Save failed — a table is missing newer columns. Re-run supabase/schema.sql, then ↻ REFRESH.';
   }
 };
 /* Auto-refresh must not repaint over a drag, a recording, or an open
- * proposal — those live only in the DOM until saved. */
-const uiBusy = () => !!(tune || fbRec || proposal || proposalBusy) || !el('form-sheet').hidden;
+ * proposal — those live only in the DOM until saved. Same for the
+ * pre-arrival notes: a consignee mid-edit or a note typed but not yet
+ * added lives only in its input. */
+const notesEditing = () => {
+  const a = document.activeElement;
+  if (a && a.closest && a.closest('.notes-block')) return true;
+  return [...document.querySelectorAll('[data-note-new]')].some(i => i.value.trim());
+};
+const uiBusy = () => !!(tune || fbRec || proposal || proposalBusy) || !el('form-sheet').hidden || notesEditing();
 
 const persistLocal = () => {
   if (Backend.enabled) return;
@@ -61,6 +68,61 @@ const persistLocal = () => {
     localStorage.setItem(LS_DEST, JSON.stringify(destinations));
   } catch { /* private mode */ }
 };
+
+/* ---------- pre-arrival notes ----------
+ * What Otto reads ALOUD on the phone as the driver approaches the pin:
+ * the consignee (name + floor) and building notes, saved here by the
+ * dispatcher onto the destination row. Notes are newest first — the
+ * phone reads from the top. (Driver-left notes need no storage of
+ * their own: they are the debriefs already filed against the pin.) */
+const dispatchNotesOf = d => {
+  let n = d && d.notes;
+  if (typeof n === 'string') { try { n = JSON.parse(n); } catch { n = null; } }
+  return Array.isArray(n) ? n.filter(x => x && String(x.text || '').trim()) : [];
+};
+
+function saveDestPatch(d, patch) {
+  Object.assign(d, patch);
+  if (Backend.enabled) Backend.updateDestination(d.id, patch).catch(schemaHint);
+  persistLocal();
+}
+
+function addDestNote(sc, card) {
+  const d = sc.destination_id && destById(sc.destination_id);
+  const input = card.querySelector('[data-note-new]');
+  const text = String((input && input.value) || '').trim();
+  if (!d || !text) return;
+  const note = { id: localId('n'), text, at: new Date().toISOString(), by: 'dispatch' };
+  saveDestPatch(d, { notes: [note, ...dispatchNotesOf(d)] });
+  render();
+}
+
+function deleteDestNote(sc, idx) {
+  const d = sc.destination_id && destById(sc.destination_id);
+  if (!d) return;
+  const notes = dispatchNotesOf(d);
+  if (!(idx >= 0 && idx < notes.length)) return;
+  notes.splice(idx, 1);
+  saveDestPatch(d, { notes });
+  render();
+}
+
+/* One tap in the notes block turns the reading ring into a slider —
+ * a notes_radius param the phone reads live (notesRadiiOf in app.js),
+ * tuned and versioned like every other detector knob from then on. */
+async function addNotesRadiusParam(sc) {
+  if (paramsOf(sc).some(p => p && p.key === 'notes_radius')) return;
+  /* drags staged on the sliders ride along — what is on screen is what
+   * gets saved, never silently thrown away */
+  const staged = tune && tune.id === sc.id ? tuneDiff(paramsOf(sc), tune.params) : '';
+  const base = (tune && tune.id === sc.id ? tune.params : paramsOf(sc)).map(p => ({ ...p }));
+  tune = null;
+  const params = base.concat([{
+    key: 'notes_radius', label: 'Notes read distance', value: 350, min: 50, max: 1000, step: 10, unit: 'm',
+  }]);
+  await saveNewVersion(sc, { params }, 'Notes read distance made tunable (350 m)' + (staged ? ' · ' + staged : ''));
+  render();
+}
 
 /* The sheet's long titles ("Parking loops — driver circles the block…")
  * carry the pin: everything before the dash is the short name. */
@@ -118,10 +180,13 @@ function cleanParams(list) {
   });
   return out;
 }
-/* Param keys the phone's live detector consumes (trigOf in app.js). */
+/* Param keys the phone consumes live: the trigger detector's knobs
+ * (trigOf in app.js) plus the pre-arrival reading rings
+ * (notesRadiiOf — notes_radius / notes_rearm). */
+const NOTES_KEYS = ['notes_radius', 'notes_rearm'];
 const DETECTOR_KEYS = ['radius', 'exit_radius', 'pass_speed_max', 'pass_still_max_s',
   'passes_needed', 'stop_speed', 'stop_dwell_s', 'still_grace_s', 'stop_radius', 'resume_speed',
-  'park_radius_max', 'park_stop_s', 'arrival_radius', 'min_walk_m'];
+  'park_radius_max', 'park_stop_s', 'arrival_radius', 'min_walk_m', ...NOTES_KEYS];
 
 /* ---------- versions ----------
  * Every change to the definition — a tuned slider, an applied feedback
@@ -403,7 +468,10 @@ function renderTune(sc, params, ver) {
         <button class="mini-btn" type="button" data-act="tune-reset">Reset</button>
       </div>
       ${drivesPhone
-    ? '<p class="tune-note">These values drive the phone’s live trigger detector on the next test run.</p>'
+    ? `<p class="tune-note">These values drive the phone live: ${[
+      params.some(p => DETECTOR_KEYS.includes(p.key) && !NOTES_KEYS.includes(p.key)) ? 'the trigger detector on the next test run' : '',
+      params.some(p => NOTES_KEYS.includes(p.key)) ? 'the pre-arrival reading ring as soon as they are saved' : '',
+    ].filter(Boolean).join('; ')}.</p>`
     : `<p class="tune-note warn">⚠ None of these keys (${esc(params.map(p => p.key).join(', '))}) is a detector knob — the phone runs on its built-in defaults and these sliders only change the rule text. Rename them to detector keys (${esc(DETECTOR_KEYS.slice(0, 4).join(', '))}, …) to make them live.</p>`}
     </div>`;
 }
@@ -604,6 +672,43 @@ function renderScenario(sc) {
       </div>
     </div>`;
 
+  /* the pre-arrival notes live on the destination — no pin, no notes */
+  const notesBlock = !d ? '' : (() => {
+    const notes = dispatchNotesOf(d);
+    /* the reading ring: the scenario's notes_radius param when it has
+     * one, the phone's built-in 350 m otherwise (NOTES in app.js) */
+    const rp = paramsOf(sc).find(p => p && p.key === 'notes_radius');
+    const radius = rp && isFinite(+rp.value) ? +rp.value : 350;
+    return `
+    <div class="notes-block">
+      <span class="addr-tag">PRE-ARRIVAL NOTES — OTTO READS THESE ALOUD ON APPROACH</span>
+      <div class="notes-grid">
+        <div>
+          <label>Consignee</label>
+          <input data-note-field="consignee" value="${esc(d.consignee || '')}" placeholder="Who the delivery is for — &ldquo;Maria Weber&rdquo;">
+        </div>
+        <div>
+          <label>Floor / unit</label>
+          <input data-note-field="floor" value="${esc(d.floor || '')}" placeholder="&ldquo;4th floor&rdquo;, &ldquo;Apt 12B&rdquo;">
+        </div>
+      </div>
+      ${notes.map((n, i) => `
+        <div class="note-item">
+          <span class="note-text">${esc(n.text)}</span>
+          <span class="note-meta">${esc(String(n.by || 'dispatch').toUpperCase())}${n.at ? ' · ' + esc(fmtTime(n.at)) : ''}</span>
+          <button class="note-del" type="button" data-note-del="${i}" title="Remove this note">×</button>
+        </div>`).join('')}
+      <div class="note-add">
+        <input data-note-new placeholder="Building note for the next driver — &ldquo;The elevator is broken, use the stairs&rdquo;">
+        <button class="mini-btn accent" type="button" data-act="note-add">+ Add note</button>
+      </div>
+      <p class="notes-hint">Read out on the phone as the driver comes within ~${fmtVal(radius)} m of this pin — consignee and floor first, then these notes, then the latest driver debriefs from &ldquo;What Otto understood&rdquo;.
+      ${rp
+        ? `Tune &ldquo;${esc(rp.label || 'notes_radius')}&rdquo; under TUNABLE VALUES.`
+        : `<button class="link-btn" type="button" data-act="notes-radius">⊕ make the read distance tunable</button>`}</p>
+    </div>`;
+  })();
+
   /* pending slider values (if any) drive what the definition shows */
   const params = tune && tune.id === sc.id ? tune.params : paramsOf(sc);
   const fp = t => fillParams(t, params);
@@ -611,6 +716,7 @@ function renderScenario(sc) {
   const body = !open ? '' : `
     <div class="sc-body">
       ${addrBlock}
+      ${notesBlock}
       <div class="def-grid">
         ${sc.rule ? `<div class="def"><dt>Trigger rule (testable)</dt><dd data-rule>${esc(fp(sc.rule))}</dd></div>` : ''}
         ${defCell('Activity Recognition states', fp(sc.ar_states))}
@@ -1326,7 +1432,14 @@ function specOf(sc) {
     fields: Object.fromEntries(SNAP_FIELDS.filter(k => k !== 'title').map(k => [k, sc[k] || null])),
     rule_resolved: sc.rule ? fillParams(sc.rule, paramsOf(sc)) : null,
     params: paramsOf(sc),
-    destination: d ? { addr: d.addr || null, lat: d.lat, lng: d.lng } : null,
+    destination: d ? {
+      addr: d.addr || null, lat: d.lat, lng: d.lng,
+      /* the pre-arrival briefing on file — part of what the production
+       * trigger's Otto is expected to say on approach */
+      consignee: d.consignee || null,
+      floor: d.floor || null,
+      notes: dispatchNotesOf(d),
+    } : null,
     verdict: sc.verdict || null,
     feedback: feedbackOf(sc),
     history: historyOf(sc),
@@ -1675,6 +1788,9 @@ el('list').addEventListener('click', e => {
   const v = e.target.closest('[data-verdict]');
   if (v) { setVerdict(sc, v.dataset.verdict); return; }
 
+  const nd = e.target.closest('[data-note-del]');
+  if (nd) { deleteDestNote(sc, parseInt(nd.dataset.noteDel, 10)); return; }
+
   const act = e.target.closest('[data-act]');
   if (act) {
     const a = act.dataset.act;
@@ -1696,6 +1812,8 @@ el('list').addEventListener('click', e => {
     else if (a === 'p-discard') { proposal = null; render(); }
     else if (a === 'restore') restoreVersion(sc, parseInt(act.dataset.ver, 10));
     else if (a === 'spec') exportSpec(sc);
+    else if (a === 'note-add') addDestNote(sc, card);
+    else if (a === 'notes-radius') addNotesRadiusParam(sc);
     return;
   }
 
@@ -1729,6 +1847,29 @@ el('list').addEventListener('input', e => {
     }
     if (e.target.hasAttribute('data-pnote')) proposal.note = e.target.value;
   }
+});
+
+/* consignee / floor save on change (blur or Enter) — the value already
+ * sits in the input exactly as typed, so no repaint is needed */
+el('list').addEventListener('change', e => {
+  const k = e.target.getAttribute && e.target.getAttribute('data-note-field');
+  if (!k) return;
+  const card = e.target.closest('.sc');
+  const sc = card && scenarios.find(x => x.id === card.dataset.id);
+  const d = sc && sc.destination_id && destById(sc.destination_id);
+  if (!d) return;
+  const v = String(e.target.value).trim() || null;
+  if ((d[k] || null) === v) return;
+  saveDestPatch(d, { [k]: v });
+});
+
+/* Enter in the note field adds it, like the button */
+el('list').addEventListener('keydown', e => {
+  if (e.key !== 'Enter' || !(e.target.hasAttribute && e.target.hasAttribute('data-note-new'))) return;
+  e.preventDefault();
+  const card = e.target.closest('.sc');
+  const sc = card && scenarios.find(x => x.id === card.dataset.id);
+  if (sc) addDestNote(sc, card);
 });
 
 el('new-open').onclick = () => openForm(null);

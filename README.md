@@ -184,7 +184,8 @@ count.
 
 Going live is the same story as the rest of the app: re-run
 [`supabase/schema.sql`](supabase/schema.sql) (safe to re-run — it adds
-the `scenarios` table and the tuning-loop columns), and deploy
+the `scenarios` table, the tuning-loop columns and the pre-arrival
+notes columns), and deploy
 [`scenario-ai`](supabase/functions/scenario-ai/index.ts) next to
 `voice-note` (same `OPENAI_API_KEY` and `ALLOWED_ORIGINS` secrets) for
 real drafts and revisions. Worth doing at the same time: set the voice
@@ -228,7 +229,10 @@ works whether or not the agent's prompt was written for this app:
 1. **Dynamic variables** — reference them in your prompt as
    `{{scenario_rule}}`, `{{expected_tip_type}}`, `{{park_distance_m}}`
    and so on. The full set is `destination_title`,
-   `destination_address`, `destination_lat/lng`, `scenario_num`,
+   `destination_address`, `destination_lat/lng`,
+   `destination_consignee`, `destination_floor`, `destination_notes`
+   (the [pre-arrival notes](#pre-arrival-notes--otto-reads-before-you-arrive)
+   on file), `scenario_num`,
    `scenario_title`, `scenario_version`, `scenario_question`,
    `scenario_rule`, `scenario_ar_states`, `scenario_signals`,
    `scenario_timing`, `scenario_test_steps`, `expected_tip_type`,
@@ -268,6 +272,77 @@ test tracking"**, not when the trigger fires — a permission dialog
 raised in traffic is a debrief lost — and it ends a conversation by
 itself after five minutes, or ninety seconds of silence, because both
 ends of that wire are metered by the minute.
+
+## Pre-arrival notes — Otto reads before you arrive
+
+A note that has to be read off a screen at the door helps nobody in
+traffic. So when a destination has notes on file, **Otto reads them
+aloud on the way in** — once, hands-free, the first time the phone
+comes within the reading ring around the pin (350 m by default;
+driving back out past the re-arm ring, 700 m by default, re-arms it,
+so a new approach is a new reading):
+
+> "Heads up — Kollwitzstraße 18, about 300 meters ahead. Delivery is
+> for Maria Weber, floor 4. From dispatch: the elevator is broken, use
+> the stairs. A driver reported: entrance blocked — use the side door."
+
+Three kinds of notes feed that briefing, in that order:
+
+- **Consignee details** — name and floor/unit, set in the dashboard's
+  **PRE-ARRIVAL NOTES** block on any pinned scenario (they live on the
+  destination row).
+- **Dispatcher notes** — free-text building notes ("the elevator is
+  broken"), added and removed in the same block. Newest first; the
+  newest three are read.
+- **What other drivers found** — the latest two real debriefs already
+  filed against the pin: the structured title where Otto made one, the
+  raw words otherwise. Demo debriefs stay out, as everywhere — nothing
+  counts them as real data.
+
+**The rings are tuned from the dashboard, per scenario.** The
+pre-arrival notes block names the ring in force and offers **⊕ make
+the read distance tunable** — one tap adds a `notes_radius` slider
+under TUNABLE VALUES, cut as a new version like every other knob, and
+the phone reads it live on the next fix (a `notes_rearm` param moves
+the re-arm ring the same way; the `NOTES` block in `app.js` holds only
+the fallbacks, exactly like `TRIG`).
+
+**The reading is in Otto's real ElevenLabs voice** when the backend is
+live: deploy
+[`elevenlabs-tts`](supabase/functions/elevenlabs-tts/index.ts) next to
+the other functions (same `ELEVENLABS_API_KEY` secret as
+`elevenlabs-token`, same `ALLOWED_ORIGINS`; optionally
+`ELEVENLABS_VOICE_ID` — set it to your agent's voice so the reading
+and the debrief sound like one Otto) and the phone sends the briefing
+there, gets back a short low-bitrate mp3 and plays it. The key never
+reaches a phone, the text is capped server-side, and the clip is
+deliberately small — spoken word over cell in a moving vehicle, where
+small and soon beats big and late. The banner says `◆ ELEVENLABS`
+only when that clip is actually playing; function not deployed, clip
+late, backend off → the reading falls back in place to the same
+keyless browser speech as the sample trigger (the Android wrapper's
+own TTS when installed), honestly unlabelled. The mic self-test
+behind the version chip probes the function live and names which
+voice will read.
+
+The banner is the visual record either way — tap it to open the card,
+✕ to stop the reading mid-sentence. The destination card shows the
+same notes under **PRE-ARRIVAL NOTES** with a 🔊 replay button for the
+kerb. A fired trigger or an open debrief always outranks a reading.
+And with [Otto as an ElevenLabs agent](#otto-as-your-elevenlabs-agent),
+the debrief that follows knows what was read on the way in
+(`{{destination_consignee}}`, `{{destination_floor}}`,
+`{{destination_notes}}`, plus a line in the contextual update), so it
+can follow up on the notes instead of hearing about them cold.
+
+Approaches are judged on fresh fixes only — the continuous stream
+while activity recognition is armed (it arms itself at app open), the
+Geo kit's one-shot fixes otherwise; a cached position never narrates
+an approach that happened an hour ago. Live, the notes ride the
+`destinations` row (re-run `schema.sql` once for the three columns —
+`consignee`, `floor`, `notes`) and land in the exported spec JSON;
+keyless, localStorage — the dashboard and the phone keep each other
+fresh the same way scenarios do.
 
 ## Activity recognition (and the Google AR API)
 
@@ -385,7 +460,12 @@ never carries them.
    `OPENAI_API_KEY`) — plus
    [`elevenlabs-token`](supabase/functions/elevenlabs-token/index.ts) if
    Otto is a private ElevenLabs agent (see above; a public agent needs
-   no function at all). Set `ALLOWED_ORIGINS` on all of them. Optional
+   no function at all) and
+   [`elevenlabs-tts`](supabase/functions/elevenlabs-tts/index.ts) for
+   the [pre-arrival notes](#pre-arrival-notes--otto-reads-before-you-arrive)
+   read in Otto's ElevenLabs voice (`ELEVENLABS_API_KEY` +
+   optionally `ELEVENLABS_VOICE_ID`; keyless it falls back to the
+   browser's own speech). Set `ALLOWED_ORIGINS` on all of them. Optional
    persona tuning via `ASSISTANT_NAME`, `ASSISTANT_BRIEF`,
    `NOTE_CATEGORIES` — e.g.:
 
@@ -482,5 +562,5 @@ The composition happens entirely through the kits' public seams:
 | `vercel.json`, `scripts/vercel-build.sh` | Deploy-time injection of `GMAPS_BROWSER_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY` |
 | `voice-note.js/.css` | from voice-notes-kit + hands-free pause-to-send |
 | `geolocate.js`, `field-map.js/.css` | verbatim from field-map-kit |
-| `supabase/schema.sql` | `destinations` + `messages` (incl. the agent conversation) + `scenarios` (incl. params / versions / feedback), RLS |
-| `supabase/functions/` | `voice-note` (kit + trailing-"stop" strip + a text path for agent conversations) + `geocode` (verbatim) + `scenario-ai` (draft & revise) + `elevenlabs-token` (signed URLs for a private agent) |
+| `supabase/schema.sql` | `destinations` (incl. pre-arrival notes: consignee / floor / dispatcher notes) + `messages` (incl. the agent conversation) + `scenarios` (incl. params / versions / feedback), RLS |
+| `supabase/functions/` | `voice-note` (kit + trailing-"stop" strip + a text path for agent conversations) + `geocode` (verbatim) + `scenario-ai` (draft & revise) + `elevenlabs-token` (signed URLs for a private agent) + `elevenlabs-tts` (the pre-arrival notes read in Otto's real voice) |

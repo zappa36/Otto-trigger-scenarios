@@ -131,6 +131,46 @@
     cursor: pointer;
   }
 
+  /* the notes banner — Otto is reading the destination's notes aloud;
+     this is the visual record of what was said. Same slot as the
+     trigger banner (a fired trigger hides it — the question outranks
+     the briefing). */
+  #notes-banner {
+    position: absolute;
+    left: 12px; right: 12px; top: 100px;
+    z-index: 11;
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid rgba(60,192,224,.55);
+    background: linear-gradient(180deg, rgba(9,42,50,.96), rgba(6,24,30,.96));
+    cursor: pointer;
+  }
+  #notes-banner[hidden] { display: none; }
+  #nb-body { flex: 1; min-width: 0; }
+  #nb-title {
+    display: block;
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 9.5px;
+    letter-spacing: .14em;
+    color: #7fd6ea;
+    margin-bottom: 2px;
+  }
+  #nb-text { font-size: 13px; color: #d8eef4; }
+  #nb-close {
+    flex: none;
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    border: 1px solid rgba(60,192,224,.4);
+    background: transparent;
+    color: #7fd6ea;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
   /* the verdict bar — one tap of ground truth while the run is fresh.
      Same slot as the trigger banner; tracking has just stopped, so the
      slot is free. */
@@ -259,6 +299,45 @@
     color: #ffd95e;
   }
 
+  /* pre-arrival notes on file: consignee, floor, dispatcher notes —
+     what Otto reads aloud on approach, kept readable at the door */
+  #card-notes {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(60,192,224,.3);
+    background: rgba(60,192,224,.06);
+  }
+  #card-notes[hidden] { display: none; }
+  .cn-chip {
+    display: block;
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 9px;
+    letter-spacing: .13em;
+    color: #7fd6ea;
+    margin-bottom: 4px;
+  }
+  .cn-line { font-size: 13.5px; }
+  .cn-note { margin: 5px 0 0; font-size: 12.5px; color: #c9d2de; }
+  .cn-note b {
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 9px;
+    letter-spacing: .1em;
+    font-weight: 400;
+    color: #7fd6ea;
+    margin-right: 6px;
+  }
+  #card-notes-play {
+    margin-top: 9px;
+    padding: 7px 11px;
+    border-radius: 9px;
+    border: 1px solid rgba(60,192,224,.45);
+    background: rgba(60,192,224,.09);
+    color: #7fd6ea;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
   .card-msgs { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; max-height: 132px; overflow: auto; }
   .msg {
     display: flex;
@@ -381,6 +460,14 @@
     <button id="tb-close" type="button" aria-label="Dismiss">×</button>
   </div>
 
+  <div id="notes-banner" hidden>
+    <div id="nb-body">
+      <b id="nb-title">OTTO · PRE-ARRIVAL NOTES</b>
+      <span id="nb-text"></span>
+    </div>
+    <button id="nb-close" type="button" aria-label="Dismiss">×</button>
+  </div>
+
   <div id="verdict-banner" hidden>
     <b id="vb-title">RUN LOGGED — YOUR CALL</b>
     <span id="vb-text"></span>
@@ -417,6 +504,11 @@
         <button id="card-sc-start" type="button">▶ Start test tracking</button>
         <span id="card-sc-track"></span>
       </div>
+    </div>
+    <div id="card-notes" hidden>
+      <span class="cn-chip">PRE-ARRIVAL NOTES — OTTO READS THESE ON APPROACH</span>
+      <div id="card-notes-body"></div>
+      <button id="card-notes-play" type="button">🔊 Hear the briefing</button>
     </div>
     <div class="card-msgs" id="card-msgs"></div>
     <p id="card-empty" hidden>No messages yet — go have a look, then tell Otto what you found.</p>

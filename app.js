@@ -48,6 +48,10 @@ const rebuildScenarioIndex = () => {
 const scenarioOf = d => (d && scenarioByDest[d.id]) || null;
 const stripQuotes = s => String(s || '').trim().replace(/^[“”"']+/, '').replace(/[“”"']+$/, '');
 const scenarioShort = sc => String(sc.title || '').split(/\s+—\s+|\s+-\s+/)[0].trim();
+/* sheet cells and notes rarely end in a full stop; text that gets
+ * spoken or stitched into a briefing needs one, or two sentences read
+ * as one confused one */
+const sentence = s => { const t = String(s || '').trim(); return /[.!?…]$/.test(t) ? t : t + '.'; };
 
 /* A scenario rule can carry its tunable numbers as {key} placeholders;
  * the dashboard's sliders edit them (sc.params). Resolve them for
@@ -328,6 +332,7 @@ function askRunVerdict() {
   el('vb-wrong').textContent = fired ? '✗ False alarm' : '✗ Should have spoken';
   el('vb-early').hidden = !fired;
   el('vb-late').hidden = !fired;
+  el('notes-banner').hidden = true; // same slot — the verdict question wins it
   el('verdict-banner').hidden = false;
 }
 
@@ -509,11 +514,15 @@ function detectorStep(snap) {
  * screen to find — the whole point of a trigger is that Otto comes to
  * you. */
 function speakThen(text, done) {
+  stopOttoAudio(); // one voice at a time — a reading clip in flight yields
   let called = false;
   const finish = () => {
     if (called) return;
     called = true;
-    window.__ottoTtsDone = null;
+    /* only clear the bridge callback if it is still OURS — a later
+     * speakThen (a trigger question cutting off a pre-arrival reading)
+     * may already have registered its own */
+    if (window.__ottoTtsDone === finish) window.__ottoTtsDone = null;
     done();
   };
   const capMs = Math.min(20000, 2500 + String(text || '').length * 90);
@@ -538,6 +547,80 @@ function speakThen(text, done) {
   } catch { setTimeout(finish, 1200); }
 }
 
+/* ---------- the reading voice (ElevenLabs) ----------
+ * With the backend live, pre-arrival notes are read in Otto's REAL
+ * voice: the elevenlabs-tts function turns the briefing into a short
+ * mp3 clip (the ElevenLabs key never reaches the phone — same rule as
+ * the agent) and one shared audio element plays it. Everything
+ * degrades in place, like the rest of the kit: function not deployed,
+ * clip late, playback still locked, backend off — the reading falls
+ * back to speakThen (the wrapper's TTS, then the browser's own voice)
+ * and the banner is the record either way. */
+let elevenDown = false; // one failed fetch = the function is missing; stop asking this session
+let ottoAudio = null;   // one element, unlocked by the first gesture (see boot)
+/* 10 ms of silence — played inside the first tap so a later
+ * programmatic play() is allowed (autoplay rules want one gesture) */
+const SILENCE_WAV = 'data:audio/wav;base64,UklGRmQBAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YUABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
+function ottoAudioEl() {
+  if (!ottoAudio) { ottoAudio = new Audio(); ottoAudio.preload = 'auto'; }
+  return ottoAudio;
+}
+/* Stopping a clip also settles whoever was waiting for it to end —
+ * a cut-off reading must not leave its "still speaking" flag stuck. */
+function stopOttoAudio() {
+  if (!ottoAudio) return;
+  const pending = ottoAudio.__finish;
+  ottoAudio.__finish = null;
+  try {
+    ottoAudio.onended = ottoAudio.onerror = null;
+    ottoAudio.pause();
+    if (ottoAudio.src && ottoAudio.src.slice(0, 5) === 'blob:') URL.revokeObjectURL(ottoAudio.src);
+    ottoAudio.removeAttribute('src');
+  } catch { /* optional */ }
+  if (pending) pending();
+}
+
+/* Otto speaks: the ElevenLabs voice when it is reachable, speakThen
+ * (wrapper TTS, then browser TTS) otherwise. onVoice fires only when
+ * the real voice actually starts, so callers can label truthfully. */
+async function speakOtto(text, done, onVoice) {
+  let called = false;
+  const finish = () => {
+    if (called) return;
+    called = true;
+    if (ottoAudio && ottoAudio.__finish === finish) ottoAudio.__finish = null;
+    done();
+  };
+  if (Backend.enabled && !elevenDown && text) {
+    try {
+      const blob = await Backend.tts(String(text));
+      const a = ottoAudioEl();
+      stopOttoAudio();
+      a.src = URL.createObjectURL(blob);
+      a.__finish = finish;
+      a.onended = finish;
+      a.onerror = finish;
+      await a.play(); // throws while autoplay is still locked — fall through
+      if (onVoice) onVoice('elevenlabs');
+      /* insurance for an onended that never fires */
+      setTimeout(finish, Math.min(60000, 5000 + String(text).length * 100));
+      return;
+    } catch (e) {
+      /* detach before falling back — speakThen stops the element, and a
+       * still-registered finish would count the fallback as already done */
+      if (ottoAudio) { ottoAudio.__finish = null; ottoAudio.onended = ottoAudio.onerror = null; }
+      /* a failed FETCH means the function is missing or broken — stop
+       * asking this session; a blocked play() is not the function's
+       * fault, so it gets to try again next time */
+      if (!(e && e.name === 'NotAllowedError')) {
+        elevenDown = true;
+        console.warn('elevenlabs-tts unavailable — falling back to the device voice:', e && e.message);
+      }
+    }
+  }
+  speakThen(text, finish);
+}
+
 /* {park_m} / {walk_m} in a scenario's "Otto says" become the actual
  * measured distances of THIS run — Otto quotes what he saw. */
 function resolveSays(text) {
@@ -551,6 +634,7 @@ function fireTrigger(t) {
   tracking.fired = true;
   tracking.firedAt = t;
   if (navigator.vibrate) navigator.vibrate([120, 60, 120]);
+  el('notes-banner').hidden = true; // the question outranks the briefing
   updateCardTrack();
   openOtto(tracking.d);
   /* With the ElevenLabs agent on the line there is nothing to stage: it
@@ -575,6 +659,141 @@ function openingQuestion() {
       mic.click();
     }
   });
+}
+
+/* ---------- pre-arrival notes ----------
+ * Otto reads what is on file for a destination BEFORE the driver gets
+ * there: who the delivery is for (consignee + floor), the building
+ * notes a dispatcher saved on the dashboard ("the elevator is broken"),
+ * and what earlier drivers reported in their debriefs against the same
+ * pin. Spoken aloud, hands-free, once per approach — a note that has to
+ * be read off the screen at the door helps nobody in traffic. The
+ * banner is the visual record of what was said; the card carries the
+ * same notes for re-reading (and re-hearing) at the kerb. */
+const NOTES = {
+  approachRadius: 350, // m — entering this ring around a pin with notes starts the reading
+  rearmRadius: 700,    // m — leaving this far out re-arms it (a new approach = a new reading)
+  maxDispatch: 3,      // newest dispatcher notes read aloud
+  maxDriver: 2,        // newest driver debriefs read aloud
+};
+/* The rings are per destination when its scenario carries the keys —
+ * notes_radius / notes_rearm are dashboard sliders exactly like the
+ * trigger detector's knobs (the notes block offers to add the first
+ * one); the NOTES defaults above are only the fallback. */
+function notesRadiiOf(d) {
+  const sc = scenarioOf(d);
+  const val = k => {
+    const p = sc && Array.isArray(sc.params) ? sc.params.find(x => x && x.key === k) : null;
+    const v = p && parseFloat(p.value);
+    return isFinite(v) && v > 0 ? v : null;
+  };
+  const approach = val('notes_radius') || NOTES.approachRadius;
+  let rearm = val('notes_rearm') || NOTES.rearmRadius;
+  if (rearm <= approach) rearm = approach * 2; // hysteresis must stay outside the reading ring
+  return { approach, rearm };
+}
+const notesRead = new Map(); // destination id -> 'done' until the rearm ring is left
+let notesSpeaking = false;
+let notesBannerDest = null;
+let lastNotesScan = 0;
+
+/* jsonb from Supabase, plain array from localStorage, string if hand-fed */
+const dispatchNotesOf = d => {
+  let n = d && d.notes;
+  if (typeof n === 'string') { try { n = JSON.parse(n); } catch { n = null; } }
+  return Array.isArray(n) ? n.filter(x => x && String(x.text || '').trim()) : [];
+};
+/* what other drivers left behind: the debriefs already filed against
+ * the pin — the structured title where Otto made one, the raw words
+ * otherwise. Demo rows stay out: nothing counts them as real data. */
+const driverReportsOf = d => (messagesByDest[d.id] || []).filter(m => m && !m.demo && (m.title || m.transcript));
+
+/* a bare "3" in the floor field should not be read as "three" */
+const speakFloor = f => (/^\d+$/.test(String(f).trim()) ? 'floor ' + String(f).trim() : String(f).trim());
+/* "250 m" reads fine on a card; spoken it needs the unit spelled out */
+const speakDist = m => (m < 1000 ? Math.round(m / 10) * 10 + ' meters' : (m / 1000).toFixed(1) + ' kilometers');
+
+function briefingLines(d) {
+  const lines = [];
+  const name = String(d.consignee || '').trim();
+  const floor = String(d.floor || '').trim();
+  if (name) lines.push(`Delivery is for ${name}${floor ? ', ' + speakFloor(floor) : ''}.`);
+  else if (floor) lines.push(`Delivery goes to ${speakFloor(floor)}.`);
+  dispatchNotesOf(d).slice(0, NOTES.maxDispatch).forEach(n => lines.push('From dispatch: ' + sentence(n.text)));
+  driverReportsOf(d).slice(0, NOTES.maxDriver).forEach(m => lines.push('A driver reported: ' + sentence(m.title || m.transcript)));
+  return lines;
+}
+
+/* Runs on every fresh fix (ActivityRec's continuous stream while armed,
+ * the Geo kit's one-shot fixes otherwise). Cheap: a distance per pin. */
+function checkApproach(pos) {
+  const now = Date.now();
+  if (now - lastNotesScan < 2000) return;
+  lastNotesScan = now;
+  for (const d of destinations) {
+    const dist = distM(pos, d);
+    const rings = notesRadiiOf(d);
+    if (dist > rings.rearm) { notesRead.delete(d.id); continue; }
+    if (dist > rings.approach || notesRead.get(d.id) === 'done') continue;
+    if (!briefingLines(d).length) continue; // nothing on file — nothing to read
+    /* stay armed through a busier moment: an open debrief, a reading
+     * already under way, or the verdict bar waiting for its tap */
+    if (notesSpeaking || !el('otto-screen').hidden || !el('verdict-banner').hidden) continue;
+    speakPreArrival(d, dist);
+  }
+}
+
+function speakPreArrival(d, dist) {
+  notesRead.set(d.id, 'done');
+  notesSpeaking = true;
+  const head = dist > 60
+    ? `Heads up — ${d.title}, about ${speakDist(dist)} ahead.`
+    : `You're at ${d.title}.`;
+  const text = [head, ...briefingLines(d)].join(' ');
+  if (navigator.vibrate) navigator.vibrate([60, 40, 60]); // softer than the trigger's buzz
+  notesBannerDest = d;
+  el('nb-title').textContent = 'OTTO · PRE-ARRIVAL NOTES';
+  el('nb-text').textContent = text;
+  el('notes-banner').hidden = false;
+  /* the ◆ label appears only once the ElevenLabs clip actually plays —
+   * a silent fallback never masquerades as the real thing */
+  speakOtto(text, () => { notesSpeaking = false; },
+    () => { el('nb-title').textContent = 'OTTO · PRE-ARRIVAL NOTES · ◆ ELEVENLABS'; });
+}
+
+/* the card's notes box — exactly what an approach would read out */
+function renderCardNotes(d) {
+  const box = el('card-notes-body');
+  box.innerHTML = '';
+  const name = String(d.consignee || '').trim();
+  const floor = String(d.floor || '').trim();
+  const notes = dispatchNotesOf(d);
+  const reports = driverReportsOf(d).slice(0, NOTES.maxDriver).length;
+  el('card-notes').hidden = !name && !floor && !notes.length && !reports;
+  if (el('card-notes').hidden) return;
+  if (name || floor) {
+    const line = document.createElement('div');
+    line.className = 'cn-line';
+    line.textContent = name ? `Consignee: ${name}${floor ? ' · ' + floor : ''}` : `Floor: ${floor}`;
+    box.appendChild(line);
+  }
+  notes.slice(0, NOTES.maxDispatch).forEach(n => {
+    const row = document.createElement('p');
+    row.className = 'cn-note';
+    const tag = document.createElement('b');
+    tag.textContent = 'DISPATCH';
+    row.append(tag, document.createTextNode(String(n.text)));
+    box.appendChild(row);
+  });
+  if (reports) {
+    const row = document.createElement('p');
+    row.className = 'cn-note';
+    const tag = document.createElement('b');
+    tag.textContent = 'DRIVERS';
+    row.append(tag, document.createTextNode(
+      `the latest ${reports === 1 ? 'report' : reports + ' reports'} below ${reports === 1 ? 'is' : 'are'} read out too`));
+    box.appendChild(row);
+  }
 }
 
 function updateArChip(snap) {
@@ -658,6 +877,7 @@ ActivityRec.on(snap => {
   if (snap.on && snap.position) {
     liveFix = { lat: snap.position.lat, lng: snap.position.lng, wall: Date.now() };
     emitLiveGeo();
+    checkApproach(snap.position); // notes on file get read out on the way in
     if (!el('card').hidden) updateCardDistance(); // the distance readout drives along
   }
   if (tracking && snap.on && snap.position && typeof snap.speed === 'number') detectorStep(snap);
@@ -858,6 +1078,12 @@ function agentVars() {
     destination_address: d ? (d.addr || `${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}`) : '',
     destination_lat: d ? d.lat : '',
     destination_lng: d ? d.lng : '',
+    /* the pre-arrival notes on file — the agent knows what Otto read
+     * out on the way in, so it can follow up ("was the elevator really
+     * out?") instead of hearing about it cold */
+    destination_consignee: d ? String(d.consignee || '') : '',
+    destination_floor: d ? String(d.floor || '') : '',
+    destination_notes: d ? dispatchNotesOf(d).slice(0, NOTES.maxDispatch).map(n => n.text).join('; ') : '',
     scenario_num: sc && sc.num != null ? sc.num : '',
     scenario_title: sc ? sc.title : '',
     scenario_version: sc ? (sc.version || 1) : '',
@@ -889,13 +1115,15 @@ function agentVars() {
 function agentBriefing() {
   const v = agentVars();
   const lines = [];
-  /* sheet cells rarely end in a full stop; a briefing that runs two
-   * sentences together reads as one confused one */
-  const sentence = s => { const t = String(s).trim(); return /[.!?]$/.test(t) ? t : t + '.'; };
   lines.push(`You are Otto, debriefing a field tester who has just acted out a trigger scenario at ${v.destination_title || 'a destination'}${v.destination_address ? ` (${v.destination_address})` : ''}.`);
   if (v.scenario_title) lines.push(`Scenario${v.scenario_num !== '' ? ' #' + v.scenario_num : ''}: ${sentence(v.scenario_title + ' (v' + v.scenario_version + ')')}`);
   if (v.scenario_rule) lines.push(`The trigger rule under test: ${sentence(v.scenario_rule)}`);
   if (v.expected_tip_type) lines.push(`What this debrief should end up teaching us (tip type): ${v.expected_tip_type}.`);
+  const onFile = [];
+  if (v.destination_consignee) onFile.push(`the consignee is ${v.destination_consignee}${v.destination_floor ? ' (' + v.destination_floor + ')' : ''}`);
+  else if (v.destination_floor) onFile.push(`the delivery goes to ${v.destination_floor}`);
+  if (v.destination_notes) onFile.push(`dispatch notes: ${v.destination_notes}`);
+  if (onFile.length) lines.push(sentence(`Pre-arrival notes on file, read to them on the way in: ${onFile.join('; ')}`));
   if (v.trigger_fired === 'yes') {
     const bits = [];
     if (v.trigger_passes !== '' && v.trigger_passes > 0) bits.push(`${v.trigger_passes} slow pass${v.trigger_passes === 1 ? '' : 'es'} near the pin`);
@@ -938,6 +1166,13 @@ let voice = VoiceNote.mount(voiceOpts());
 
 function openOtto(d) {
   current = d;
+  /* a pre-arrival reading must not talk over the debrief — the keyless
+   * path cancels it itself (speakThen), the agent path would not */
+  stopOttoAudio();
+  try {
+    if (window.OttoTTS && OttoTTS.stop) OttoTTS.stop();
+    if ('speechSynthesis' in window) speechSynthesis.cancel();
+  } catch { /* optional */ }
   el('card').hidden = true;
   el('otto-dest').textContent = d.title;
   el('otto-screen').hidden = false;
@@ -951,6 +1186,7 @@ function closeOtto() {
    * before the line closes. */
   if (voice.agent) voice.end();
   else voice.stop();
+  stopOttoAudio();
   try {
     if (window.OttoTTS && OttoTTS.stop) OttoTTS.stop();
     if ('speechSynthesis' in window) speechSynthesis.cancel();
@@ -981,6 +1217,10 @@ function openCard(d) {
     updateCardTrack();
   }
   el('card-remove').hidden = !!sc;
+
+  /* what an approach would read out — consignee, floor, dispatch notes;
+   * the driver debriefs listed below are the rest of the briefing */
+  renderCardNotes(d);
 
   const list = messagesByDest[d.id] || [];
   const box = el('card-msgs');
@@ -1032,6 +1272,10 @@ Geo.on(snap => {
   chip.textContent = snap.state === 'fix' && street ? street.toUpperCase() : Geo.label;
   chip.classList.toggle('warn', snap.stale || snap.state === 'off');
   if (!el('card').hidden) updateCardDistance();
+  /* the kit's one-shot fixes brief too, so notes still get read with
+   * activity recognition toggled off — never off a cached position:
+   * a stale fix could narrate an approach that happened an hour ago */
+  if (snap.position && !snap.stale) checkApproach(snap.position);
 });
 
 /* ---------- version chip ----------
@@ -1059,6 +1303,19 @@ el('build').onclick = async () => {
   out.push('ElevenLabs agent: ' + (OttoAgent.agentId()
     ? (OttoAgent.available() ? 'ON — ' + OttoAgent.agentId() : 'configured but UNUSABLE here')
     : 'not configured — recorded debrief'));
+  /* the reading voice for pre-arrival notes — probed live, because a
+   * silent fallback in the field reads as "ElevenLabs spoke" */
+  if (Backend.enabled) {
+    try {
+      const clip = await Backend.tts('Ok.');
+      elevenDown = false; // it works — forget any earlier failure
+      out.push(`notes reading voice: ELEVENLABS — OK (${Math.round(clip.size / 102.4) / 10} KB test clip)`);
+    } catch (e) {
+      out.push('notes reading voice: device TTS — elevenlabs-tts unreachable (' + (e.message || e) + ')');
+    }
+  } else {
+    out.push('notes reading voice: device TTS (backend OFF)');
+  }
   out.push('wrapper TTS: ' + (window.OttoTTS ? 'yes' : 'no (browser)'));
   const md = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
   out.push('mediaDevices.getUserMedia: ' + (md ? 'yes' : 'MISSING'));
@@ -1137,6 +1394,47 @@ el('tb-close').onclick = e => {
   e.stopPropagation();
   el('trigger-banner').hidden = true;
 };
+el('notes-banner').onclick = () => {
+  el('notes-banner').hidden = true;
+  if (notesBannerDest) openCard(notesBannerDest);
+};
+el('nb-close').onclick = e => {
+  e.stopPropagation();
+  el('notes-banner').hidden = true;
+  /* dismissing mid-reading means "stop talking" — whichever voice */
+  stopOttoAudio();
+  try {
+    if (window.OttoTTS && OttoTTS.stop) OttoTTS.stop();
+    if ('speechSynthesis' in window) speechSynthesis.cancel();
+  } catch { /* optional */ }
+};
+/* the card's replay — hear at the kerb what the approach said in traffic */
+el('card-notes-play').onclick = () => {
+  if (!current) return;
+  const lines = briefingLines(current);
+  if (lines.length) speakOtto(lines.join(' '), () => {});
+};
+/* A pre-arrival reading can be the first thing Otto ever says — no
+ * tracking tap came before it — and browsers refuse both speak() and
+ * play() from a page that never made a sound during a user gesture.
+ * Prime both voices on the first tap anywhere: an empty utterance for
+ * the browser TTS, 10 ms of silence through the shared audio element
+ * for the ElevenLabs clips. (The wrapper's OttoTTS needs no priming,
+ * and its WebView allows gesture-free playback.) */
+document.addEventListener('pointerdown', () => {
+  try {
+    if (!window.OttoTTS && 'speechSynthesis' in window) {
+      speechSynthesis.speak(new SpeechSynthesisUtterance(''));
+    }
+  } catch { /* optional */ }
+  try {
+    const a = ottoAudioEl();
+    if (!a.src) { // never yank a briefing that is already playing
+      a.src = SILENCE_WAV;
+      a.play().then(() => { a.removeAttribute('src'); }).catch(() => { a.removeAttribute('src'); });
+    }
+  } catch { /* optional */ }
+}, { once: true, capture: true });
 
 async function boot() {
   /* boot doubles as reload (the ↻ chip) — start from a clean slate or

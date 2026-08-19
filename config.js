@@ -34,6 +34,7 @@ window.GEOCODE_FN = 'geocode';
 window.VOICE_FN = 'voice-note';
 window.SCENARIO_AI_FN = 'scenario-ai';
 window.ELEVENLABS_TOKEN_FN = 'elevenlabs-token';
+window.ELEVENLABS_TTS_FN = 'elevenlabs-tts';
 
 /* ElevenLabs Conversational AI agent — Otto as a real conversation
  * instead of one recorded clip at a time (otto-agent.js). Injected at
