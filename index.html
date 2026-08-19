@@ -86,8 +86,8 @@
     padding: 0 16px;
     pointer-events: none;
   }
-  #ar { pointer-events: auto; cursor: pointer; }
-  #ar.off { border-color: rgba(140,165,200,.22); color: #94a1b2; }
+  #ar, #route { pointer-events: auto; cursor: pointer; }
+  #ar.off, #route.off { border-color: rgba(140,165,200,.22); color: #94a1b2; }
 
   /* the trigger banner — Otto noticed the pattern and wants to talk */
   #trigger-banner {
@@ -449,6 +449,7 @@
   </div>
   <div class="hud2">
     <span class="chip off" id="ar" title="Activity recognition — tap to start/stop">AR OFF · TAP TO TRACK</span>
+    <span class="chip" id="route" hidden title="The delivery route's stops — tap to hide or show them on this phone">ROUTE</span>
     <span class="chip plain" id="build" title="Build version"></span>
   </div>
 

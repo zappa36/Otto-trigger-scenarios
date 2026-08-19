@@ -382,6 +382,15 @@ door, the way a courier works through parcels at a single bell. The
 same link that loaded the route removes it again — all stops, their
 notes and their debriefs at once.
 
+One phone is also two demos: with a route loaded, the phone's HUD
+grows a **ROUTE chip** ("ROUTE · 100 STOPS" / "ROUTE OFF") that hides
+or shows the route's stops **on this device only** — pins, approach
+readings and taps alike, while scenario pins stay put. Flip it off
+for a clean trigger-scenario test, back on for the route demo; the
+choice sticks per device (localStorage), so the demo phone stays the
+demo phone and the test phone stays clean. The dashboard keeps
+reporting what is actually loaded either way.
+
 Keyless, the route lands in localStorage like everything else; live,
 it is one bulk insert — re-run
 [`supabase/schema.sql`](supabase/schema.sql) once first for the two

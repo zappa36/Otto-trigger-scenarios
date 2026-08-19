@@ -738,7 +738,7 @@ function checkApproach(pos) {
    * already under way, or the verdict bar waiting for its tap */
   const busy = notesSpeaking || !el('otto-screen').hidden || !el('verdict-banner').hidden;
   let next = null;
-  for (const d of destinations) {
+  for (const d of visibleDestinations()) {
     const dist = distM(pos, d);
     const rings = notesRadiiOf(d);
     if (dist > rings.rearm) { notesRead.delete(d.id); continue; }
@@ -960,12 +960,46 @@ const fmtDist = m => m < 1000 ? Math.round(m) + ' m' : (m / 1000).toFixed(1) + '
 const dirUrl = d => `https://www.google.com/maps/dir/?api=1&destination=${d.lat},${d.lng}&travelmode=walking`;
 const panoUrl = d => `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${d.lat},${d.lng}`;
 
+/* ---------- the route toggle ----------
+ * One phone, two demos: the full delivery route, or a clean map for
+ * scenario tests. The ROUTE chip hides the route's stops on THIS
+ * device only — pins, approach readings and taps alike; scenario pins
+ * stay, and the dashboard still says what is loaded. The choice
+ * sticks per device, so a demo phone stays the demo phone. */
+const LS_ROUTE_ON = 'od_route_on';
+let routeOn = true;
+try { routeOn = localStorage.getItem(LS_ROUTE_ON) !== '0'; } catch { /* private mode */ }
+function visibleDestinations() {
+  return routeOn ? destinations : destinations.filter(d => !d.route);
+}
+function renderRouteChip() {
+  const chip = el('route');
+  const n = destinations.filter(d => d.route).length;
+  chip.hidden = !n;
+  if (!n) return;
+  chip.textContent = routeOn ? `ROUTE · ${n} STOPS` : 'ROUTE OFF';
+  chip.classList.toggle('off', !routeOn);
+}
+el('route').onclick = () => {
+  routeOn = !routeOn;
+  try { localStorage.setItem(LS_ROUTE_ON, routeOn ? '1' : '0'); } catch { /* private mode */ }
+  /* a card open on a stop that just went hidden closes with it — but
+   * an open debrief is never yanked, the toggle can wait */
+  if (!routeOn && current && current.route && el('otto-screen').hidden) {
+    el('card').hidden = true;
+    current = null;
+  }
+  renderRouteChip();
+  renderEmpty();
+  map.refresh();
+};
+
 /* ---------- map ---------- */
 const map = FieldMap.mount({
   el: '#map',
   geo: LiveGeo, // Geo, plus ActivityRec's continuous fixes while tracking
   markers: () => {
-    const list = destinations.map(d => {
+    const list = visibleDestinations().map(d => {
       const done = reportedIds.has(d.id);
       return {
         id: d.id, lat: d.lat, lng: d.lng,
@@ -998,7 +1032,7 @@ const map = FieldMap.mount({
     /* route stops can share one address (several parcels, one door) and
      * their pins stack exactly — a tap serves the first stop still open
      * there, the way a courier works through parcels at a single bell */
-    const here = destinations.filter(x => x.lat === d.lat && x.lng === d.lng);
+    const here = visibleDestinations().filter(x => x.lat === d.lat && x.lng === d.lng);
     openCard(here.find(x => !reportedIds.has(x.id)) || d);
   },
   onBackendChange(b) {
@@ -1281,7 +1315,7 @@ function removeCurrent() {
 }
 
 /* ---------- empty state ---------- */
-function renderEmpty() { el('hint').hidden = destinations.length > 0; }
+function renderEmpty() { el('hint').hidden = visibleDestinations().length > 0; }
 
 /* ---------- GPS chip ---------- */
 Geo.on(snap => {
@@ -1482,6 +1516,7 @@ async function boot() {
     try { scenarios = JSON.parse(localStorage.getItem(LS_SCEN) || '[]'); } catch { /* private mode */ }
   }
   rebuildScenarioIndex();
+  renderRouteChip();
   renderEmpty();
   map.refresh();
 }
@@ -1494,6 +1529,7 @@ if (!Backend.enabled) {
     try { destinations = JSON.parse(localStorage.getItem(LS_DEST) || '[]'); } catch { return; }
     try { scenarios = JSON.parse(localStorage.getItem(LS_SCEN) || '[]'); } catch { /* keep old */ }
     rebuildScenarioIndex();
+    renderRouteChip();
     renderEmpty();
     map.refresh();
     if (current && !el('otto-screen').hidden) return; // don't yank an open debrief
