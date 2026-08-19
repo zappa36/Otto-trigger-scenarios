@@ -107,6 +107,23 @@ function deleteDestNote(sc, idx) {
   render();
 }
 
+/* One tap in the notes block turns the reading ring into a slider —
+ * a notes_radius param the phone reads live (notesRadiiOf in app.js),
+ * tuned and versioned like every other detector knob from then on. */
+async function addNotesRadiusParam(sc) {
+  if (paramsOf(sc).some(p => p && p.key === 'notes_radius')) return;
+  /* drags staged on the sliders ride along — what is on screen is what
+   * gets saved, never silently thrown away */
+  const staged = tune && tune.id === sc.id ? tuneDiff(paramsOf(sc), tune.params) : '';
+  const base = (tune && tune.id === sc.id ? tune.params : paramsOf(sc)).map(p => ({ ...p }));
+  tune = null;
+  const params = base.concat([{
+    key: 'notes_radius', label: 'Notes read distance', value: 350, min: 50, max: 1000, step: 10, unit: 'm',
+  }]);
+  await saveNewVersion(sc, { params }, 'Notes read distance made tunable (350 m)' + (staged ? ' · ' + staged : ''));
+  render();
+}
+
 /* The sheet's long titles ("Parking loops — driver circles the block…")
  * carry the pin: everything before the dash is the short name. */
 const shortTitle = sc => String(sc.title || 'Scenario').split(/\s+—\s+|\s+-\s+/)[0].trim().slice(0, 40);
@@ -163,10 +180,13 @@ function cleanParams(list) {
   });
   return out;
 }
-/* Param keys the phone's live detector consumes (trigOf in app.js). */
+/* Param keys the phone consumes live: the trigger detector's knobs
+ * (trigOf in app.js) plus the pre-arrival reading rings
+ * (notesRadiiOf — notes_radius / notes_rearm). */
+const NOTES_KEYS = ['notes_radius', 'notes_rearm'];
 const DETECTOR_KEYS = ['radius', 'exit_radius', 'pass_speed_max', 'pass_still_max_s',
   'passes_needed', 'stop_speed', 'stop_dwell_s', 'still_grace_s', 'stop_radius', 'resume_speed',
-  'park_radius_max', 'park_stop_s', 'arrival_radius', 'min_walk_m'];
+  'park_radius_max', 'park_stop_s', 'arrival_radius', 'min_walk_m', ...NOTES_KEYS];
 
 /* ---------- versions ----------
  * Every change to the definition — a tuned slider, an applied feedback
@@ -448,7 +468,10 @@ function renderTune(sc, params, ver) {
         <button class="mini-btn" type="button" data-act="tune-reset">Reset</button>
       </div>
       ${drivesPhone
-    ? '<p class="tune-note">These values drive the phone’s live trigger detector on the next test run.</p>'
+    ? `<p class="tune-note">These values drive the phone live: ${[
+      params.some(p => DETECTOR_KEYS.includes(p.key) && !NOTES_KEYS.includes(p.key)) ? 'the trigger detector on the next test run' : '',
+      params.some(p => NOTES_KEYS.includes(p.key)) ? 'the pre-arrival reading ring as soon as they are saved' : '',
+    ].filter(Boolean).join('; ')}.</p>`
     : `<p class="tune-note warn">⚠ None of these keys (${esc(params.map(p => p.key).join(', '))}) is a detector knob — the phone runs on its built-in defaults and these sliders only change the rule text. Rename them to detector keys (${esc(DETECTOR_KEYS.slice(0, 4).join(', '))}, …) to make them live.</p>`}
     </div>`;
 }
@@ -652,6 +675,10 @@ function renderScenario(sc) {
   /* the pre-arrival notes live on the destination — no pin, no notes */
   const notesBlock = !d ? '' : (() => {
     const notes = dispatchNotesOf(d);
+    /* the reading ring: the scenario's notes_radius param when it has
+     * one, the phone's built-in 350 m otherwise (NOTES in app.js) */
+    const rp = paramsOf(sc).find(p => p && p.key === 'notes_radius');
+    const radius = rp && isFinite(+rp.value) ? +rp.value : 350;
     return `
     <div class="notes-block">
       <span class="addr-tag">PRE-ARRIVAL NOTES — OTTO READS THESE ALOUD ON APPROACH</span>
@@ -675,7 +702,10 @@ function renderScenario(sc) {
         <input data-note-new placeholder="Building note for the next driver — &ldquo;The elevator is broken, use the stairs&rdquo;">
         <button class="mini-btn accent" type="button" data-act="note-add">+ Add note</button>
       </div>
-      <p class="notes-hint">Read out on the phone as the driver comes within ~350 m of this pin — consignee and floor first, then these notes, then the latest driver debriefs from &ldquo;What Otto understood&rdquo;.</p>
+      <p class="notes-hint">Read out on the phone as the driver comes within ~${fmtVal(radius)} m of this pin — consignee and floor first, then these notes, then the latest driver debriefs from &ldquo;What Otto understood&rdquo;.
+      ${rp
+        ? `Tune &ldquo;${esc(rp.label || 'notes_radius')}&rdquo; under TUNABLE VALUES.`
+        : `<button class="link-btn" type="button" data-act="notes-radius">⊕ make the read distance tunable</button>`}</p>
     </div>`;
   })();
 
@@ -1783,6 +1813,7 @@ el('list').addEventListener('click', e => {
     else if (a === 'restore') restoreVersion(sc, parseInt(act.dataset.ver, 10));
     else if (a === 'spec') exportSpec(sc);
     else if (a === 'note-add') addDestNote(sc, card);
+    else if (a === 'notes-radius') addNotesRadiusParam(sc);
     return;
   }
 

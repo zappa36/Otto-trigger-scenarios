@@ -676,6 +676,22 @@ const NOTES = {
   maxDispatch: 3,      // newest dispatcher notes read aloud
   maxDriver: 2,        // newest driver debriefs read aloud
 };
+/* The rings are per destination when its scenario carries the keys —
+ * notes_radius / notes_rearm are dashboard sliders exactly like the
+ * trigger detector's knobs (the notes block offers to add the first
+ * one); the NOTES defaults above are only the fallback. */
+function notesRadiiOf(d) {
+  const sc = scenarioOf(d);
+  const val = k => {
+    const p = sc && Array.isArray(sc.params) ? sc.params.find(x => x && x.key === k) : null;
+    const v = p && parseFloat(p.value);
+    return isFinite(v) && v > 0 ? v : null;
+  };
+  const approach = val('notes_radius') || NOTES.approachRadius;
+  let rearm = val('notes_rearm') || NOTES.rearmRadius;
+  if (rearm <= approach) rearm = approach * 2; // hysteresis must stay outside the reading ring
+  return { approach, rearm };
+}
 const notesRead = new Map(); // destination id -> 'done' until the rearm ring is left
 let notesSpeaking = false;
 let notesBannerDest = null;
@@ -716,8 +732,9 @@ function checkApproach(pos) {
   lastNotesScan = now;
   for (const d of destinations) {
     const dist = distM(pos, d);
-    if (dist > NOTES.rearmRadius) { notesRead.delete(d.id); continue; }
-    if (dist > NOTES.approachRadius || notesRead.get(d.id) === 'done') continue;
+    const rings = notesRadiiOf(d);
+    if (dist > rings.rearm) { notesRead.delete(d.id); continue; }
+    if (dist > rings.approach || notesRead.get(d.id) === 'done') continue;
     if (!briefingLines(d).length) continue; // nothing on file — nothing to read
     /* stay armed through a busier moment: an open debrief, a reading
      * already under way, or the verdict bar waiting for its tap */

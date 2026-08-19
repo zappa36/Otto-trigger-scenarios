@@ -278,8 +278,9 @@ ends of that wire are metered by the minute.
 A note that has to be read off a screen at the door helps nobody in
 traffic. So when a destination has notes on file, **Otto reads them
 aloud on the way in** — once, hands-free, the first time the phone
-comes within ~350 m of the pin (the `NOTES` block in `app.js`; driving
-back out past ~700 m re-arms it, so a new approach is a new reading):
+comes within the reading ring around the pin (350 m by default;
+driving back out past the re-arm ring, 700 m by default, re-arms it,
+so a new approach is a new reading):
 
 > "Heads up — Kollwitzstraße 18, about 300 meters ahead. Delivery is
 > for Maria Weber, floor 4. From dispatch: the elevator is broken, use
@@ -297,6 +298,14 @@ Three kinds of notes feed that briefing, in that order:
   filed against the pin: the structured title where Otto made one, the
   raw words otherwise. Demo debriefs stay out, as everywhere — nothing
   counts them as real data.
+
+**The rings are tuned from the dashboard, per scenario.** The
+pre-arrival notes block names the ring in force and offers **⊕ make
+the read distance tunable** — one tap adds a `notes_radius` slider
+under TUNABLE VALUES, cut as a new version like every other knob, and
+the phone reads it live on the next fix (a `notes_rearm` param moves
+the re-arm ring the same way; the `NOTES` block in `app.js` holds only
+the fallbacks, exactly like `TRIG`).
 
 **The reading is in Otto's real ElevenLabs voice** when the backend is
 live: deploy
