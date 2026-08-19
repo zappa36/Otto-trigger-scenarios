@@ -287,20 +287,33 @@ const map = FieldMap.mount({
   zoom: 15,
   staticSize: [480, 840],
   showMe: false,
-  markers: () => scenarios.map(sc => {
-    const d = sc.destination_id && destById(sc.destination_id);
-    if (!d) return null;
-    const st = statusOf(sc);
-    return {
-      id: sc.id, lat: d.lat, lng: d.lng,
-      label: (sc.num ? '#' + sc.num + ' ' : '') + shortTitle(sc).toUpperCase().slice(0, 20),
-      color: st.rgb,
-      labelColor: st.labelColor,
-      icon: st.icon,
-      size: 40,
-      priority: st.key === 'ready' ? 1 : 2,
-    };
-  }).filter(Boolean),
+  markers: () => [
+    /* the demo route's stops ride under the scenario pins — small,
+     * numbered, blue; stops sharing an address stack exactly */
+    ...destinations.filter(d => d.route).map(d => ({
+      id: 'route-' + d.id, lat: d.lat, lng: d.lng,
+      label: (d.stop == null ? '' : d.stop + ' · ') + String(d.title || '').toUpperCase().slice(0, 18),
+      color: '96,165,250',
+      labelColor: '#9ec5f2',
+      icon: d.stop == null ? '·' : String(d.stop),
+      size: 26,
+      priority: 0, // scenario labels win the label space
+    })),
+    ...scenarios.map(sc => {
+      const d = sc.destination_id && destById(sc.destination_id);
+      if (!d) return null;
+      const st = statusOf(sc);
+      return {
+        id: sc.id, lat: d.lat, lng: d.lng,
+        label: (sc.num ? '#' + sc.num + ' ' : '') + shortTitle(sc).toUpperCase().slice(0, 20),
+        color: st.rgb,
+        labelColor: st.labelColor,
+        icon: st.icon,
+        size: 40,
+        priority: st.key === 'ready' ? 1 : 2,
+      };
+    }).filter(Boolean),
+  ],
   onMarkerClick(m) {
     const sc = scenarios.find(x => x.id === m.id);
     if (sc) { expandedId = sc.id; render(); scrollToScenario(sc.id); }
@@ -321,7 +334,8 @@ function centerOn(lat, lng) {
   map.center();
 }
 function centerOnScenarios() {
-  const pins = scenarios.map(sc => sc.destination_id && destById(sc.destination_id)).filter(Boolean);
+  let pins = scenarios.map(sc => sc.destination_id && destById(sc.destination_id)).filter(Boolean);
+  if (!pins.length) pins = destinations.filter(d => d.route); // a loaded route is a view too
   if (!pins.length) { Geo.simulate({ lat: 52.5346, lng: 13.4109 }); return; }
   const lat = pins.reduce((s, d) => s + d.lat, 0) / pins.length;
   const lng = pins.reduce((s, d) => s + d.lng, 0) / pins.length;
@@ -396,6 +410,8 @@ function renderStats() {
   if (by.partial) verdicts.push(`${by.partial} partial`);
   if (by.fail) verdicts.push(`${by.fail} fail`);
   if (verdicts.length) parts.push(verdicts.join(' / '));
+  const rt = routeStops();
+  if (rt.length) parts.push(`route “${ROUTE.name}” · ${rt.length} stops on the phone`);
   parts.push('build ' + window.BUILD);
   el('stats').textContent = parts.join(' · ');
 }
@@ -770,6 +786,7 @@ function renderScenario(sc) {
 
 function render() {
   renderStats();
+  renderRouteToggle();
   const box = el('list');
   if (!scenarios.length) {
     box.innerHTML = `
@@ -780,6 +797,7 @@ function render() {
           <button class="chip primary" type="button" data-empty="new">+ NEW SCENARIO</button>
           <button class="chip" type="button" data-empty="import">⎘ PASTE FROM EXCEL</button>
           <button class="chip" type="button" data-empty="sample">LOAD THE SAMPLE SCENARIO</button>
+          ${ROUTE && !routeStops().length ? '<button class="chip" type="button" data-empty="route">⇪ LOAD THE DEMO ROUTE</button>' : ''}
         </div>
       </div>`;
     return;
@@ -1699,6 +1717,7 @@ function rowsToScenarios(text) {
 function openImport() {
   el('import-text').value = '';
   el('import-preview').textContent = '';
+  renderRouteToggle();
   el('import-sheet').hidden = false;
   el('import-text').focus();
 }
@@ -1770,6 +1789,77 @@ async function loadSample() {
   openAddr(sc);
 }
 
+/* ---------- the demo route ----------
+ * route-schoeneberg.js ships one realistic delivery tour through
+ * Berlin-Schöneberg: up to a hundred ordered stops, several of them
+ * behind one front door, with pre-arrival notes on file at many —
+ * delivery info from dispatch and what drivers reported on earlier
+ * tours. Loading turns every stop into a destination row (the route
+ * and stop columns keep the grouping), so the phone shows the pins
+ * and Otto reads the notes on approach — the pre-arrival loop at the
+ * scale of a real tour instead of one hand-made pin. */
+const ROUTE = window.DEMO_ROUTE || null;
+const routeStops = () => (ROUTE ? destinations.filter(d => d.route === ROUTE.id) : []);
+
+function renderRouteToggle() {
+  const btn = el('route-toggle');
+  if (!ROUTE) { btn.hidden = true; return; }
+  const n = routeStops().length;
+  btn.hidden = false;
+  btn.textContent = n
+    ? `✕ remove the “${ROUTE.name}” demo route (${n} stops loaded)`
+    : `…or load the “${ROUTE.name}” demo route — ${ROUTE.stops.length} ${ROUTE.area} stops with delivery + driver notes`;
+}
+
+async function loadRoute() {
+  if (!ROUTE || routeStops().length) return;
+  el('import-sheet').hidden = true;
+  const now = Date.now();
+  const rows = ROUTE.stops.map(s => ({
+    title: s.title, addr: s.addr, lat: s.lat, lng: s.lng,
+    route: ROUTE.id, stop: s.stop,
+    consignee: s.consignee || null, floor: s.floor || null,
+    /* array order in the data file IS the reading order (newest first)
+     * — the stamped times, a day apart, just say so */
+    notes: (s.notes || []).map((n, j) => ({
+      id: localId('n'), text: n.text, by: n.by || 'dispatch',
+      at: new Date(now - 36e5 - j * 864e5).toISOString(),
+    })),
+  }));
+  let added = [];
+  if (Backend.enabled) {
+    /* live: one bulk insert or nothing — a schema without the route
+     * columns fails whole, and schemaHint names the fix */
+    try { added = (await Backend.insertDestinations(rows)) || []; } catch (e) { schemaHint(e); return; }
+  } else {
+    const at = new Date().toISOString();
+    added = rows.map(r => ({ ...r, id: localId('d'), created_at: at }));
+  }
+  destinations.push(...added);
+  persistLocal();
+  render();
+  map.refresh();
+  if (added[0]) centerOn(added[0].lat, added[0].lng);
+}
+
+async function unloadRoute() {
+  const mine = routeStops();
+  if (!mine.length) return;
+  if (!confirm(`Remove the “${ROUTE.name}” demo route — all ${mine.length} stops, their notes and their debriefs?`)) return;
+  el('import-sheet').hidden = true;
+  if (Backend.enabled) {
+    try { await Backend.deleteDestinationsByRoute(ROUTE.id); } catch (e) { warn(e); return; }
+  }
+  const ids = new Set(mine.map(d => d.id));
+  destinations = destinations.filter(d => !ids.has(d.id));
+  /* a scenario pinned onto a route stop loses its pin — live, the
+   * foreign key does the same (on delete set null) */
+  scenarios.forEach(sc => { if (sc.destination_id && ids.has(sc.destination_id)) sc.destination_id = null; });
+  persistLocal();
+  render();
+  map.refresh();
+}
+
 /* ---------- events ---------- */
 el('list').addEventListener('click', e => {
   const empty = e.target.closest('[data-empty]');
@@ -1778,6 +1868,7 @@ el('list').addEventListener('click', e => {
     if (act === 'new') openForm(null);
     else if (act === 'import') openImport();
     else if (act === 'sample') loadSample();
+    else if (act === 'route') loadRoute();
     return;
   }
   const card = e.target.closest('.sc');
@@ -1895,6 +1986,7 @@ el('import-open').onclick = openImport;
 el('import-cancel').onclick = () => { el('import-sheet').hidden = true; };
 el('import-go').onclick = runImport;
 el('import-sample').onclick = loadSample;
+el('route-toggle').onclick = () => (routeStops().length ? unloadRoute() : loadRoute());
 el('import-text').addEventListener('input', previewImport);
 el('addr-close').onclick = closeAddr;
 el('addr-input').addEventListener('input', e => onAddrInput(e.target.value));

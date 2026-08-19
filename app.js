@@ -673,7 +673,7 @@ function openingQuestion() {
 const NOTES = {
   approachRadius: 350, // m — entering this ring around a pin with notes starts the reading
   rearmRadius: 700,    // m — leaving this far out re-arms it (a new approach = a new reading)
-  maxDispatch: 3,      // newest dispatcher notes read aloud
+  maxNotes: 3,         // newest notes on file read aloud (dispatch and driver-left alike)
   maxDriver: 2,        // newest driver debriefs read aloud
 };
 /* The rings are per destination when its scenario carries the keys —
@@ -697,8 +697,11 @@ let notesSpeaking = false;
 let notesBannerDest = null;
 let lastNotesScan = 0;
 
-/* jsonb from Supabase, plain array from localStorage, string if hand-fed */
-const dispatchNotesOf = d => {
+/* jsonb from Supabase, plain array from localStorage, string if hand-fed.
+ * Each note says who left it (by: 'dispatch' | 'driver') — the dashboard
+ * writes dispatch notes, the demo route also carries what drivers
+ * reported on earlier tours. The reading names the voice either way. */
+const notesOnFile = d => {
   let n = d && d.notes;
   if (typeof n === 'string') { try { n = JSON.parse(n); } catch { n = null; } }
   return Array.isArray(n) ? n.filter(x => x && String(x.text || '').trim()) : [];
@@ -719,7 +722,8 @@ function briefingLines(d) {
   const floor = String(d.floor || '').trim();
   if (name) lines.push(`Delivery is for ${name}${floor ? ', ' + speakFloor(floor) : ''}.`);
   else if (floor) lines.push(`Delivery goes to ${speakFloor(floor)}.`);
-  dispatchNotesOf(d).slice(0, NOTES.maxDispatch).forEach(n => lines.push('From dispatch: ' + sentence(n.text)));
+  notesOnFile(d).slice(0, NOTES.maxNotes).forEach(n =>
+    lines.push((n.by === 'driver' ? 'A driver reported: ' : 'From dispatch: ') + sentence(n.text)));
   driverReportsOf(d).slice(0, NOTES.maxDriver).forEach(m => lines.push('A driver reported: ' + sentence(m.title || m.transcript)));
   return lines;
 }
@@ -730,25 +734,32 @@ function checkApproach(pos) {
   const now = Date.now();
   if (now - lastNotesScan < 2000) return;
   lastNotesScan = now;
+  /* stay armed through a busier moment: an open debrief, a reading
+   * already under way, or the verdict bar waiting for its tap */
+  const busy = notesSpeaking || !el('otto-screen').hidden || !el('verdict-banner').hidden;
+  let next = null;
   for (const d of destinations) {
     const dist = distM(pos, d);
     const rings = notesRadiiOf(d);
     if (dist > rings.rearm) { notesRead.delete(d.id); continue; }
-    if (dist > rings.approach || notesRead.get(d.id) === 'done') continue;
+    if (busy || dist > rings.approach || notesRead.get(d.id) === 'done') continue;
     if (!briefingLines(d).length) continue; // nothing on file — nothing to read
-    /* stay armed through a busier moment: an open debrief, a reading
-     * already under way, or the verdict bar waiting for its tap */
-    if (notesSpeaking || !el('otto-screen').hidden || !el('verdict-banner').hidden) continue;
-    speakPreArrival(d, dist);
+    /* on a dense route several stops arm at once — the nearest one is
+     * the approach actually being made; the rest wait for their turn */
+    if (!next || dist < next.dist) next = { d, dist };
   }
+  if (next) speakPreArrival(next.d, next.dist);
 }
+
+/* "stop 12, Goltzstraße 13" when the pin is one stop of a route */
+const spokenTitle = d => (d.stop != null ? `stop ${d.stop}, ` : '') + d.title;
 
 function speakPreArrival(d, dist) {
   notesRead.set(d.id, 'done');
   notesSpeaking = true;
   const head = dist > 60
-    ? `Heads up — ${d.title}, about ${speakDist(dist)} ahead.`
-    : `You're at ${d.title}.`;
+    ? `Heads up — ${spokenTitle(d)}, about ${speakDist(dist)} ahead.`
+    : `You're at ${spokenTitle(d)}.`;
   const text = [head, ...briefingLines(d)].join(' ');
   if (navigator.vibrate) navigator.vibrate([60, 40, 60]); // softer than the trigger's buzz
   notesBannerDest = d;
@@ -767,7 +778,7 @@ function renderCardNotes(d) {
   box.innerHTML = '';
   const name = String(d.consignee || '').trim();
   const floor = String(d.floor || '').trim();
-  const notes = dispatchNotesOf(d);
+  const notes = notesOnFile(d);
   const reports = driverReportsOf(d).slice(0, NOTES.maxDriver).length;
   el('card-notes').hidden = !name && !floor && !notes.length && !reports;
   if (el('card-notes').hidden) return;
@@ -777,11 +788,11 @@ function renderCardNotes(d) {
     line.textContent = name ? `Consignee: ${name}${floor ? ' · ' + floor : ''}` : `Floor: ${floor}`;
     box.appendChild(line);
   }
-  notes.slice(0, NOTES.maxDispatch).forEach(n => {
+  notes.slice(0, NOTES.maxNotes).forEach(n => {
     const row = document.createElement('p');
     row.className = 'cn-note';
     const tag = document.createElement('b');
-    tag.textContent = 'DISPATCH';
+    tag.textContent = n.by === 'driver' ? 'DRIVER' : 'DISPATCH';
     row.append(tag, document.createTextNode(String(n.text)));
     box.appendChild(row);
   });
@@ -958,7 +969,8 @@ const map = FieldMap.mount({
       const done = reportedIds.has(d.id);
       return {
         id: d.id, lat: d.lat, lng: d.lng,
-        label: (done ? '✓ ' : '') + String(d.title || 'Destination').toUpperCase().slice(0, 22),
+        label: (done ? '✓ ' : '') + (d.stop != null ? d.stop + ' · ' : '')
+          + String(d.title || 'Destination').toUpperCase().slice(0, 22),
         color: done ? '70,211,154' : '255,107,107',
         labelColor: done ? '#7ce0b8' : '#ff9b9b',
         icon: done ? '✓' : '▲',
@@ -982,7 +994,12 @@ const map = FieldMap.mount({
   },
   onMarkerClick(m) {
     const d = destinations.find(x => x.id === m.id);
-    if (d) openCard(d);
+    if (!d) return;
+    /* route stops can share one address (several parcels, one door) and
+     * their pins stack exactly — a tap serves the first stop still open
+     * there, the way a courier works through parcels at a single bell */
+    const here = destinations.filter(x => x.lat === d.lat && x.lng === d.lng);
+    openCard(here.find(x => !reportedIds.has(x.id)) || d);
   },
   onBackendChange(b) {
     el('backend').textContent = b.toUpperCase();
@@ -1083,7 +1100,8 @@ function agentVars() {
      * out?") instead of hearing about it cold */
     destination_consignee: d ? String(d.consignee || '') : '',
     destination_floor: d ? String(d.floor || '') : '',
-    destination_notes: d ? dispatchNotesOf(d).slice(0, NOTES.maxDispatch).map(n => n.text).join('; ') : '',
+    destination_notes: d ? notesOnFile(d).slice(0, NOTES.maxNotes)
+      .map(n => (n.by === 'driver' ? 'a driver reported: ' : '') + n.text).join('; ') : '',
     scenario_num: sc && sc.num != null ? sc.num : '',
     scenario_title: sc ? sc.title : '',
     scenario_version: sc ? (sc.version || 1) : '',
@@ -1122,7 +1140,7 @@ function agentBriefing() {
   const onFile = [];
   if (v.destination_consignee) onFile.push(`the consignee is ${v.destination_consignee}${v.destination_floor ? ' (' + v.destination_floor + ')' : ''}`);
   else if (v.destination_floor) onFile.push(`the delivery goes to ${v.destination_floor}`);
-  if (v.destination_notes) onFile.push(`dispatch notes: ${v.destination_notes}`);
+  if (v.destination_notes) onFile.push(`notes on file: ${v.destination_notes}`);
   if (onFile.length) lines.push(sentence(`Pre-arrival notes on file, read to them on the way in: ${onFile.join('; ')}`));
   if (v.trigger_fired === 'yes') {
     const bits = [];
@@ -1174,7 +1192,7 @@ function openOtto(d) {
     if ('speechSynthesis' in window) speechSynthesis.cancel();
   } catch { /* optional */ }
   el('card').hidden = true;
-  el('otto-dest').textContent = d.title;
+  el('otto-dest').textContent = (d.stop != null ? 'Stop ' + d.stop + ' · ' : '') + d.title;
   el('otto-screen').hidden = false;
   voice.destroy();
   voice = mountOtto(false); // mount() starts it
@@ -1198,7 +1216,7 @@ function closeOtto() {
 /* ---------- destination card ---------- */
 function openCard(d) {
   current = d;
-  el('card-title').textContent = d.title;
+  el('card-title').textContent = (d.stop != null ? 'Stop ' + d.stop + ' · ' : '') + d.title;
   el('card-addr').textContent = d.addr || `${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}`;
   updateCardDistance();
   el('card-dir').href = dirUrl(d);
@@ -1444,6 +1462,10 @@ async function boot() {
   if (Backend.enabled) {
     try {
       destinations = (await Backend.listDestinations()) || [];
+      /* a route loads as ONE bulk insert, so its rows share a created_at
+       * — the stop number breaks the tie and keeps the tour in order */
+      destinations.sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || ''))
+        || ((a.stop == null ? 1e9 : a.stop) - (b.stop == null ? 1e9 : b.stop)));
       const msgs = (await Backend.listMessages(500)) || [];
       msgs.forEach(m => { if (m.destination_id) recordMessage(m.destination_id, m); });
     } catch (e) { console.warn('load failed — run schema.sql?', e.message); }

@@ -125,6 +125,15 @@ const Backend = (() => {
       headers: { Prefer: 'return=representation' },
       body: JSON.stringify([row]),
     }),
+    /* the demo route lands as ONE insert — a hundred stops one request
+     * at a time is a hundred chances to half-load a route */
+    insertDestinations: rows => rest('/rest/v1/destinations', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify(rows),
+    }),
+    /* and leaves the same way (messages filed against the stops cascade) */
+    deleteDestinationsByRoute: route => rest('/rest/v1/destinations?route=eq.' + encodeURIComponent(route), { method: 'DELETE' }),
     updateDestination: (id, patch) => rest('/rest/v1/destinations?id=eq.' + encodeURIComponent(id), {
       method: 'PATCH',
       headers: { Prefer: 'return=representation' },
