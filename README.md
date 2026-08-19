@@ -184,8 +184,8 @@ count.
 
 Going live is the same story as the rest of the app: re-run
 [`supabase/schema.sql`](supabase/schema.sql) (safe to re-run — it adds
-the `scenarios` table, the tuning-loop columns and the pre-arrival
-notes columns), and deploy
+the `scenarios` table, the tuning-loop columns, the pre-arrival
+notes columns and the route columns), and deploy
 [`scenario-ai`](supabase/functions/scenario-ai/index.ts) next to
 `voice-note` (same `OPENAI_API_KEY` and `ALLOWED_ORIGINS` secrets) for
 real drafts and revisions. Worth doing at the same time: set the voice
@@ -291,9 +291,11 @@ Three kinds of notes feed that briefing, in that order:
 - **Consignee details** — name and floor/unit, set in the dashboard's
   **PRE-ARRIVAL NOTES** block on any pinned scenario (they live on the
   destination row).
-- **Dispatcher notes** — free-text building notes ("the elevator is
-  broken"), added and removed in the same block. Newest first; the
-  newest three are read.
+- **Notes on file** — free-text building notes ("the elevator is
+  broken"), added and removed in the same block; each carries who
+  left it, and the reading names the voice ("From dispatch: …" /
+  "A driver reported: …" — the demo route seeds both kinds). Newest
+  first; the newest three are read.
 - **What other drivers found** — the latest two real debriefs already
   filed against the pin: the structured title where Otto made one, the
   raw words otherwise. Demo debriefs stay out, as everywhere — nothing
@@ -343,6 +345,56 @@ an approach that happened an hour ago. Live, the notes ride the
 `consignee`, `floor`, `notes`) and land in the exported spec JSON;
 keyless, localStorage — the dashboard and the phone keep each other
 fresh the same way scenarios do.
+
+## One route, a hundred doors — the Schöneberg demo route
+
+Pre-arrival notes were built pin by pin; a real driver meets them a
+hundred times a day. [`route-schoeneberg.js`](route-schoeneberg.js)
+ships that day: **one parcel tour through Berlin-Schöneberg** — 100
+stops in driving order across 87 real addresses, a ~17 km loop from
+Nollendorfplatz through the Akazienkiez, the Bülow quarter and the
+Rote Insel, back into the Bayerisches Viertel. Eleven buildings hold
+more than one stop — one front door, several parcels, so the same
+address appears back to back exactly as a courier works it — and 40
+stops carry notes on file: **delivery info from dispatch** ("ring
+GOODS-IN, not the front bell") and **what drivers reported on earlier
+tours** ("the stair light is on a short timer — you climb the last
+floor in the dark"). The addresses and coordinates are real, geocoded
+building by building via OpenStreetMap Nominatim; every consignee,
+business and note is invented.
+
+Load it from the dashboard — the link in the ⎘ PASTE FROM EXCEL
+sheet, or the empty-state chip. Every stop becomes a destination row
+stamped with its route id and stop number, so the phone shows
+numbered pins ("7 · GOLTZSTRASSE 13"), the card opens as "Stop 7 ·
+Goltzstraße 13", and the approach reading names the stop it is about.
+Notes say who left them — `by: 'dispatch'` or `by: 'driver'` — and
+the briefing keeps the voices apart: consignee and floor first, then
+"From dispatch: …", then "A driver reported: …" (a driver-left note
+on file reads exactly like a real debrief filed against the pin, and
+the card shows the split as DISPATCH / DRIVER tags).
+
+Route scale earned two small behaviours. When several armed stops sit
+inside the reading ring at once — in a Kiez they will — Otto reads
+the **nearest** one first; the rest keep their turn. And a tap on
+stacked same-address pins opens the **first stop still open** at that
+door, the way a courier works through parcels at a single bell. The
+same link that loaded the route removes it again — all stops, their
+notes and their debriefs at once.
+
+One phone is also two demos: with a route loaded, the phone's HUD
+grows a **ROUTE chip** ("ROUTE · 100 STOPS" / "ROUTE OFF") that hides
+or shows the route's stops **on this device only** — pins, approach
+readings and taps alike, while scenario pins stay put. Flip it off
+for a clean trigger-scenario test, back on for the route demo; the
+choice sticks per device (localStorage), so the demo phone stays the
+demo phone and the test phone stays clean. The dashboard keeps
+reporting what is actually loaded either way.
+
+Keyless, the route lands in localStorage like everything else; live,
+it is one bulk insert — re-run
+[`supabase/schema.sql`](supabase/schema.sql) once first for the two
+route columns (`route`, `stop`).
 
 ## Activity recognition (and the Google AR API)
 
@@ -555,12 +607,13 @@ The composition happens entirely through the kits' public seams:
 | `app.js` | Destinations, messages, the card, Otto wiring |
 | `otto-agent.js` | Otto as a live ElevenLabs agent conversation — the kit's mount seams over a WebSocket, with the scenario as its context |
 | `dashboard.html` | Desktop shell: scenario list, map, form / address / import sheets |
-| `dashboard.js` | Trigger scenarios: CRUD, describe→draft, tunable-value sliders, voice feedback → proposed versions, history, spec export, Excel paste-import, address pinning, compare + verdict |
+| `dashboard.js` | Trigger scenarios: CRUD, describe→draft, tunable-value sliders, voice feedback → proposed versions, history, spec export, Excel paste-import, address pinning, compare + verdict — and loading/removing the demo route |
+| `route-schoeneberg.js` | The Schöneberg demo route: 100 stops in driving order, 87 real geocoded addresses, dispatch + driver notes on file at 40 of them |
 | `activity-rec.js` | Google-AR-style activity states from web signals; `inject()`/`feed()` seams for the real Android API |
 | `backend.js` | Merged Supabase client for both kits + this app's tables |
 | `config.js` | Keys — all optional; placeholders filled at deploy time |
 | `vercel.json`, `scripts/vercel-build.sh` | Deploy-time injection of `GMAPS_BROWSER_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY` |
 | `voice-note.js/.css` | from voice-notes-kit + hands-free pause-to-send |
 | `geolocate.js`, `field-map.js/.css` | verbatim from field-map-kit |
-| `supabase/schema.sql` | `destinations` (incl. pre-arrival notes: consignee / floor / dispatcher notes) + `messages` (incl. the agent conversation) + `scenarios` (incl. params / versions / feedback), RLS |
+| `supabase/schema.sql` | `destinations` (incl. pre-arrival notes: consignee / floor / notes, and route / stop) + `messages` (incl. the agent conversation) + `scenarios` (incl. params / versions / feedback), RLS |
 | `supabase/functions/` | `voice-note` (kit + trailing-"stop" strip + a text path for agent conversations) + `geocode` (verbatim) + `scenario-ai` (draft & revise) + `elevenlabs-token` (signed URLs for a private agent) + `elevenlabs-tts` (the pre-arrival notes read in Otto's real voice) |

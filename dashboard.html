@@ -523,7 +523,7 @@
   .frm textarea { resize: vertical; min-height: 52px; }
   .frm input:focus, .frm textarea:focus, .panel input[type=text]:focus, .panel textarea:focus { border-color: rgba(60,192,224,.55); }
   .panel-foot { display: flex; gap: 8px; justify-content: flex-end; align-items: center; margin-top: 4px; }
-  .panel-foot .spacer { margin-right: auto; }
+  .panel-foot .spacer { margin-right: auto; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
   .sheet-btn {
     padding: 10px 16px;
     border-radius: 11px;
@@ -870,7 +870,10 @@
     <textarea id="import-text" placeholder="Paste the copied rows here…"></textarea>
     <div id="import-preview"></div>
     <div class="panel-foot">
-      <span class="spacer"><button class="link-btn" id="import-sample" type="button">…or load the sample scenario from the deck</button></span>
+      <span class="spacer">
+        <button class="link-btn" id="import-sample" type="button">…or load the sample scenario from the deck</button>
+        <button class="link-btn" id="route-toggle" type="button" hidden></button>
+      </span>
       <button class="sheet-btn" id="import-cancel" type="button">Cancel</button>
       <button class="sheet-btn primary" id="import-go" type="button">Import</button>
     </div>
@@ -881,6 +884,7 @@
 <script src="backend.js"></script>
 <script src="geolocate.js"></script>
 <script src="field-map.js"></script>
+<script src="route-schoeneberg.js"></script>
 <script src="dashboard.js"></script>
 
 </body>

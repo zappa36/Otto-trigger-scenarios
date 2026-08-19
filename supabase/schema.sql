@@ -12,7 +12,9 @@ create table if not exists public.destinations (
   lng double precision not null,
   consignee text,                   -- who the delivery is for ("Maria Weber")
   floor text,                       -- floor / unit ("4th floor", "Apt 12B")
-  notes jsonb,                      -- dispatcher notes, newest first: [{id,text,at,by}]
+  notes jsonb,                      -- notes on file, newest first: [{id,text,at,by}] — by: 'dispatch' | 'driver'
+  route text,                       -- the delivery route this stop belongs to (e.g. the demo route id)
+  stop integer,                     -- 1-based position on that route
   created_at timestamptz not null default now()
 );
 
@@ -24,6 +26,13 @@ create table if not exists public.destinations (
 alter table public.destinations add column if not exists consignee text;
 alter table public.destinations add column if not exists floor text;
 alter table public.destinations add column if not exists notes jsonb;
+
+-- Route columns for databases created before them — a destination can be
+-- one stop on a delivery route (route-schoeneberg.js ships a 100-stop demo
+-- route the dashboard loads as destination rows; several stops may share
+-- one address). Safe to re-run.
+alter table public.destinations add column if not exists route text;
+alter table public.destinations add column if not exists stop integer;
 
 create table if not exists public.messages (
   id uuid primary key default gen_random_uuid(),
