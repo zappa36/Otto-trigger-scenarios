@@ -1801,14 +1801,23 @@ async function loadSample() {
 const ROUTE = window.DEMO_ROUTE || null;
 const routeStops = () => (ROUTE ? destinations.filter(d => d.route === ROUTE.id) : []);
 
+/* The route rides two controls: a header chip — a loader buried in a
+ * sheet is a loader nobody finds once the dashboard has scenarios —
+ * and the link in the import sheet next to the other seed data. */
 function renderRouteToggle() {
   const btn = el('route-toggle');
-  if (!ROUTE) { btn.hidden = true; return; }
+  const chip = el('route-chip');
+  if (!ROUTE) { btn.hidden = true; chip.hidden = true; return; }
   const n = routeStops().length;
   btn.hidden = false;
   btn.textContent = n
     ? `✕ remove the “${ROUTE.name}” demo route (${n} stops loaded)`
     : `…or load the “${ROUTE.name}” demo route — ${ROUTE.stops.length} ${ROUTE.area} stops with delivery + driver notes`;
+  chip.hidden = false;
+  chip.textContent = n ? `✕ ROUTE · ${n}` : '⇪ ROUTE';
+  chip.title = n
+    ? `Remove the “${ROUTE.name}” demo route — all ${n} stops and their notes`
+    : `Load the “${ROUTE.name}” demo route — ${ROUTE.stops.length} ${ROUTE.area} stops, delivery + driver notes on file`;
 }
 
 async function loadRoute() {
@@ -1987,6 +1996,7 @@ el('import-cancel').onclick = () => { el('import-sheet').hidden = true; };
 el('import-go').onclick = runImport;
 el('import-sample').onclick = loadSample;
 el('route-toggle').onclick = () => (routeStops().length ? unloadRoute() : loadRoute());
+el('route-chip').onclick = () => (routeStops().length ? unloadRoute() : loadRoute());
 el('import-text').addEventListener('input', previewImport);
 el('addr-close').onclick = closeAddr;
 el('addr-input').addEventListener('input', e => onAddrInput(e.target.value));
