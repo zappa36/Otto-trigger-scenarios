@@ -298,14 +298,30 @@ Three kinds of notes feed that briefing, in that order:
   raw words otherwise. Demo debriefs stay out, as everywhere — nothing
   counts them as real data.
 
-The reading uses the same keyless browser speech as the sample trigger
-(the Android wrapper's own TTS when installed), with a banner as the
-visual record — tap it to open the card, ✕ to stop the reading
-mid-sentence. The destination card shows the same notes under
-**PRE-ARRIVAL NOTES** with a 🔊 replay button for the kerb. A fired
-trigger or an open debrief always outranks a reading. And with
-[Otto as an ElevenLabs agent](#otto-as-your-elevenlabs-agent), the
-debrief that follows knows what was read on the way in
+**The reading is in Otto's real ElevenLabs voice** when the backend is
+live: deploy
+[`elevenlabs-tts`](supabase/functions/elevenlabs-tts/index.ts) next to
+the other functions (same `ELEVENLABS_API_KEY` secret as
+`elevenlabs-token`, same `ALLOWED_ORIGINS`; optionally
+`ELEVENLABS_VOICE_ID` — set it to your agent's voice so the reading
+and the debrief sound like one Otto) and the phone sends the briefing
+there, gets back a short low-bitrate mp3 and plays it. The key never
+reaches a phone, the text is capped server-side, and the clip is
+deliberately small — spoken word over cell in a moving vehicle, where
+small and soon beats big and late. The banner says `◆ ELEVENLABS`
+only when that clip is actually playing; function not deployed, clip
+late, backend off → the reading falls back in place to the same
+keyless browser speech as the sample trigger (the Android wrapper's
+own TTS when installed), honestly unlabelled. The mic self-test
+behind the version chip probes the function live and names which
+voice will read.
+
+The banner is the visual record either way — tap it to open the card,
+✕ to stop the reading mid-sentence. The destination card shows the
+same notes under **PRE-ARRIVAL NOTES** with a 🔊 replay button for the
+kerb. A fired trigger or an open debrief always outranks a reading.
+And with [Otto as an ElevenLabs agent](#otto-as-your-elevenlabs-agent),
+the debrief that follows knows what was read on the way in
 (`{{destination_consignee}}`, `{{destination_floor}}`,
 `{{destination_notes}}`, plus a line in the contextual update), so it
 can follow up on the notes instead of hearing about them cold.
@@ -435,7 +451,12 @@ never carries them.
    `OPENAI_API_KEY`) — plus
    [`elevenlabs-token`](supabase/functions/elevenlabs-token/index.ts) if
    Otto is a private ElevenLabs agent (see above; a public agent needs
-   no function at all). Set `ALLOWED_ORIGINS` on all of them. Optional
+   no function at all) and
+   [`elevenlabs-tts`](supabase/functions/elevenlabs-tts/index.ts) for
+   the [pre-arrival notes](#pre-arrival-notes--otto-reads-before-you-arrive)
+   read in Otto's ElevenLabs voice (`ELEVENLABS_API_KEY` +
+   optionally `ELEVENLABS_VOICE_ID`; keyless it falls back to the
+   browser's own speech). Set `ALLOWED_ORIGINS` on all of them. Optional
    persona tuning via `ASSISTANT_NAME`, `ASSISTANT_BRIEF`,
    `NOTE_CATEGORIES` — e.g.:
 
@@ -533,4 +554,4 @@ The composition happens entirely through the kits' public seams:
 | `voice-note.js/.css` | from voice-notes-kit + hands-free pause-to-send |
 | `geolocate.js`, `field-map.js/.css` | verbatim from field-map-kit |
 | `supabase/schema.sql` | `destinations` (incl. pre-arrival notes: consignee / floor / dispatcher notes) + `messages` (incl. the agent conversation) + `scenarios` (incl. params / versions / feedback), RLS |
-| `supabase/functions/` | `voice-note` (kit + trailing-"stop" strip + a text path for agent conversations) + `geocode` (verbatim) + `scenario-ai` (draft & revise) + `elevenlabs-token` (signed URLs for a private agent) |
+| `supabase/functions/` | `voice-note` (kit + trailing-"stop" strip + a text path for agent conversations) + `geocode` (verbatim) + `scenario-ai` (draft & revise) + `elevenlabs-token` (signed URLs for a private agent) + `elevenlabs-tts` (the pre-arrival notes read in Otto's real voice) |

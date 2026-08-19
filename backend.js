@@ -97,6 +97,20 @@ const Backend = (() => {
     /* A signed URL for a PRIVATE agent — the ElevenLabs key lives in the
      * function's secrets, never here. A public agent never calls this. */
     agentToken: agentId => fn(window.ELEVENLABS_TOKEN_FN || 'elevenlabs-token', { agent_id: agentId }, 10000),
+    /* The reading voice: text in, a short ElevenLabs mp3 clip out (the
+     * pre-arrival notes in Otto's real voice). Time-boxed hard — a
+     * reading that arrives after the driver parked is a reading missed,
+     * and the caller has the browser's own voice ready in its place. */
+    async tts(text) {
+      const r = await fetch(`${url}/functions/v1/${window.ELEVENLABS_TTS_FN || 'elevenlabs-tts'}`, {
+        method: 'POST',
+        headers: { apikey: key, Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+        signal: AbortSignal.timeout(12000),
+      });
+      if (!r.ok) throw new Error('elevenlabs-tts ' + r.status);
+      return r.blob();
+    },
 
     saveNote: row => rest(`/rest/v1/${table}`, {
       method: 'POST',

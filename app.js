@@ -514,6 +514,7 @@ function detectorStep(snap) {
  * screen to find — the whole point of a trigger is that Otto comes to
  * you. */
 function speakThen(text, done) {
+  stopOttoAudio(); // one voice at a time — a reading clip in flight yields
   let called = false;
   const finish = () => {
     if (called) return;
@@ -544,6 +545,80 @@ function speakThen(text, done) {
     /* some browsers never fire onend — cap the wait by text length */
     setTimeout(finish, capMs);
   } catch { setTimeout(finish, 1200); }
+}
+
+/* ---------- the reading voice (ElevenLabs) ----------
+ * With the backend live, pre-arrival notes are read in Otto's REAL
+ * voice: the elevenlabs-tts function turns the briefing into a short
+ * mp3 clip (the ElevenLabs key never reaches the phone — same rule as
+ * the agent) and one shared audio element plays it. Everything
+ * degrades in place, like the rest of the kit: function not deployed,
+ * clip late, playback still locked, backend off — the reading falls
+ * back to speakThen (the wrapper's TTS, then the browser's own voice)
+ * and the banner is the record either way. */
+let elevenDown = false; // one failed fetch = the function is missing; stop asking this session
+let ottoAudio = null;   // one element, unlocked by the first gesture (see boot)
+/* 10 ms of silence — played inside the first tap so a later
+ * programmatic play() is allowed (autoplay rules want one gesture) */
+const SILENCE_WAV = 'data:audio/wav;base64,UklGRmQBAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YUABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
+function ottoAudioEl() {
+  if (!ottoAudio) { ottoAudio = new Audio(); ottoAudio.preload = 'auto'; }
+  return ottoAudio;
+}
+/* Stopping a clip also settles whoever was waiting for it to end —
+ * a cut-off reading must not leave its "still speaking" flag stuck. */
+function stopOttoAudio() {
+  if (!ottoAudio) return;
+  const pending = ottoAudio.__finish;
+  ottoAudio.__finish = null;
+  try {
+    ottoAudio.onended = ottoAudio.onerror = null;
+    ottoAudio.pause();
+    if (ottoAudio.src && ottoAudio.src.slice(0, 5) === 'blob:') URL.revokeObjectURL(ottoAudio.src);
+    ottoAudio.removeAttribute('src');
+  } catch { /* optional */ }
+  if (pending) pending();
+}
+
+/* Otto speaks: the ElevenLabs voice when it is reachable, speakThen
+ * (wrapper TTS, then browser TTS) otherwise. onVoice fires only when
+ * the real voice actually starts, so callers can label truthfully. */
+async function speakOtto(text, done, onVoice) {
+  let called = false;
+  const finish = () => {
+    if (called) return;
+    called = true;
+    if (ottoAudio && ottoAudio.__finish === finish) ottoAudio.__finish = null;
+    done();
+  };
+  if (Backend.enabled && !elevenDown && text) {
+    try {
+      const blob = await Backend.tts(String(text));
+      const a = ottoAudioEl();
+      stopOttoAudio();
+      a.src = URL.createObjectURL(blob);
+      a.__finish = finish;
+      a.onended = finish;
+      a.onerror = finish;
+      await a.play(); // throws while autoplay is still locked — fall through
+      if (onVoice) onVoice('elevenlabs');
+      /* insurance for an onended that never fires */
+      setTimeout(finish, Math.min(60000, 5000 + String(text).length * 100));
+      return;
+    } catch (e) {
+      /* detach before falling back — speakThen stops the element, and a
+       * still-registered finish would count the fallback as already done */
+      if (ottoAudio) { ottoAudio.__finish = null; ottoAudio.onended = ottoAudio.onerror = null; }
+      /* a failed FETCH means the function is missing or broken — stop
+       * asking this session; a blocked play() is not the function's
+       * fault, so it gets to try again next time */
+      if (!(e && e.name === 'NotAllowedError')) {
+        elevenDown = true;
+        console.warn('elevenlabs-tts unavailable — falling back to the device voice:', e && e.message);
+      }
+    }
+  }
+  speakThen(text, finish);
 }
 
 /* {park_m} / {walk_m} in a scenario's "Otto says" become the actual
@@ -660,9 +735,13 @@ function speakPreArrival(d, dist) {
   const text = [head, ...briefingLines(d)].join(' ');
   if (navigator.vibrate) navigator.vibrate([60, 40, 60]); // softer than the trigger's buzz
   notesBannerDest = d;
+  el('nb-title').textContent = 'OTTO · PRE-ARRIVAL NOTES';
   el('nb-text').textContent = text;
   el('notes-banner').hidden = false;
-  speakThen(text, () => { notesSpeaking = false; });
+  /* the ◆ label appears only once the ElevenLabs clip actually plays —
+   * a silent fallback never masquerades as the real thing */
+  speakOtto(text, () => { notesSpeaking = false; },
+    () => { el('nb-title').textContent = 'OTTO · PRE-ARRIVAL NOTES · ◆ ELEVENLABS'; });
 }
 
 /* the card's notes box — exactly what an approach would read out */
@@ -1072,6 +1151,7 @@ function openOtto(d) {
   current = d;
   /* a pre-arrival reading must not talk over the debrief — the keyless
    * path cancels it itself (speakThen), the agent path would not */
+  stopOttoAudio();
   try {
     if (window.OttoTTS && OttoTTS.stop) OttoTTS.stop();
     if ('speechSynthesis' in window) speechSynthesis.cancel();
@@ -1089,6 +1169,7 @@ function closeOtto() {
    * before the line closes. */
   if (voice.agent) voice.end();
   else voice.stop();
+  stopOttoAudio();
   try {
     if (window.OttoTTS && OttoTTS.stop) OttoTTS.stop();
     if ('speechSynthesis' in window) speechSynthesis.cancel();
@@ -1205,6 +1286,19 @@ el('build').onclick = async () => {
   out.push('ElevenLabs agent: ' + (OttoAgent.agentId()
     ? (OttoAgent.available() ? 'ON — ' + OttoAgent.agentId() : 'configured but UNUSABLE here')
     : 'not configured — recorded debrief'));
+  /* the reading voice for pre-arrival notes — probed live, because a
+   * silent fallback in the field reads as "ElevenLabs spoke" */
+  if (Backend.enabled) {
+    try {
+      const clip = await Backend.tts('Ok.');
+      elevenDown = false; // it works — forget any earlier failure
+      out.push(`notes reading voice: ELEVENLABS — OK (${Math.round(clip.size / 102.4) / 10} KB test clip)`);
+    } catch (e) {
+      out.push('notes reading voice: device TTS — elevenlabs-tts unreachable (' + (e.message || e) + ')');
+    }
+  } else {
+    out.push('notes reading voice: device TTS (backend OFF)');
+  }
   out.push('wrapper TTS: ' + (window.OttoTTS ? 'yes' : 'no (browser)'));
   const md = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
   out.push('mediaDevices.getUserMedia: ' + (md ? 'yes' : 'MISSING'));
@@ -1290,7 +1384,8 @@ el('notes-banner').onclick = () => {
 el('nb-close').onclick = e => {
   e.stopPropagation();
   el('notes-banner').hidden = true;
-  /* dismissing mid-reading means "stop talking" */
+  /* dismissing mid-reading means "stop talking" — whichever voice */
+  stopOttoAudio();
   try {
     if (window.OttoTTS && OttoTTS.stop) OttoTTS.stop();
     if ('speechSynthesis' in window) speechSynthesis.cancel();
@@ -1300,16 +1395,26 @@ el('nb-close').onclick = e => {
 el('card-notes-play').onclick = () => {
   if (!current) return;
   const lines = briefingLines(current);
-  if (lines.length) speakThen(lines.join(' '), () => {});
+  if (lines.length) speakOtto(lines.join(' '), () => {});
 };
 /* A pre-arrival reading can be the first thing Otto ever says — no
- * tracking tap came before it — and Chrome refuses speak() from a page
- * that never spoke during a user gesture. Prime on the first tap
- * anywhere (the wrapper's OttoTTS needs no priming). */
+ * tracking tap came before it — and browsers refuse both speak() and
+ * play() from a page that never made a sound during a user gesture.
+ * Prime both voices on the first tap anywhere: an empty utterance for
+ * the browser TTS, 10 ms of silence through the shared audio element
+ * for the ElevenLabs clips. (The wrapper's OttoTTS needs no priming,
+ * and its WebView allows gesture-free playback.) */
 document.addEventListener('pointerdown', () => {
   try {
     if (!window.OttoTTS && 'speechSynthesis' in window) {
       speechSynthesis.speak(new SpeechSynthesisUtterance(''));
+    }
+  } catch { /* optional */ }
+  try {
+    const a = ottoAudioEl();
+    if (!a.src) { // never yank a briefing that is already playing
+      a.src = SILENCE_WAV;
+      a.play().then(() => { a.removeAttribute('src'); }).catch(() => { a.removeAttribute('src'); });
     }
   } catch { /* optional */ }
 }, { once: true, capture: true });
