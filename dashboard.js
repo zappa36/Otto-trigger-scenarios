@@ -289,8 +289,9 @@ const map = FieldMap.mount({
   showMe: false,
   markers: () => [
     /* the demo route's stops ride under the scenario pins — small,
-     * numbered, blue; stops sharing an address stack exactly */
-    ...destinations.filter(d => d.route).map(d => ({
+     * numbered, blue; stops sharing an address stack exactly. The
+     * header ROUTE chip hides them (a view choice, not a delete). */
+    ...shownRouteStops().map(d => ({
       id: 'route-' + d.id, lat: d.lat, lng: d.lng,
       label: (d.stop == null ? '' : d.stop + ' · ') + String(d.title || '').toUpperCase().slice(0, 18),
       color: '96,165,250',
@@ -339,7 +340,7 @@ function centerOn(lat, lng) {
  * route counts too, so a route-heavy dashboard opens on the route. */
 function centerOnScenarios() {
   const pins = scenarios.map(sc => sc.destination_id && destById(sc.destination_id)).filter(Boolean)
-    .concat(destinations.filter(d => d.route));
+    .concat(shownRouteStops());
   if (!pins.length) { Geo.simulate({ lat: 52.5346, lng: 13.4109 }); return; }
   const mid = list => {
     const s = [...list].sort((a, b) => a - b);
@@ -1807,10 +1808,18 @@ async function loadSample() {
  * scale of a real tour instead of one hand-made pin. */
 const ROUTE = window.DEMO_ROUTE || null;
 const routeStops = () => (ROUTE ? destinations.filter(d => d.route === ROUTE.id) : []);
+/* The header chip is an ON/OFF switch for this dashboard's map, like
+ * the phone's ROUTE chip is for its own screen — hiding is a view
+ * choice per browser, never a delete. Removing the route (data and
+ * all) stays behind the link in the import sheet. */
+const LS_ROUTE_SHOW = 'od_route_show';
+let routeShown = true;
+try { routeShown = localStorage.getItem(LS_ROUTE_SHOW) !== '0'; } catch { /* private mode */ }
+const shownRouteStops = () => (routeShown ? destinations.filter(d => d.route) : []);
 
-/* The route rides two controls: a header chip — a loader buried in a
- * sheet is a loader nobody finds once the dashboard has scenarios —
- * and the link in the import sheet next to the other seed data. */
+/* The route rides two controls: the header chip — load once, then an
+ * on/off switch for this dashboard's map — and the import-sheet link,
+ * which is where the destructive remove lives. */
 function renderRouteToggle() {
   const btn = el('route-toggle');
   const chip = el('route-chip');
@@ -1821,10 +1830,25 @@ function renderRouteToggle() {
     ? `✕ remove the “${ROUTE.name}” demo route (${n} stops loaded)`
     : `…or load the “${ROUTE.name}” demo route — ${ROUTE.stops.length} ${ROUTE.area} stops with delivery + driver notes`;
   chip.hidden = false;
-  chip.textContent = n ? `✕ ROUTE · ${n}` : '⇪ ROUTE';
-  chip.title = n
-    ? `Remove the “${ROUTE.name}” demo route — all ${n} stops and their notes`
-    : `Load the “${ROUTE.name}” demo route — ${ROUTE.stops.length} ${ROUTE.area} stops, delivery + driver notes on file`;
+  chip.classList.toggle('off', !!n && !routeShown);
+  if (!n) {
+    chip.textContent = '⇪ ROUTE';
+    chip.title = `Load the “${ROUTE.name}” demo route — ${ROUTE.stops.length} ${ROUTE.area} stops, delivery + driver notes on file`;
+  } else if (routeShown) {
+    chip.textContent = `ROUTE · ${n}`;
+    chip.title = 'Hide the route on this dashboard — the phones keep it; removing it lives in the ⎘ PASTE FROM EXCEL sheet';
+  } else {
+    chip.textContent = 'ROUTE OFF';
+    chip.title = `Show the “${ROUTE.name}” route's ${n} stops on the map again`;
+  }
+}
+
+function toggleRouteShown() {
+  routeShown = !routeShown;
+  try { localStorage.setItem(LS_ROUTE_SHOW, routeShown ? '1' : '0'); } catch { /* private mode */ }
+  renderRouteToggle();
+  map.refresh();
+  if (routeShown) { centerOnScenarios(); map.center(); } // switching it on means "show me"
 }
 
 async function loadRoute() {
@@ -1852,41 +1876,58 @@ async function loadRoute() {
     added = rows.map(r => ({ ...r, id: localId('d'), created_at: at }));
   }
   destinations.push(...added);
-  /* the route is a scenario of its OWN — one row in the list to find
-   * it by, pinned at stop 1, with the reading rings as its tunable
-   * values. The phone applies those rings to EVERY stop of the route
-   * (notesRadiiOf in app.js), so this row is where the route is
-   * tuned, tested and judged — not a rider on someone else's row. */
+  routeShown = true; // loading means "show me"
+  try { localStorage.setItem(LS_ROUTE_SHOW, '1'); } catch { /* private mode */ }
   const first = added[0];
-  if (first) {
-    const sc = await saveScenarioRow({
-      num: Math.max(0, ...scenarios.map(s => s.num || 0)) + 1,
-      title: `${ROUTE.name} route — drive the tour, Otto reads the notes`,
-      rule: 'Come within {notes_radius} m of any stop with notes on file — Otto reads consignee, floor, dispatch and driver notes aloud, once per approach; driving back out past {notes_rearm} m re-arms the reading.',
-      ar_states: 'IN_VEHICLE between stops; STILL / ON_FOOT at the door',
-      signals: 'GPS vs the stop pins; notes on file (dispatch + driver)',
-      timing: 'On approach — before the driver is at the door',
-      otto_says: '“Were the notes right — anything to correct for the next driver?”',
-      learns: 'ACCESS / INFO — corrections to the notes on file',
-      test_steps: `Drive the route in stop order (stop 1: ${first.title}). Otto reads ~{notes_radius} m ahead of each noted stop; ✕ on the banner stops a reading, and the phone's ROUTE chip hides the whole route for clean scenario tests.`,
-      params: [
-        { key: 'notes_radius', label: 'Notes read distance', value: 350, min: 50, max: 1000, step: 10, unit: 'm' },
-        { key: 'notes_rearm', label: 'Re-arm distance', value: 700, min: 100, max: 2000, step: 25, unit: 'm' },
-      ],
-      version: 1,
-      version_note: 'created with the route',
-      version_at: new Date().toISOString(),
-      destination_id: first.id,
-    });
-    scenarios.push(sc);
-    scenarios.sort((a, b) =>
-      ((a.num == null ? 1e9 : a.num) - (b.num == null ? 1e9 : b.num))
-      || String(a.created_at || '').localeCompare(String(b.created_at || '')));
-  }
+  if (first) await createRouteScenario(first);
   persistLocal();
   render();
   map.refresh();
   if (first) centerOn(first.lat, first.lng);
+}
+
+/* The route is a scenario of its OWN — one row in the list to find it
+ * by, pinned at stop 1, with the reading rings as its tunable values.
+ * The phone applies those rings to EVERY stop of the route
+ * (notesRadiiOf in app.js), so this row is where the route is tuned,
+ * tested and judged — not a rider on someone else's row. */
+async function createRouteScenario(first) {
+  const sc = await saveScenarioRow({
+    num: Math.max(0, ...scenarios.map(s => s.num || 0)) + 1,
+    title: `${ROUTE.name} route — drive the tour, Otto reads the notes`,
+    rule: 'Come within {notes_radius} m of any stop with notes on file — Otto reads consignee, floor, dispatch and driver notes aloud, once per approach; driving back out past {notes_rearm} m re-arms the reading.',
+    ar_states: 'IN_VEHICLE between stops; STILL / ON_FOOT at the door',
+    signals: 'GPS vs the stop pins; notes on file (dispatch + driver)',
+    timing: 'On approach — before the driver is at the door',
+    otto_says: '“Were the notes right — anything to correct for the next driver?”',
+    learns: 'ACCESS / INFO — corrections to the notes on file',
+    test_steps: `Drive the route in stop order (stop 1: ${first.title}). Otto reads ~{notes_radius} m ahead of each noted stop; ✕ on the banner stops a reading, and the phone's ROUTE chip hides the whole route for clean scenario tests.`,
+    params: [
+      { key: 'notes_radius', label: 'Notes read distance', value: 350, min: 50, max: 1000, step: 10, unit: 'm' },
+      { key: 'notes_rearm', label: 'Re-arm distance', value: 700, min: 100, max: 2000, step: 25, unit: 'm' },
+    ],
+    version: 1,
+    version_note: 'created with the route',
+    version_at: new Date().toISOString(),
+    destination_id: first.id,
+  });
+  scenarios.push(sc);
+  scenarios.sort((a, b) =>
+    ((a.num == null ? 1e9 : a.num) - (b.num == null ? 1e9 : b.num))
+    || String(a.created_at || '').localeCompare(String(b.created_at || '')));
+}
+
+/* A route loaded before the scenario row existed heals itself: stops
+ * on file but no scenario pinned at any of them → cut the row now.
+ * Idempotent — the guard is the row's own existence. */
+async function ensureRouteScenario() {
+  const mine = routeStops();
+  if (!mine.length) return;
+  const ids = new Set(mine.map(d => d.id));
+  if (scenarios.some(sc => sc.destination_id && ids.has(sc.destination_id))) return;
+  const first = mine.reduce((a, b) => ((a.stop == null ? 1e9 : a.stop) <= (b.stop == null ? 1e9 : b.stop) ? a : b));
+  await createRouteScenario(first);
+  persistLocal();
 }
 
 async function unloadRoute() {
@@ -2038,13 +2079,14 @@ el('import-cancel').onclick = () => { el('import-sheet').hidden = true; };
 el('import-go').onclick = runImport;
 el('import-sample').onclick = loadSample;
 el('route-toggle').onclick = () => (routeStops().length ? unloadRoute() : loadRoute());
-el('route-chip').onclick = () => (routeStops().length ? unloadRoute() : loadRoute());
+el('route-chip').onclick = () => (routeStops().length ? toggleRouteShown() : loadRoute());
 el('import-text').addEventListener('input', previewImport);
 el('addr-close').onclick = closeAddr;
 el('addr-input').addEventListener('input', e => onAddrInput(e.target.value));
 
 el('refresh').onclick = async () => {
   await loadAll();
+  await ensureRouteScenario();
   render();
   map.refresh();
 };
@@ -2059,6 +2101,7 @@ document.addEventListener('keydown', e => {
 /* ---------- boot ---------- */
 (async () => {
   await loadAll();
+  await ensureRouteScenario();
   centerOnScenarios();
   render();
   map.refresh();
