@@ -60,9 +60,11 @@ columns, same wording:
 
 The loop:
 
-1. **Define** — "+ New scenario", or copy rows straight out of the Excel
+1. **Define** — "+ New scenario", copy rows straight out of the Excel
    sheet and use "Paste from Excel" (tab-separated clipboard rows, quoted
-   multi-line cells and the header row both handled).
+   multi-line cells and the header row both handled) — or load the
+   [ten-scenario starter sheet](#the-starter-sheet--ten-scenarios-on-file)
+   that ships with the kit.
 2. **Pin** — every scenario gets a clear Google-Maps address: search one,
    or paste coordinates ("52.5346, 13.4109"). The dashboard shows the
    address, its exact coordinates, and keyless **Open in Google Maps** /
@@ -83,6 +85,46 @@ The loop:
 Statuses roll up in the header and colour the pins: *needs address* →
 *awaiting test* (red, like the phone) → *debriefed · n* (cyan) → verdict
 (green / amber / orange).
+
+## The starter sheet — ten scenarios on file
+
+[`trigger-scenarios.js`](trigger-scenarios.js) ships the "Otto triggers"
+sheet ready to test: ten finished rows, every column filled, every
+number in every rule a slider. Load them from the empty list's **⇩ LOAD
+THE STARTER SHEET** chip or the link in the ⎘ PASTE FROM EXCEL sheet —
+keyless into localStorage, live as one insert. Loading is idempotent by
+title: rows already in the list are skipped, so loading again restores
+a deleted row and never doubles one up (a list that started from the
+old single-sample load gains only the nine missing rows). Each row
+still needs its test address after loading — the sheet is situations,
+not places, and a scenario without a pin is flagged loudly.
+
+Together the ten walk one delivery front to back — the approach, the
+park, the door, the handover — and end on a control:
+
+| # | Scenario | Otto learns | Phone detector |
+|---|---|---|---|
+| 1 | Parking loops — circles the block looking for parking | ACCESS | live — the deck's worked example |
+| 2 | Park & walk — parked far out, walked the last stretch | ACCESS | live — the park-and-walk shape, measured distances in Otto's question |
+| 3 | Sprint stop — hazards on, dash to the door | PARKING | stop + quick resume live; the dash cap (`max_stop_s`) is spec |
+| 4 | Entrance hunt — at the address, but where is the way in? | ENTRANCE | arrival live; the on-foot search time is spec |
+| 5 | The wrong pin — the door is not where the map says | ACCESS | arrival live; the offset is read off the filed debrief position |
+| 6 | Nobody home — rang, waited, bounced | HOURS | arrival live; the bounce cap is spec |
+| 7 | Long wait — the handover eats the schedule | INFO | live — cumulative dwell with queue-shuffle grace |
+| 8 | Blocked street — got close, never arrived | CLOSURE | cannot fire on a non-arrival — the judged silent run is the data |
+| 9 | Crawl approach — the last street costs minutes | HAZARD | arrival live; the crawl shows in the logged speed trace |
+| 10 | Clean run — the control: Otto stays quiet | nothing | live, armed like #1 — silence is the pass |
+
+Rows 8 and 10 are there on purpose: a trigger set is judged on its
+false negatives *and* its false positives, and both rows say so in
+their own "how to test it" — act it out, let the run stay silent,
+judge it in the field (row 8: "✗ should have spoken"; row 10:
+"✓ right call"). Params whose keys match the detector's drive the
+phone on the next run, exactly like any hand-made scenario; the
+extra keys (`max_stop_s`, `foot_search_s`, `pin_offset_m`, …) are
+spec values for the production trigger — sliders, versioned,
+exported, just not wired to the demo detector yet, and each row's
+tune block says which is which.
 
 ## The tuning loop (describe → draft → test → feedback → v2)
 
@@ -630,7 +672,8 @@ The composition happens entirely through the kits' public seams:
 | `app.js` | Destinations, messages, the card, Otto wiring |
 | `otto-agent.js` | Otto as a live ElevenLabs agent conversation — the kit's mount seams over a WebSocket, with the scenario as its context |
 | `dashboard.html` | Desktop shell: scenario list, map, form / address / import sheets |
-| `dashboard.js` | Trigger scenarios: CRUD, describe→draft, tunable-value sliders, voice feedback → proposed versions, history, spec export, Excel paste-import, address pinning, compare + verdict — and loading/removing the demo route |
+| `dashboard.js` | Trigger scenarios: CRUD, describe→draft, tunable-value sliders, voice feedback → proposed versions, history, spec export, Excel paste-import, address pinning, compare + verdict — and loading the starter sheet / demo route |
+| `trigger-scenarios.js` | The starter sheet: ten finished "Otto triggers" rows — the deck's worked example, eight more situations, the clean-run control — loadable in one tap, idempotent by title |
 | `route-schoeneberg.js` | The Schöneberg demo route: 100 stops in driving order, 87 real geocoded addresses, dispatch + driver notes on file at 40 of them |
 | `activity-rec.js` | Google-AR-style activity states from web signals; `inject()`/`feed()` seams for the real Android API |
 | `backend.js` | Merged Supabase client for both kits + this app's tables |

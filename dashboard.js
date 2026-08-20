@@ -820,7 +820,7 @@ function render() {
         <div class="top-actions">
           <button class="chip primary" type="button" data-empty="new">+ NEW SCENARIO</button>
           <button class="chip" type="button" data-empty="import">⎘ PASTE FROM EXCEL</button>
-          <button class="chip" type="button" data-empty="sample">LOAD THE SAMPLE SCENARIO</button>
+          ${SHEET ? `<button class="chip" type="button" data-empty="sheet">⇩ LOAD THE STARTER SHEET · ${SHEET.scenarios.length}</button>` : ''}
           ${ROUTE && !routeStops().length ? '<button class="chip" type="button" data-empty="route">⇪ LOAD THE DEMO ROUTE</button>' : ''}
         </div>
       </div>`;
@@ -1741,6 +1741,7 @@ function rowsToScenarios(text) {
 function openImport() {
   el('import-text').value = '';
   el('import-preview').textContent = '';
+  renderSheetLink();
   renderRouteToggle();
   el('import-sheet').hidden = false;
   el('import-text').focus();
@@ -1778,39 +1779,68 @@ async function runImport() {
   if (added[0]) scrollToScenario(added[0].id);
 }
 
-/* The one worked example from the deck's "Otto triggers" sheet — its
- * numbers as {key} placeholders so the sliders are live from the start. */
-const SAMPLE = {
-  num: 1,
-  title: 'Parking loops — driver circles the block looking for parking',
-  described: 'The driver has a delivery but cannot find parking, so they circle the block a few times slowly before finally stopping.',
-  rule: 'Vehicle passes within ~{radius} m of the stop {passes_needed}× below {pass_speed_max} m/s without stopping, then stands ≥{stop_dwell_s} s within {stop_radius} m. Deck says 3 slow loops; every number here is a slider.',
-  ar_states: 'IN_VEHICLE the whole time',
-  signals: 'GPS trace vs stop pin; speed',
-  timing: 'Wait — ask when back in the car after the stop',
-  otto_says: '“Is it hard to park here at this time? Where did you find a spot?”',
-  learns: 'ACCESS — parking / loading-zone tip',
-  test_steps: 'Simulate a delivery address, drive around the block twice, then stop',
-  params: [
-    { key: 'radius', label: 'Pass radius', value: 150, min: 40, max: 400, step: 5, unit: 'm' },
-    { key: 'passes_needed', label: 'Slow passes needed', value: 2, min: 0, max: 5, step: 1, unit: '×' },
-    { key: 'pass_speed_max', label: 'Max pass speed', value: 9, min: 2, max: 15, step: 0.5, unit: 'm/s' },
-    { key: 'stop_dwell_s', label: 'Stop dwell', value: 45, min: 10, max: 180, step: 5, unit: 's' },
-    { key: 'stop_radius', label: 'Stop radius', value: 250, min: 50, max: 500, step: 10, unit: 'm' },
-  ],
-  version: 1,
+/* ---------- the starter sheet ----------
+ * trigger-scenarios.js ships the deck's "Otto triggers" sheet as ten
+ * finished rows — the worked example first, then the rest of one
+ * delivery front to back, ending in the clean-run control. Loading is
+ * idempotent by title: rows already in the list are skipped, so a
+ * deleted row comes back by loading again, and a list that started
+ * from the old single-sample load gains only the nine missing rows.
+ * The sheet's own numbering is kept while it is free; if any incoming
+ * number is already taken, the new rows are numbered after the list's
+ * max instead — in sheet order, never doubling up a pin label. */
+const SHEET = window.TRIGGER_SHEET || null;
+const sheetMissing = () => {
+  if (!SHEET) return [];
+  const have = new Set(scenarios.map(sc => String(sc.title || '').trim().toLowerCase()));
+  return SHEET.scenarios.filter(r => !have.has(r.title.trim().toLowerCase()));
 };
 
-async function loadSample() {
+function renderSheetLink() {
+  const btn = el('sheet-load');
+  if (!SHEET) { btn.hidden = true; return; }
+  const n = sheetMissing().length;
+  const total = SHEET.scenarios.length;
+  btn.hidden = false;
+  btn.disabled = !n;
+  btn.textContent = n === total
+    ? `…or load the ${total}-scenario starter sheet (the deck's “${SHEET.name}”)`
+    : n
+      ? `…or restore the ${n} starter-sheet row${n === 1 ? '' : 's'} not in the list`
+      : `all ${total} starter-sheet scenarios are in the list`;
+}
+
+async function loadSheet() {
+  const missing = sheetMissing();
+  if (!missing.length) return;
   el('import-sheet').hidden = true;
-  const sc = await saveScenarioRow({ ...SAMPLE, version_at: new Date().toISOString() });
-  scenarios.push(sc);
-  expandedId = sc.id;
+  const taken = new Set(scenarios.map(sc => sc.num).filter(n => n != null));
+  let next = Math.max(0, ...scenarios.map(sc => sc.num || 0));
+  const clash = missing.some(r => taken.has(r.num));
+  const at = new Date().toISOString();
+  const rows = missing.map(r => ({
+    ...r,
+    num: clash ? ++next : r.num,
+    params: (r.params || []).map(p => ({ ...p })),
+    version: 1,
+    version_note: 'from the starter sheet',
+    version_at: at,
+  }));
+  let added = [];
+  if (Backend.enabled) {
+    try { added = (await Backend.insertScenarios(rows)) || []; } catch (e) { warn(e); }
+  }
+  if (!added.length) {
+    added = rows.map(r => ({ ...r, id: localId('s'), created_at: new Date().toISOString() }));
+  }
+  scenarios.push(...added);
+  scenarios.sort((a, b) =>
+    ((a.num == null ? 1e9 : a.num) - (b.num == null ? 1e9 : b.num))
+    || String(a.created_at || '').localeCompare(String(b.created_at || '')));
   persistLocal();
   render();
   map.refresh();
-  scrollToScenario(sc.id);
-  openAddr(sc);
+  if (added[0]) scrollToScenario(added[0].id);
 }
 
 /* ---------- the demo route ----------
@@ -2030,7 +2060,7 @@ el('list').addEventListener('click', e => {
     const act = empty.dataset.empty;
     if (act === 'new') openForm(null);
     else if (act === 'import') openImport();
-    else if (act === 'sample') loadSample();
+    else if (act === 'sheet') loadSheet();
     else if (act === 'route') loadRoute();
     return;
   }
@@ -2148,7 +2178,7 @@ el('spec-all').onclick = exportAllSpecs;
 el('import-open').onclick = openImport;
 el('import-cancel').onclick = () => { el('import-sheet').hidden = true; };
 el('import-go').onclick = runImport;
-el('import-sample').onclick = loadSample;
+el('sheet-load').onclick = loadSheet;
 el('route-toggle').onclick = () => (routeStops().length ? unloadRoute() : loadRoute());
 el('route-chip').onclick = () => (routeStops().length ? toggleRouteShown() : loadRoute());
 el('stop-close').onclick = () => { el('stop-sheet').hidden = true; stopFor = null; };
