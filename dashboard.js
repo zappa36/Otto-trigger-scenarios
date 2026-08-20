@@ -829,10 +829,21 @@ function render() {
       </div>`;
     return;
   }
-  box.innerHTML = scenarios.map(renderScenario).join('');
+  const own = scenarios.filter(sc => !fromSheet(sc)).length;
+  const tabs = !listMixed() ? '' : `
+    <div class="tabs">
+      <button class="tab${listTab === 'own' ? ' on' : ''}" type="button" data-tab="own"
+        title="Rows made on this dashboard">YOUR SCENARIOS · ${own}</button>
+      <button class="tab${listTab === 'sheet' ? ' on' : ''}" type="button" data-tab="sheet"
+        title="Rows loaded from the shipped starter sheet — rename one and it moves to your tab">⇩ STARTER SHEET · ${scenarios.length - own}</button>
+    </div>`;
+  box.innerHTML = tabs + scenarios.filter(inTab).map(renderScenario).join('');
 }
 
 function scrollToScenario(id) {
+  /* revealing a row that lives in the other tab switches there first */
+  const sc = scenarios.find(x => x.id === id);
+  if (sc && listMixed() && !inTab(sc)) { setListTab(fromSheet(sc) ? 'sheet' : 'own'); render(); }
   const node = el('list').querySelector(`[data-id="${CSS.escape(id)}"]`);
   if (node) node.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -1799,6 +1810,22 @@ const SHEET_TITLES = new Set(SHEET ? SHEET.scenarios.map(r => normTitle(r.title)
  * title. Rename one and it is yours — the ⇩ STARTER chip goes, and the
  * loader offers the original row back. One identity rule, two faces. */
 const fromSheet = sc => SHEET_TITLES.has(normTitle(sc.title));
+
+/* Two tabs when the list is mixed — the dashboard's own rows and the
+ * starter sheet's. A view choice per browser, like the ROUTE chip: the
+ * map keeps every pin, the header stats keep the full roll-up, and
+ * revealing a row that lives in the other tab (a pin click, a load, a
+ * paste) switches there first. One kind of row only → no tabs at all. */
+const LS_TAB = 'od_scen_tab';
+let listTab = 'own';
+try { listTab = localStorage.getItem(LS_TAB) === 'sheet' ? 'sheet' : 'own'; } catch { /* private mode */ }
+const listMixed = () => scenarios.some(fromSheet) && scenarios.some(sc => !fromSheet(sc));
+const inTab = sc => !listMixed() || ((listTab === 'sheet') === fromSheet(sc));
+function setListTab(t) {
+  listTab = t === 'sheet' ? 'sheet' : 'own';
+  try { localStorage.setItem(LS_TAB, listTab); } catch { /* private mode */ }
+}
+
 const sheetMissing = () => {
   if (!SHEET) return [];
   const have = new Set(scenarios.map(sc => normTitle(sc.title)));
@@ -2073,6 +2100,8 @@ el('list').addEventListener('click', e => {
     else if (act === 'route') loadRoute();
     return;
   }
+  const tab = e.target.closest('[data-tab]');
+  if (tab) { setListTab(tab.dataset.tab); render(); return; }
   const card = e.target.closest('.sc');
   if (!card) return;
   const sc = scenarios.find(x => x.id === card.dataset.id);
