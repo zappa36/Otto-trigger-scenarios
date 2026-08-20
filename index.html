@@ -89,6 +89,13 @@
   #ar, #route { pointer-events: auto; cursor: pointer; }
   #ar.off, #route.off { border-color: rgba(140,165,200,.22); color: #94a1b2; }
 
+  /* Taps land on what you can SEE — the icon and its label chip —
+   * never on a pin's invisible shell, whose label-wide box would steal
+   * taps meant for a neighbouring pin. (Page-level override; the
+   * field-map kit stays verbatim, hence the !important.) */
+  .fm-pin { pointer-events: none !important; }
+  .fm-pin .fm-icon, .fm-pin .fm-label { pointer-events: auto; cursor: pointer; }
+
   /* the trigger banner — Otto noticed the pattern and wants to talk */
   #trigger-banner {
     position: absolute;
