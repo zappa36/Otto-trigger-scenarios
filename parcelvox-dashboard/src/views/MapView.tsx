@@ -113,7 +113,7 @@ export function MapView() {
       : depot.stops.length === 0
         ? `Nothing on file yet — pin scenarios or load the demo route on the trigger-scenarios dashboard (${store})`
         : `${depot.stops.length} stops · ${doors.length} addresses on file — live from ${store} · ` +
-          `click a stop to read and edit what Otto says on approach` +
+          `click a stop to read and edit what Otto says on approach · drag or scroll to move the map` +
           (depot.offline ? ' · connection lost, retrying' : '');
 
   function send(text: string) {
