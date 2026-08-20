@@ -289,17 +289,24 @@ const map = FieldMap.mount({
   showMe: false,
   markers: () => [
     /* the demo route's stops ride under the scenario pins — small,
-     * numbered, blue; stops sharing an address stack exactly. The
-     * header ROUTE chip hides them (a view choice, not a delete). */
-    ...shownRouteStops().map(d => ({
-      id: 'route-' + d.id, lat: d.lat, lng: d.lng,
-      label: (d.stop == null ? '' : d.stop + ' · ') + String(d.title || '').toUpperCase().slice(0, 18),
-      color: '96,165,250',
-      labelColor: '#9ec5f2',
-      icon: d.stop == null ? '·' : String(d.stop),
-      size: 26,
-      priority: 0, // scenario labels win the label space
-    })),
+     * numbered, blue; AMBER where notes are on file, so the map says
+     * at a glance where Otto will speak. Stops sharing an address
+     * stack exactly; the header ROUTE chip hides the layer (a view
+     * choice, not a delete). Label priority: scenarios first, then
+     * noted stops, then the rest (lower number claims label space
+     * first — see renderPins in field-map.js). */
+    ...shownRouteStops().map(d => {
+      const noted = dispatchNotesOf(d).length > 0;
+      return {
+        id: 'route-' + d.id, lat: d.lat, lng: d.lng,
+        label: (d.stop == null ? '' : d.stop + ' · ') + String(d.title || '').toUpperCase().slice(0, 18),
+        color: noted ? '255,217,94' : '96,165,250',
+        labelColor: noted ? '#ffd95e' : '#9ec5f2',
+        icon: d.stop == null ? '·' : String(d.stop),
+        size: 26,
+        priority: noted ? 3 : 4,
+      };
+    }),
     ...scenarios.map(sc => {
       const d = sc.destination_id && destById(sc.destination_id);
       if (!d) return null;
@@ -419,7 +426,11 @@ function renderStats() {
   if (by.fail) verdicts.push(`${by.fail} fail`);
   if (verdicts.length) parts.push(verdicts.join(' / '));
   const rt = routeStops();
-  if (rt.length) parts.push(`route “${ROUTE.name}” · ${rt.length} stops on the phone`);
+  if (rt.length) {
+    const noted = rt.filter(d => dispatchNotesOf(d).length).length;
+    parts.push(`route “${ROUTE.name}” · ${rt.length} stops on the phone`
+      + (noted ? ` · ${noted} with notes (amber pins)` : ''));
+  }
   parts.push('build ' + window.BUILD);
   el('stats').textContent = parts.join(' · ');
 }

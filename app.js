@@ -1016,7 +1016,9 @@ const map = FieldMap.mount({
           + String(d.title || 'Destination').toUpperCase().slice(0, 22),
         color: done ? '70,211,154' : '255,107,107',
         labelColor: done ? '#7ce0b8' : '#ff9b9b',
-        icon: done ? '✓' : '▲',
+        /* ✎ = notes on file — Otto will speak on the way in; the mark
+         * yields to ✓ once the stop is debriefed */
+        icon: done ? '✓' : notesOnFile(d).length ? '✎' : '▲',
         size: 44,
         priority: done ? 2 : 1, // open spots outrank finished ones for label space
       };

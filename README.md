@@ -386,7 +386,10 @@ Notes say who left them — `by: 'dispatch'` or `by: 'driver'` — and
 the briefing keeps the voices apart: consignee and floor first, then
 "From dispatch: …", then "A driver reported: …" (a driver-left note
 on file reads exactly like a real debrief filed against the pin, and
-the card shows the split as DISPATCH / DRIVER tags).
+the card shows the split as DISPATCH / DRIVER tags). Which stops
+carry notes is visible before anyone drives: **amber pins** on the
+dashboard map (the header counts them — "40 with notes"), and a **✎**
+pin icon on the phone until the stop is debriefed, when ✓ takes over.
 
 Route scale earned two small behaviours. When several armed stops sit
 inside the reading ring at once — in a Kiez they will — Otto reads
