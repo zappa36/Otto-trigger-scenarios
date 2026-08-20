@@ -104,6 +104,40 @@
   margin-bottom: 5px;
 }
 
+/* --- Live mode: the depot's own stops --- */
+
+.doorDot {
+  cursor: pointer;
+  outline: none;
+}
+
+.doorDot:hover circle,
+.doorDot:focus-visible circle {
+  stroke: var(--pv-green);
+  stroke-width: 2.4;
+}
+
+.livePin {
+  cursor: pointer;
+  outline: none;
+}
+
+.pinHeadPlain {
+  background: var(--pv-ink);
+}
+
+.pinSelected .pinHead,
+.livePin:hover .pinHead,
+.livePin:focus-visible .pinHead {
+  box-shadow:
+    0 0 0 3px rgba(18, 160, 107, 0.28),
+    0 1px 3px rgba(33, 38, 43, 0.3);
+}
+
+.pinSelected {
+  z-index: 3;
+}
+
 /* --- States --- */
 
 .message {

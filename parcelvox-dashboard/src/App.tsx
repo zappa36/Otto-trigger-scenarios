@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
+import { useDepot } from './otto/useDepot';
 import { useCurationQueue } from './state/useCurationQueue';
 import type { ViewId } from './types';
 import { AnalyticsView } from './views/AnalyticsView';
@@ -15,6 +16,10 @@ export function App() {
   const [view, setView] = useState<ViewId>('map');
   const [handoffQuestion, setHandoffQuestion] = useState<string>();
   const queue = useCurationQueue();
+  const depot = useDepot();
+  /* Same rule as the map view: a configured Supabase is live even while
+   * empty; keyless, live begins when the shared store has stops. */
+  const live = depot.mode === 'supabase' || depot.stops.length > 0;
 
   /** Jumps to Ask with a question already on its way to Otto. */
   const askOtto = useCallback((question: string) => {
@@ -26,7 +31,7 @@ export function App() {
 
   return (
     <div className={styles.shell}>
-      <Sidebar view={view} onNavigate={setView} pendingCount={queue.pendingCount} />
+      <Sidebar view={view} onNavigate={setView} pendingCount={queue.pendingCount} live={live} />
       <main className={styles.canvas}>
         {view === 'map' && <MapView />}
         {view === 'routes' && <RoutesView onOpenRoute={() => setView('routeDetail')} />}

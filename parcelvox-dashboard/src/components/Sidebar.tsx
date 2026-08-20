@@ -33,9 +33,11 @@ interface SidebarProps {
   onNavigate: (view: ViewId) => void;
   /** Tips still awaiting review — drives the badge on the curation queue. */
   pendingCount: number;
+  /** Map + notes are wired to the real app's store; the other views stay sample data. */
+  live: boolean;
 }
 
-export function Sidebar({ view, onNavigate, pendingCount }: SidebarProps) {
+export function Sidebar({ view, onNavigate, pendingCount, live }: SidebarProps) {
   return (
     <nav className={styles.nav} aria-label="Main">
       <div className={styles.brand}>
@@ -74,7 +76,9 @@ export function Sidebar({ view, onNavigate, pendingCount }: SidebarProps) {
       <div className={styles.footer}>
         <div className={styles.depot}>Nordhaven depot</div>
         <div className={styles.operator}>Maren Kolb · dispatch</div>
-        <div className={styles.demoChip}>Demo — all stops fictional</div>
+        <div className={styles.demoChip}>
+          {live ? 'Live: map + notes · rest is sample' : 'Demo — all stops fictional'}
+        </div>
       </div>
     </nav>
   );

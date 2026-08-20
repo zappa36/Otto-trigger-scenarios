@@ -59,6 +59,17 @@ window.__PARCELVOX_BERLIN_GEO__ = ${safe(geo)};
 ${safe(js)}
 </script>`;
 
+/**
+ * The deployed page also loads config.js from its own origin — the same
+ * deploy-time-injected Supabase values the phone and the trigger dashboard
+ * read, which is how the map and the pre-arrival notes connect to the real
+ * app (src/otto/depot.ts). Locally the placeholders leave it keyless and the
+ * connection falls back to the shared localStorage instead. The artifact
+ * fragment stays fully self-contained: no config.js exists there, so it runs
+ * in sample mode by design.
+ */
+const CONFIG = '<script src="config.js"></script>';
+
 const page = `<!doctype html>
 <html lang="en">
 <head>
@@ -71,6 +82,7 @@ ${STYLE}
 </head>
 <body>
 <div id="root"></div>
+${CONFIG}
 ${SCRIPTS}
 </body>
 </html>

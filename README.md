@@ -468,6 +468,36 @@ it is one bulk insert — re-run
 [`supabase/schema.sql`](supabase/schema.sql) once first for the two
 route columns (`route`, `stop`).
 
+## The dispatcher dashboard — map and notes, live
+
+[`parcelvox-dashboard.html`](parcelvox-dashboard.html) is the ParcelVox
+route-knowledge dashboard — dispatch's own surface, linked from the
+trigger dashboard's header as **DISPATCHER ↗**, built as a separate
+React app in [`parcelvox-dashboard/`](parcelvox-dashboard/) and
+committed as one self-contained page. Most of it is a design demo on
+fictional sample data; **its map and its notes are wired to this app's
+real store.** With stops on file, its Map view frames itself on the
+data and shows the same destinations as every other surface — route
+lines in driving order, amber pins where pre-arrival notes wait, green
+where a driver has debriefed — and clicking a stop opens the stop
+panel: every parcel behind that door, consignee and floor (editable),
+the dispatch notes [Otto reads aloud on
+approach](#pre-arrival-notes--otto-reads-before-you-arrive), added and
+removed right there, and the latest real driver debriefs. A note added
+on the dispatcher dashboard is read out on the driver's phone on its
+next approach, and `dashboard.html` sees it live.
+
+The connection follows the kit's storage philosophy: keyless, all
+three pages share the browser's localStorage and keep each other fresh
+through the storage event — load the Schöneberg route on the trigger
+dashboard and the dispatcher map goes live in the next tab over.
+Deployed with the Supabase env vars, the page reads the same
+`destinations` and `messages` tables as every phone (it loads
+`config.js` from its own origin, so the deploy-time injection reaches
+it unchanged). An empty store falls back to the dashboard's fictional
+Nordhaven sample, labelled as such. Details in
+[`parcelvox-dashboard/README.md`](parcelvox-dashboard/README.md).
+
 ## Activity recognition (and the Google AR API)
 
 The deck's trigger rules are written against
@@ -681,6 +711,7 @@ The composition happens entirely through the kits' public seams:
 | `dashboard.html` | Desktop shell: scenario list, map, form / address / import sheets |
 | `dashboard.js` | Trigger scenarios: CRUD, describe→draft, tunable-value sliders, voice feedback → proposed versions, history, spec export, Excel paste-import, address pinning, compare + verdict — and loading the starter sheet / demo route |
 | `trigger-scenarios.js` | The starter sheet: ten finished "Otto triggers" rows — the deck's worked example, eight more situations, the clean-run control — loadable in one tap, idempotent by title |
+| `parcelvox-dashboard.html`, `parcelvox-dashboard/` | The ParcelVox dispatcher dashboard — map and pre-arrival notes wired to the same shared store (localStorage or Supabase); the rest labelled sample data |
 | `route-schoeneberg.js` | The Schöneberg demo route: 100 stops in driving order, 87 real geocoded addresses, dispatch + driver notes on file at 40 of them |
 | `activity-rec.js` | Google-AR-style activity states from web signals; `inject()`/`feed()` seams for the real Android API |
 | `backend.js` | Merged Supabase client for both kits + this app's tables |
