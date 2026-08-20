@@ -291,6 +291,16 @@
   .note-add { display: flex; gap: 7px; margin-top: 9px; }
   .note-add input { flex: 1; }
   .notes-hint { margin: 8px 0 0; font-size: 11px; color: #6d7a8c; }
+  /* the stop sheet: one section per stop behind the tapped door */
+  .stop-sec { margin-top: 18px; }
+  .stop-sec:first-child { margin-top: 6px; }
+  .stop-sec .addr-tag { color: #7fd6ea; }
+  /* Clicks land on what you can SEE — the icon and its label chip —
+   * never on a pin's invisible shell, whose label-wide box would steal
+   * clicks meant for a neighbouring pin. (Page-level override; the
+   * field-map kit stays verbatim, hence the !important.) */
+  .fm-pin { pointer-events: none !important; }
+  .fm-pin .fm-icon, .fm-pin .fm-label { pointer-events: auto; cursor: pointer; }
 
   /* definition grid */
   .def-grid {
@@ -800,7 +810,7 @@
       <button class="zoom-btn" id="zoom-in" type="button" aria-label="Zoom in">+</button>
       <button class="zoom-btn" id="zoom-out" type="button" aria-label="Zoom out">−</button>
     </div>
-    <p class="map-note">Pins are the scenarios' test addresses — click one to open its scenario. The tester sees the same pins in the phone app.</p>
+    <p class="map-note">Pins are the scenarios' test addresses — click one to open its scenario; click a route stop to see the notes behind that door. The tester sees the same pins in the phone app.</p>
   </section>
   <section class="list" id="list"></section>
 </main>
@@ -859,6 +869,20 @@
     <div id="addr-hint"></div>
     <div class="panel-foot">
       <button class="sheet-btn" id="addr-close" type="button">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ---------- a route stop: the notes behind one door ---------- -->
+<div class="overlay" id="stop-sheet" hidden>
+  <div class="panel">
+    <h2 id="stop-title"></h2>
+    <span class="sub" id="stop-addr"></span>
+    <div class="addr-actions" id="stop-links"></div>
+    <div id="stop-body"></div>
+    <div class="panel-foot">
+      <span class="spacer"></span>
+      <button class="sheet-btn" id="stop-close" type="button">Close</button>
     </div>
   </div>
 </div>

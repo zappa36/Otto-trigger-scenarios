@@ -390,6 +390,12 @@ the card shows the split as DISPATCH / DRIVER tags). Which stops
 carry notes is visible before anyone drives: **amber pins** on the
 dashboard map (the header counts them — "40 with notes"), and a **✎**
 pin icon on the phone until the stop is debriefed, when ✓ takes over.
+Click a route pin on the dashboard and the **stop sheet** opens:
+every stop behind that door (stacked pins are one building, several
+parcels), each with its consignee and its notes — dispatch adds and
+removes them right there, exactly what Otto reads on approach — plus
+the latest real driver debriefs. The phone's card is the same view
+at the kerb.
 
 Route scale earned two small behaviours. When several armed stops sit
 inside the reading ring at once — in a Kiez they will — Otto reads

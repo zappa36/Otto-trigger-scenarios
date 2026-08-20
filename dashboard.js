@@ -59,7 +59,8 @@ const notesEditing = () => {
   if (a && a.closest && a.closest('.notes-block')) return true;
   return [...document.querySelectorAll('[data-note-new]')].some(i => i.value.trim());
 };
-const uiBusy = () => !!(tune || fbRec || proposal || proposalBusy) || !el('form-sheet').hidden || notesEditing();
+const uiBusy = () => !!(tune || fbRec || proposal || proposalBusy)
+  || !el('form-sheet').hidden || !el('stop-sheet').hidden || notesEditing();
 
 const persistLocal = () => {
   if (Backend.enabled) return;
@@ -324,7 +325,11 @@ const map = FieldMap.mount({
   ],
   onMarkerClick(m) {
     const sc = scenarios.find(x => x.id === m.id);
-    if (sc) { expandedId = sc.id; render(); scrollToScenario(sc.id); }
+    if (sc) { expandedId = sc.id; render(); scrollToScenario(sc.id); return; }
+    /* a route stop opens its notes — every stop behind that door */
+    const d = typeof m.id === 'string' && m.id.slice(0, 6) === 'route-'
+      ? destinations.find(x => 'route-' + x.id === m.id) : null;
+    if (d) openStop(d);
   },
   onBackendChange(b) {
     el('backend').textContent = b.toUpperCase();
@@ -1958,9 +1963,64 @@ async function unloadRoute() {
   }
   scenarios = scenarios.filter(sc => !routeScs.includes(sc));
   destinations = destinations.filter(d => !ids.has(d.id));
+  el('stop-sheet').hidden = true; // an open stop just left with the route
+  stopFor = null;
   persistLocal();
   render();
   map.refresh();
+}
+
+/* ---------- the stop sheet ----------
+ * Click a route pin and see what is on file behind that door: every
+ * stop at the address (stacked pins are one building, several
+ * parcels), each with its consignee, its notes — dispatch adds and
+ * removes them right here, exactly what Otto reads on approach — and
+ * the latest real driver debriefs, read-only. */
+let stopFor = null; // the tapped stop; the sheet shows its whole door
+
+function renderStopSheet() {
+  const d = stopFor;
+  if (!d) return;
+  const here = destinations
+    .filter(x => x.route && x.lat === d.lat && x.lng === d.lng)
+    .sort((a, b) => (a.stop == null ? 1e9 : a.stop) - (b.stop == null ? 1e9 : b.stop));
+  el('stop-title').textContent =
+    (here.length > 1 ? 'Stops ' + here.map(x => x.stop).join(' + ') : 'Stop ' + d.stop) + ' · ' + d.title;
+  el('stop-addr').textContent = (d.addr || `${d.lat}, ${d.lng}`)
+    + (here.length > 1 ? ` — ${here.length} parcels behind one door` : '');
+  el('stop-links').innerHTML = `
+    <a class="mini-btn accent" href="${gmapUrl(d)}" target="_blank" rel="noopener">Open in Google Maps ↗</a>
+    <a class="mini-btn" href="${panoUrl(d)}" target="_blank" rel="noopener">Street View ↗</a>`;
+  el('stop-body').innerHTML = here.map(s => {
+    const notes = dispatchNotesOf(s);
+    const msgs = (messagesByDest[s.id] || []).filter(m => m && !m.demo && (m.title || m.transcript)).slice(0, 2);
+    return `
+    <div class="stop-sec" data-dest="${esc(s.id)}">
+      <span class="addr-tag">STOP ${esc(s.stop)}${s.consignee ? ' — ' + esc(s.consignee) : ''}${s.floor ? ' · ' + esc(s.floor) : ''}</span>
+      ${notes.map((n, i) => `
+        <div class="note-item">
+          <span class="note-text">${esc(n.text)}</span>
+          <span class="note-meta">${esc(String(n.by || 'dispatch').toUpperCase())}${n.at ? ' · ' + esc(fmtTime(n.at)) : ''}</span>
+          <button class="note-del" type="button" data-stop-note-del="${i}" title="Remove this note">×</button>
+        </div>`).join('')}
+      ${msgs.map(m => `
+        <div class="note-item">
+          <span class="note-text">${esc(m.title || m.transcript)}</span>
+          <span class="note-meta">DRIVER DEBRIEF${m.created_at ? ' · ' + esc(fmtTime(m.created_at)) : ''}</span>
+        </div>`).join('')}
+      ${!notes.length && !msgs.length ? '<p class="notes-hint">Nothing on file yet — Otto reads only the consignee here.</p>' : ''}
+      <div class="note-add">
+        <input data-stop-note-new placeholder="Note for the next driver — read aloud on approach">
+        <button class="mini-btn accent" type="button" data-stop-note-add>+ Add note</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function openStop(d) {
+  stopFor = d;
+  renderStopSheet();
+  el('stop-sheet').hidden = false;
 }
 
 /* ---------- events ---------- */
@@ -2091,6 +2151,33 @@ el('import-go').onclick = runImport;
 el('import-sample').onclick = loadSample;
 el('route-toggle').onclick = () => (routeStops().length ? unloadRoute() : loadRoute());
 el('route-chip').onclick = () => (routeStops().length ? toggleRouteShown() : loadRoute());
+el('stop-close').onclick = () => { el('stop-sheet').hidden = true; stopFor = null; };
+/* add / delete notes straight from the stop sheet — the map's amber
+ * marking and the "with notes" count follow the edit live */
+el('stop-body').addEventListener('click', e => {
+  const sec = e.target.closest('[data-dest]');
+  if (!sec) return;
+  const d = destinations.find(x => x.id === sec.dataset.dest);
+  if (!d) return;
+  const del = e.target.closest('[data-stop-note-del]');
+  if (del) {
+    const notes = dispatchNotesOf(d);
+    const i = parseInt(del.dataset.stopNoteDel, 10);
+    if (!(i >= 0 && i < notes.length)) return;
+    notes.splice(i, 1);
+    saveDestPatch(d, { notes });
+  } else if (e.target.closest('[data-stop-note-add]')) {
+    const input = sec.querySelector('[data-stop-note-new]');
+    const text = String((input && input.value) || '').trim();
+    if (!text) return;
+    saveDestPatch(d, { notes: [{ id: localId('n'), text, at: new Date().toISOString(), by: 'dispatch' }, ...dispatchNotesOf(d)] });
+  } else {
+    return;
+  }
+  renderStopSheet();
+  renderStats();
+  map.refresh();
+});
 el('import-text').addEventListener('input', previewImport);
 el('addr-close').onclick = closeAddr;
 el('addr-input').addEventListener('input', e => onAddrInput(e.target.value));
@@ -2105,8 +2192,9 @@ el('refresh').onclick = async () => {
 /* Esc closes whichever sheet is open. */
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
-  ['form-sheet', 'addr-sheet', 'import-sheet'].forEach(id => { el(id).hidden = true; });
+  ['form-sheet', 'addr-sheet', 'import-sheet', 'stop-sheet'].forEach(id => { el(id).hidden = true; });
   addrFor = null;
+  stopFor = null;
 });
 
 /* ---------- boot ---------- */
