@@ -1,0 +1,243 @@
+/*
+ * Chat bubbles. Two surfaces: `panel` is the narrow Ask pane beside the map
+ * (avatars on both speakers), `page` is the wide Ask view (no avatars).
+ */
+
+.turn {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.operatorTurn {
+  align-self: flex-end;
+}
+
+.ottoTurn {
+  align-self: flex-start;
+}
+
+.operatorBubble {
+  background: var(--pv-mint);
+  border: 1px solid var(--pv-mint-border);
+}
+
+.ottoBubble {
+  border: 1px solid var(--pv-line);
+}
+
+/* --- Panel surface --- */
+
+.panel .operatorBubble {
+  max-width: 460px;
+  border-radius: 12px 12px 4px 12px;
+  padding: 9px 13px;
+  font-size: 13px;
+}
+
+.panel .ottoBubble {
+  max-width: 560px;
+  background: var(--pv-surface-2);
+  border-radius: 12px 12px 12px 4px;
+  padding: 11px 13px;
+}
+
+.panel .lead,
+.panel .tail {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.panel .source {
+  font-size: 10.5px;
+  background: var(--pv-surface);
+  padding: 2px 8px;
+}
+
+/* --- Page surface --- */
+
+.page .operatorBubble {
+  align-self: flex-end;
+  max-width: 78%;
+  border-radius: 14px 14px 4px 14px;
+  padding: 10px 15px;
+  font-size: 13.5px;
+}
+
+.page .ottoBubble {
+  align-self: flex-start;
+  max-width: 92%;
+  background: var(--pv-surface);
+  border-radius: 14px 14px 14px 4px;
+  padding: 15px 17px;
+}
+
+.page .lead,
+.page .tail {
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.page .source {
+  font-size: 11px;
+  background: var(--pv-surface-2);
+  padding: 3px 9px;
+}
+
+/* --- Answer body --- */
+
+.lead {
+  margin: 0;
+}
+
+.tail {
+  margin: 10px 0 0;
+}
+
+.bullets {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.bullet {
+  display: flex;
+  gap: 9px;
+}
+
+.bulletDot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+  margin-top: 6px;
+}
+
+.rows {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 13.5px;
+}
+
+.rowItem {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.rowDot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+}
+
+.toneHoney {
+  background: var(--pv-honey);
+}
+
+.toneGreen {
+  background: var(--pv-green);
+}
+
+.rowMeta {
+  margin-left: auto;
+  padding-left: 12px;
+  font-size: 12px;
+  color: var(--pv-muted-2);
+  white-space: nowrap;
+}
+
+.rowMetaWarn {
+  color: var(--pv-honey-text);
+  font-weight: 600;
+}
+
+.sources {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.source {
+  font-weight: 600;
+  color: var(--pv-muted);
+  border: 1px solid var(--pv-line);
+  border-radius: 999px;
+}
+
+/* --- Quick actions Otto offers under his answer --- */
+
+.actions {
+  align-self: flex-start;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 2px 0 0;
+}
+
+.panel .actions {
+  margin-left: 34px;
+}
+
+.action {
+  border: 1px solid var(--pv-mint-border);
+  background: var(--pv-surface);
+  color: var(--pv-green-dark);
+  font-family: var(--pv-font-body);
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.action:hover {
+  background: var(--pv-mint);
+}
+
+.action:focus-visible {
+  outline: 2px solid var(--pv-green);
+  outline-offset: 2px;
+}
+
+.avatar {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 99px;
+  background: var(--pv-mint);
+  border: 1px solid var(--pv-mint-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+}
+
+.thinking span {
+  width: 5px;
+  height: 5px;
+  border-radius: 99px;
+  background: var(--pv-line-hover);
+  animation: vxbar 1.1s ease-in-out infinite;
+}
+
+.thinking span:nth-child(2) {
+  animation-delay: 0.14s;
+}
+
+.thinking span:nth-child(3) {
+  animation-delay: 0.28s;
+}

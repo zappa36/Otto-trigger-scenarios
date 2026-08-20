@@ -1,0 +1,13 @@
+.shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--pv-page);
+  font-family: var(--pv-font-body);
+}
+
+.canvas {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+}

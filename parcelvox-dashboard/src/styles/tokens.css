@@ -1,0 +1,150 @@
+/* ParcelVox design tokens — lifted from the Claude Design handoff (project/ParcelVox Dashboard.dc.html) */
+
+:root {
+  /* Ink + text */
+  --pv-ink: #21262b;
+  --pv-ink-2: #3d464b;
+  --pv-ink-3: #4a545a;
+  --pv-muted: #5b6660;
+  --pv-muted-2: #78838a;
+  --pv-muted-3: #93a09a;
+
+  /* Primary green */
+  --pv-green: #12a06b;
+  --pv-green-dark: #0e8a5c;
+  --pv-green-deep: #1f5b41;
+
+  /* Mint tints */
+  --pv-mint: #e9f7f0;
+  --pv-mint-border: #cbe9da;
+  --pv-mint-hover: #d8f0e4;
+  --pv-mint-dot: #cbdfd3;
+
+  /* Honey — the only accent (pending / alerts) */
+  --pv-honey: #f2a33c;
+  --pv-honey-soft: #f5be74;
+  --pv-honey-text: #b97514;
+  --pv-honey-bg: #fdf3e3;
+  --pv-honey-border: #f4ddb8;
+  --pv-honey-panel: #fdf8ef;
+
+  /* Surfaces */
+  --pv-page: #f7f9f8;
+  --pv-surface: #ffffff;
+  --pv-surface-2: #fafbfa;
+  --pv-surface-3: #f1f4f2;
+  --pv-nav-hover: #f1f6f2;
+  --pv-row-hi: #fdfcf8;
+  --pv-row-hi-hover: #faf7ee;
+
+  /* Lines + tracks */
+  --pv-line: #e3e8e4;
+  --pv-line-soft: #eef2ef;
+  --pv-line-strong: #d6ded9;
+  --pv-line-hover: #b9c6be;
+  --pv-track: #edf1ee;
+
+  /* Neutrals used by charts and the map */
+  --pv-grey-dot: #c4ccc8;
+  --pv-route-grey: #a9bbb0;
+  --pv-map-top: #dce7df;
+  --pv-map-bottom: #edf3ee;
+  --pv-map-land: #edf3ee;
+  --pv-map-land-edge: #f7faf8;
+  --pv-map-outline: #c9d6cd;
+  --pv-map-label: #9aa8a0;
+
+  /* Type */
+  --pv-font-head: Manrope, Inter, system-ui, sans-serif;
+  --pv-font-body: Inter, system-ui, sans-serif;
+
+  /* Elevation */
+  --pv-shadow-sm: 0 1px 3px rgba(33, 38, 43, 0.08);
+  --pv-shadow-card: 0 2px 8px rgba(33, 38, 43, 0.06);
+  --pv-shadow-bar: 0 2px 8px rgba(33, 38, 43, 0.05);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--pv-font-body);
+  color: var(--pv-ink);
+  background: var(--pv-page);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--pv-green);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--pv-green-dark);
+}
+
+button {
+  font-family: var(--pv-font-body);
+}
+
+/* Voice-capture motion, from the design file */
+@keyframes vxbar {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes vxpulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(18, 160, 107, 0.35);
+  }
+  70%,
+  100% {
+    box-shadow: 0 0 0 13px rgba(18, 160, 107, 0);
+  }
+}
+
+@keyframes vxblink {
+  0%,
+  55% {
+    opacity: 1;
+  }
+  56%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Otto's blink, from berlin-map.html */
+@keyframes vxottoblink {
+  0%,
+  92%,
+  100% {
+    transform: scaleY(1);
+  }
+  96% {
+    transform: scaleY(0.1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

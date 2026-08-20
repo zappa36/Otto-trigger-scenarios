@@ -1,0 +1,136 @@
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+.category {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--pv-green-dark);
+  background: var(--pv-mint);
+  border-radius: 999px;
+  padding: 3px 9px;
+}
+
+.stop {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.replaces {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--pv-honey-text);
+  background: var(--pv-honey-bg);
+  border-radius: 999px;
+  padding: 3px 9px;
+}
+
+.received {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--pv-muted-2);
+}
+
+.headline {
+  margin: 10px 0 0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.quote {
+  margin: 7px 0 0;
+  font-size: 12.5px;
+  color: var(--pv-muted-2);
+  font-style: italic;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.source {
+  font-size: 12px;
+  color: var(--pv-muted-2);
+}
+
+.actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.editField {
+  width: 100%;
+  margin: 10px 0 0;
+  font-family: var(--pv-font-body);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--pv-ink);
+  background: var(--pv-surface);
+  border: 1px solid var(--pv-mint-border);
+  border-radius: 9px;
+  padding: 9px 11px;
+  resize: vertical;
+}
+
+.editField:focus {
+  outline: 2px solid var(--pv-green);
+  outline-offset: -1px;
+}
+
+/* --- Resolved + empty states --- */
+
+.resolved {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--pv-muted);
+  padding: 14px 18px;
+}
+
+.resolvedMark {
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+  flex: none;
+}
+
+.markApproved {
+  background: var(--pv-green);
+}
+
+.markRejected {
+  background: var(--pv-grey-dot);
+}
+
+.undo {
+  margin-left: auto;
+  border: 0;
+  background: none;
+  font-family: var(--pv-font-body);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--pv-green);
+  cursor: pointer;
+  padding: 4px 6px;
+}
+
+.undo:hover {
+  color: var(--pv-green-dark);
+}
+

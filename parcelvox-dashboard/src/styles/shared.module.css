@@ -1,0 +1,325 @@
+/* Shared surface, table, chip and meter primitives used across the six views. */
+
+.page {
+  padding: 28px 32px;
+}
+
+.pageTight {
+  padding: 24px 28px 20px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.h1 {
+  margin: 0;
+  font-family: var(--pv-font-head);
+  font-weight: 800;
+  font-size: 22px;
+  letter-spacing: -0.015em;
+}
+
+.lede {
+  margin: 4px 0 0;
+  font-size: 13.5px;
+  color: var(--pv-muted);
+}
+
+.footnote {
+  margin: 12px 2px 0;
+  font-size: 12px;
+  color: var(--pv-muted-3);
+}
+
+.card {
+  background: var(--pv-surface);
+  border: 1px solid var(--pv-line);
+  border-radius: 14px;
+}
+
+.cardPad {
+  padding: 16px 18px;
+}
+
+.cardPadLg {
+  padding: 18px 20px;
+}
+
+.cardTitle {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.cardSub {
+  font-size: 12px;
+  color: var(--pv-muted-2);
+  margin-top: 2px;
+}
+
+.cardNote {
+  margin: 16px 0 0;
+  font-size: 12px;
+  color: var(--pv-muted-2);
+}
+
+/** A calm mint aside — used for the drivers privacy note and the empty queue. */
+.note {
+  background: var(--pv-mint);
+  border: 1px solid var(--pv-mint-border);
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-size: 13px;
+  color: var(--pv-green-deep);
+}
+
+/* --- Table --- */
+
+.table {
+  background: var(--pv-surface);
+  border: 1px solid var(--pv-line);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.thead {
+  display: grid;
+  gap: 12px;
+  padding: 11px 18px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pv-muted-2);
+  background: var(--pv-surface-2);
+}
+
+.row {
+  display: grid;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 18px;
+  border-top: 1px solid var(--pv-line-soft);
+  font-size: 13.5px;
+}
+
+.rowLink {
+  padding: 13px 18px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--pv-line-soft);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13.5px;
+}
+
+.rowLink:hover {
+  background: var(--pv-surface-2);
+}
+
+.rowLink:focus-visible {
+  outline: 2px solid var(--pv-green);
+  outline-offset: -2px;
+}
+
+.rowFlagged {
+  background: var(--pv-row-hi);
+}
+
+.rowFlagged:hover {
+  background: var(--pv-row-hi-hover);
+}
+
+.cellStrong {
+  font-weight: 600;
+}
+
+.cellMuted {
+  color: var(--pv-muted);
+}
+
+.cellEmpty {
+  font-size: 12.5px;
+  color: var(--pv-muted-3);
+}
+
+.cellDate {
+  font-size: 12.5px;
+  color: var(--pv-muted);
+}
+
+.flag {
+  font-weight: 700;
+  color: var(--pv-honey-text);
+}
+
+.rowNote {
+  display: block;
+  font-size: 11.5px;
+  color: var(--pv-muted);
+  margin-top: 2px;
+}
+
+.chevron {
+  color: var(--pv-line-hover);
+}
+
+/* --- Meter (tip coverage / acceptance) --- */
+
+.meter {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.meterTrack {
+  flex: 1;
+  height: 6px;
+  background: var(--pv-track);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.meterFill {
+  display: block;
+  height: 100%;
+  background: var(--pv-green);
+  border-radius: 99px;
+}
+
+.meterValue {
+  font-size: 12.5px;
+  font-weight: 600;
+  min-width: 32px;
+  text-align: right;
+}
+
+/* --- Tip pills --- */
+
+.tips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tip {
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 3px 9px;
+  white-space: nowrap;
+}
+
+.tipCurrent {
+  color: var(--pv-green-dark);
+  background: var(--pv-mint);
+}
+
+.tipStale {
+  color: var(--pv-honey-text);
+  background: var(--pv-honey-bg);
+}
+
+.tipPending {
+  color: var(--pv-muted);
+  background: var(--pv-surface-3);
+}
+
+/* --- Monday outcome dots --- */
+
+.dots {
+  display: flex;
+  gap: 5px;
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 99px;
+}
+
+.dotOk {
+  background: var(--pv-mint-dot);
+}
+
+.dotFail {
+  background: var(--pv-honey);
+}
+
+/* --- Stat pills on the route detail header --- */
+
+.pills {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pill {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pv-ink-2);
+  background: var(--pv-surface);
+  border: 1px solid var(--pv-line);
+  border-radius: 999px;
+  padding: 5px 12px;
+}
+
+.pillAlert {
+  font-weight: 700;
+  color: var(--pv-honey-text);
+  background: var(--pv-honey-bg);
+  border-color: var(--pv-honey-border);
+}
+
+/* --- Buttons --- */
+
+.btnPrimary {
+  border: none;
+  border-radius: 9px;
+  background: var(--pv-green);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.btnPrimary:hover {
+  background: var(--pv-green-dark);
+}
+
+.btnSecondary {
+  border: 1px solid var(--pv-line-strong);
+  border-radius: 9px;
+  background: var(--pv-surface);
+  color: var(--pv-ink-2);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.btnSecondary:hover {
+  border-color: var(--pv-line-hover);
+}
+
+.btnQuiet {
+  border: none;
+  background: none;
+  color: var(--pv-muted-2);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.btnQuiet:hover {
+  color: var(--pv-ink);
+}
+
+.btnPrimary:focus-visible,
+.btnSecondary:focus-visible,
+.btnQuiet:focus-visible {
+  outline: 2px solid var(--pv-green);
+  outline-offset: 2px;
+}

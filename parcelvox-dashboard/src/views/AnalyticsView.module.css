@@ -1,0 +1,194 @@
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+
+@media (max-width: 900px) {
+  .kpis {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.kpiLabel {
+  font-size: 12.5px;
+  color: var(--pv-muted-2);
+}
+
+.kpiValue {
+  font-family: var(--pv-font-head);
+  font-weight: 800;
+  font-size: 30px;
+  letter-spacing: -0.02em;
+  margin-top: 6px;
+}
+
+.kpiDelta {
+  font-size: 12.5px;
+  margin-top: 4px;
+}
+
+.deltaGood {
+  font-weight: 600;
+  color: var(--pv-green-dark);
+}
+
+.deltaWarn {
+  font-weight: 600;
+  color: var(--pv-honey-text);
+}
+
+.deltaNeutral {
+  color: var(--pv-muted-2);
+}
+
+.deltaAccent {
+  color: var(--pv-green-dark);
+  font-weight: 600;
+}
+
+.split {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+@media (max-width: 900px) {
+  .split {
+    grid-template-columns: 1fr;
+  }
+}
+
+.chart {
+  width: 100%;
+  height: auto;
+  margin-top: 10px;
+}
+
+/* --- Horizontal bar rows --- */
+
+.bars {
+  margin-top: 16px;
+}
+
+.barRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+}
+
+.barRow + .barRow {
+  margin-top: 10px;
+}
+
+.barLabel {
+  width: 110px;
+  color: var(--pv-ink-2);
+  white-space: nowrap;
+}
+
+.barTrack {
+  flex: 1;
+  height: 14px;
+  background: var(--pv-track);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.barFill {
+  display: block;
+  height: 100%;
+  border-radius: 5px;
+}
+
+.barValue {
+  font-weight: 600;
+  min-width: 20px;
+  text-align: right;
+}
+
+.fillStrong {
+  background: var(--pv-honey);
+}
+
+.fillSoft {
+  background: var(--pv-honey-soft);
+}
+
+.fillGreen {
+  background: var(--pv-green);
+}
+
+/* --- Capture rate by route --- */
+
+.captureBars {
+  margin-top: 14px;
+}
+
+.captureRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+}
+
+.captureRow + .captureRow {
+  margin-top: 9px;
+}
+
+.captureLabel {
+  width: 130px;
+  color: var(--pv-ink-2);
+  white-space: nowrap;
+}
+
+.captureTrack {
+  flex: 1;
+  height: 10px;
+  background: var(--pv-track);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.captureValue {
+  font-weight: 600;
+  min-width: 28px;
+  text-align: right;
+}
+
+/* --- Tip freshness --- */
+
+.stack {
+  display: flex;
+  height: 14px;
+  border-radius: 6px;
+  overflow: hidden;
+  margin-top: 16px;
+}
+
+.freshnessKey {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+  font-size: 12.5px;
+}
+
+.keyRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.keyDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 99px;
+}
+
+.keyValue {
+  margin-left: auto;
+  font-weight: 600;
+}
