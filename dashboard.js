@@ -806,6 +806,7 @@ function renderScenario(sc) {
         ${fromSheet(sc) ? '<span class="origin" title="From the shipped starter sheet (trigger-scenarios.js). Rows without this tag were made on this dashboard — rename a starter row and it becomes yours too.">⇩ STARTER</span>' : ''}
         <span class="ver" title="${esc(sc.version_note || 'version')}">v${ver}</span>
         <span class="badge badge-${st.key}">${esc(st.label)}</span>
+        <button class="sc-del" type="button" data-act="del" title="Delete scenario" aria-label="Delete scenario">×</button>
       </header>
       ${body}
     </article>`;
