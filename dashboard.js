@@ -59,7 +59,12 @@ const notesEditing = () => {
   if (a && a.closest && a.closest('.notes-block')) return true;
   return [...document.querySelectorAll('[data-note-new]')].some(i => i.value.trim());
 };
-const uiBusy = () => !!(tune || fbRec || proposal || proposalBusy)
+/* In the DEMO view none of that workshop state is on screen — a repaint
+ * can disrupt nothing, and a client demo WANTS the fresh debrief landing
+ * live. The state itself is kept (it lives JS-side), so flipping back to
+ * TESTING restores drags, drafts and proposals exactly as left. */
+const uiBusy = () => !!proposalBusy
+  || (cardView !== 'demo' && !!(tune || fbRec || proposal))
   || !el('form-sheet').hidden || !el('stop-sheet').hidden || notesEditing();
 
 const persistLocal = () => {
@@ -684,14 +689,110 @@ function renderRuns(sc) {
     </div>`;
 }
 
+/* ---------- DEMO / TESTING — the two faces of an open card ----------
+ * TESTING is the full workbench below — address, notes, sliders,
+ * feedback, versions, verdict. DEMO retells the same scenario for a
+ * client across the table (a parcel company's management, not its
+ * drivers): what Otto reads on approach, the moment he notices, what
+ * he asks, and what came back — read-only, every edit control gone.
+ * One choice for the whole dashboard, kept per browser like the list
+ * tabs: flip to DEMO once and every card is ready for the meeting. */
+const LS_VIEW = 'od_card_view';
+let cardView = 'test';
+try { cardView = localStorage.getItem(LS_VIEW) === 'demo' ? 'demo' : 'test'; } catch { /* private mode */ }
+function setCardView(v) {
+  cardView = v === 'demo' ? 'demo' : 'test';
+  try { localStorage.setItem(LS_VIEW, cardView); } catch { /* private mode */ }
+}
+
+/* The spoken pre-arrival briefing, mirrored line for line from the
+ * phone (briefingLines in app.js, caps included): consignee and floor
+ * first, then the notes on file, then what earlier drivers reported —
+ * so the DEMO tab shows the literal script of the approach. */
+const DEMO_MAX_NOTES = 3;  // the phone's NOTES.maxNotes
+const DEMO_MAX_DRIVER = 2; // the phone's NOTES.maxDriver
+const spokenSentence = s => { const t = String(s || '').trim(); return /[.!?…]$/.test(t) ? t : t + '.'; };
+const spokenFloor = f => (/^\d+$/.test(String(f).trim()) ? 'floor ' + String(f).trim() : String(f).trim());
+function demoSpokenLines(sc, d) {
+  const lines = [];
+  const name = String(d.consignee || '').trim();
+  const floor = String(d.floor || '').trim();
+  if (name) lines.push({ text: `Delivery is for ${name}${floor ? ', ' + spokenFloor(floor) : ''}.`, by: 'CONSIGNEE' });
+  else if (floor) lines.push({ text: `Delivery goes to ${spokenFloor(floor)}.`, by: 'CONSIGNEE' });
+  dispatchNotesOf(d).slice(0, DEMO_MAX_NOTES).forEach(n => lines.push({
+    text: (n.by === 'driver' ? 'A driver reported: ' : 'From dispatch: ') + spokenSentence(n.text),
+    by: String(n.by || 'dispatch').toUpperCase(),
+  }));
+  msgsOf(sc).filter(m => m && !m.demo && (m.title || m.transcript)).slice(0, DEMO_MAX_DRIVER)
+    .forEach(m => lines.push({ text: 'A driver reported: ' + spokenSentence(m.title || m.transcript), by: 'DEBRIEF' }));
+  return lines;
+}
+
+function renderDemoBody(sc, d) {
+  /* staged slider drags ride along, like everywhere on the card — what
+   * is on screen in TESTING is what the demo retells */
+  const params = tune && tune.id === sc.id ? tune.params : paramsOf(sc);
+  const fp = t => fillParams(t, params);
+  /* {park_m}/{walk_m} in "Otto says" are run-measured on the phone
+   * (resolveSays in app.js), 'some' its no-measurement fallback — the
+   * quote must read as speech, never as template soup */
+  const says = t => stripQuotes(fp(t)).replace(/\{(?:park_m|walk_m)\}/g, 'some');
+  const rp = params.find(p => p && p.key === 'notes_radius');
+  const radius = rp && isFinite(+rp.value) ? +rp.value : 350; // NOTES.approachRadius in app.js
+  const spoken = d ? demoSpokenLines(sc, d) : [];
+  /* the reading opens as the phone opens it (speakPreArrival in app.js),
+   * with the ring where the reading starts standing in for the live
+   * distance */
+  const spokenDist = m => (m < 1000 ? Math.round(m / 10) * 10 + ' meters' : (m / 1000).toFixed(1) + ' kilometers');
+  const head = d ? `Heads up — ${d.stop != null ? 'stop ' + d.stop + ', ' : ''}${d.title || shortTitle(sc)}, about ${spokenDist(radius)} ahead.` : '';
+  const answers = msgsOf(sc).filter(m => m && (m.transcript || m.title)).slice(0, 2);
+  const story = String(sc.described || '').trim();
+  const sayLine = (ico, text, meta) => `
+        <div class="say-line"><span class="say-ico">${ico}</span><span class="say-text">&ldquo;${esc(text)}&rdquo;</span><span class="note-meta">${esc(meta)}</span></div>`;
+  return `
+      <div class="demo-step reads">
+        <span class="addr-tag">1 · ON APPROACH — OTTO READS ALOUD, ~${fmtVal(radius)} M BEFORE THE DOOR</span>
+        ${spoken.length ? sayLine('🔊', head, 'APPROACH') + spoken.map(l => sayLine('🔊', l.text, l.by)).join('')
+    : `<p class="demo-empty">${d
+      ? 'Nothing on file at this address yet — the consignee, dispatch notes and earlier drivers’ tips would be read here, hands-free.'
+      : 'No test address pinned yet — set one in the TESTING tab and the briefing on file appears here.'}</p>`}
+      </div>
+      <div class="demo-step trigger">
+        <span class="addr-tag">2 · THE MOMENT — WHAT OTTO NOTICES</span>
+        ${story ? `<p class="demo-sub demo-story">${esc(story)}</p>` : ''}
+        ${sc.rule ? `<p class="demo-sub"><b>${story ? 'Detected as' : 'The trigger'}:</b> ${esc(fp(sc.rule))}</p>`
+    : story ? '' : '<p class="demo-empty">No trigger rule defined yet — edit the scenario in the TESTING tab.</p>'}
+        ${sc.timing ? `<p class="demo-sub"><b>When he speaks:</b> ${esc(fp(sc.timing))}</p>` : ''}
+      </div>
+      <div class="demo-step asks">
+        <span class="addr-tag">3 · OTTO ASKS — ONE QUESTION, HANDS-FREE</span>
+        ${sc.otto_says ? `<p class="demo-quote">&ldquo;${esc(says(sc.otto_says))}&rdquo;</p>` : '<p class="demo-empty">No question defined yet — edit the scenario in the TESTING tab.</p>'}
+        ${sc.learns ? `<p class="demo-sub"><span class="cmp-k">The answer is filed for the next driver as</span><span class="tip-chip">${esc(sc.learns)}</span></p>` : ''}
+      </div>
+      ${answers.length ? `
+      <div class="demo-step heard">
+        <span class="addr-tag">4 · WHAT CAME BACK — THE DRIVER'S ANSWER${answers.length > 1 ? 'S' : ''}</span>
+        ${answers.map(m => sayLine('🎙', m.transcript || m.title,
+    (m.demo ? 'SIMULATED · ' : '') + (m.category || 'INFO') + ' · ' + fmtTime(m.created_at))).join('')}
+      </div>` : ''}
+      ${d ? `
+      <div class="addr-actions">
+        <button class="mini-btn" type="button" data-act="center">Show on map</button>
+      </div>` : ''}`;
+}
+
 function renderScenario(sc) {
   const st = statusOf(sc);
   const d = sc.destination_id && destById(sc.destination_id);
   const open = expandedId === sc.id;
   const ver = sc.version || 1;
+  const demo = cardView === 'demo';
 
+  /* the missing-pin warning is workshop copy — in DEMO the body's
+   * step 1 tells that story once, without the header shouting it */
   const addrLine = d
     ? `<div class="sc-addr-line">📍 ${esc(d.addr || `${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}`)}</div>`
+    : demo ? ''
     : `<div class="sc-addr-line warn">⚠ No test address yet — set one so the scenario lands on the map</div>`;
 
   const addrBlock = d ? `
@@ -755,8 +856,21 @@ function renderScenario(sc) {
   const params = tune && tune.id === sc.id ? tune.params : paramsOf(sc);
   const fp = t => fillParams(t, params);
 
-  const body = !open ? '' : `
+  const viewTabs = `
+      <div class="tabs sc-tabs">
+        <button class="tab${demo ? '' : ' on'}" type="button" data-cardview="test"
+          title="The full loop — address, notes, sliders, feedback, versions, verdict">⚙ TESTING</button>
+        <button class="tab${demo ? ' on' : ''}" type="button" data-cardview="demo"
+          title="The client view — what Otto reads on approach and what he says when this scenario fires; every edit control hidden">▶ DEMO</button>
+      </div>`;
+
+  const body = !open ? '' : demo ? `
     <div class="sc-body">
+      ${viewTabs}
+      ${renderDemoBody(sc, d)}
+    </div>` : `
+    <div class="sc-body">
+      ${viewTabs}
       ${addrBlock}
       ${notesBlock}
       <div class="def-grid">
@@ -795,6 +909,10 @@ function renderScenario(sc) {
       </div>
     </div>`;
 
+  /* In DEMO view the header sheds its workshop chrome — version,
+   * starter origin, delete, workflow badges. Only a verdict is a
+   * result worth showing a client. */
+  const showBadge = !demo || sc.verdict;
   return `
     <article class="sc" data-id="${esc(sc.id)}">
       <header class="sc-header">
@@ -803,10 +921,10 @@ function renderScenario(sc) {
           <h3>${esc(sc.title)}</h3>
           ${addrLine}
         </div>
-        ${fromSheet(sc) ? '<span class="origin" title="From the shipped starter sheet (trigger-scenarios.js). Rows without this tag were made on this dashboard — rename a starter row and it becomes yours too.">⇩ STARTER</span>' : ''}
-        <span class="ver" title="${esc(sc.version_note || 'version')}">v${ver}</span>
-        <span class="badge badge-${st.key}">${esc(st.label)}</span>
-        <button class="sc-del" type="button" data-act="del" title="Delete scenario" aria-label="Delete scenario">×</button>
+        ${!demo && fromSheet(sc) ? '<span class="origin" title="From the shipped starter sheet (trigger-scenarios.js). Rows without this tag were made on this dashboard — rename a starter row and it becomes yours too.">⇩ STARTER</span>' : ''}
+        ${demo ? '' : `<span class="ver" title="${esc(sc.version_note || 'version')}">v${ver}</span>`}
+        ${showBadge ? `<span class="badge badge-${st.key}">${esc(st.label)}</span>` : ''}
+        ${demo ? '' : '<button class="sc-del" type="button" data-act="del" title="Delete scenario" aria-label="Delete scenario">×</button>'}
       </header>
       ${body}
     </article>`;
@@ -2107,6 +2225,14 @@ el('list').addEventListener('click', e => {
   if (!card) return;
   const sc = scenarios.find(x => x.id === card.dataset.id);
   if (!sc) return;
+
+  const cv = e.target.closest('[data-cardview]');
+  if (cv) {
+    stopFbCapture(); // a hot mic must never ride into the DEMO view unseen
+    setCardView(cv.dataset.cardview);
+    render();
+    return;
+  }
 
   const v = e.target.closest('[data-verdict]');
   if (v) { setVerdict(sc, v.dataset.verdict); return; }
