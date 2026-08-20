@@ -20,6 +20,30 @@ npm run preview    # serve the built bundle
 React 18 + TypeScript on Vite. Styling is CSS Modules over the token set in
 `src/styles/tokens.css`; there is no CSS framework.
 
+## How it ships
+
+The surrounding repo is a flat static site — Vercel serves the root
+(`outputDirectory: "."`) and its build script never runs npm. Rather than teach
+that pipeline about Vite, the app is bundled into a single self-contained file
+and committed at the repo root, where Vercel serves it like any other page.
+`dashboard.html` links to it as **DISPATCHER ↗**.
+
+So after changing anything in here, rebuild and copy the bundle up:
+
+```bash
+npm run build && node scripts/bundle-standalone.mjs
+cp dist/parcelvox-dashboard.html ../parcelvox-dashboard.html
+```
+
+That trade is deliberate: a ~650 KB generated file lives in git, but the deploy
+pipeline stays untouched and there is no build step to break. If the app ever
+earns a real build on Vercel, delete the root copy and teach
+`scripts/vercel-build.sh` to run the two commands above instead.
+
+The bundler writes a second file, `dist/parcelvox-dashboard.artifact.html` — the
+same page as a body fragment, for publishing to a Claude Artifact, which supplies
+its own document wrapper. Deploy the first; publish the second.
+
 ## The six views
 
 | View | What it does |
