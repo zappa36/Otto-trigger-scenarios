@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<script src="https://unpkg.com/d3@7.9.0/dist/d3.min.js" integrity="sha384-CjloA8y00+1SDAUkjs099PVfnY2KmDC2BZnws9kh8D/lX1s46w6EPhpXdqMfjK6i" crossorigin="anonymous"></script>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:linear-gradient(180deg,#DCE7DF 0%,#EDF3EE 55%)}
+  #stage{position:absolute;inset:0;perspective:1900px}
+  #tilt{position:absolute;inset:-9%;transform:rotateX(40deg) scale(1.18);transform-origin:50% 58%;transform-style:preserve-3d}
+  #map{position:absolute;inset:0}
+  .pin{position:absolute;width:0;height:0;transform-style:preserve-3d}
+  .pin .shadow{position:absolute;left:-5px;top:-2.5px;width:10px;height:5px;border-radius:99px;background:rgba(33,38,43,.15)}
+  .pin .up{position:absolute;bottom:0;left:0;display:flex;flex-direction:column;align-items:center;transform-origin:50% 100%;transform:translateX(-50%) rotateX(-40deg)}
+  .pin .head{width:10px;height:10px;border-radius:99px;border:2px solid #FFFFFF;box-shadow:0 1px 3px rgba(33,38,43,.3)}
+  .pin .stem{width:2px;height:6px;background:#FFFFFF;margin-top:-1px;border-radius:2px}
+  .chip{background:#FFFFFF;border:1px solid #E3E8E4;border-radius:8px;padding:4px 10px;font-family:Inter,sans-serif;font-size:11.5px;font-weight:600;color:#21262B;white-space:nowrap;box-shadow:0 2px 6px rgba(33,38,43,.12);margin-bottom:5px}
+  .oeye{position:relative;width:4px;height:5.5px;border-radius:50%;background:#fff;display:block;animation:oblink 3.6s ease-in-out infinite;transform-origin:center}
+  .oeye i{position:absolute;left:1.1px;top:1.3px;width:1.7px;height:1.7px;border-radius:50%;background:#2a3a78;display:block}
+  @keyframes oblink{0%,92%,100%{transform:scaleY(1)}96%{transform:scaleY(.1)}}
+</style>
+</head>
+<body>
+<div id="stage"><div id="tilt"><svg id="map"></svg></div></div>
+<script>
+const G='#12A06B', A='#F2A33C', N='#C4CCC8';
+const DEPOT=[13.327,52.537];
+const ROUTES=[
+ {id:'Rte 11',stops:[[13.362,52.531],[13.377,52.524],[13.392,52.519],[13.408,52.526]],pins:[]},
+ {id:'Rte 12',stops:[[13.276,52.532],[13.241,52.539],[13.206,52.535],[13.185,52.522]],pins:[[13.241,52.539,A]]},
+ {id:'Rte 15',stops:[[13.395,52.556],[13.409,52.575],[13.428,52.596],[13.446,52.615]],pins:[[13.428,52.596,A]]},
+ {id:'Rte 17',stops:[[13.318,52.562],[13.298,52.580],[13.268,52.592],[13.232,52.603]],pins:[[13.318,52.562,A],[13.232,52.603,A]]},
+ {id:'Rte 18',stops:[[13.436,52.516],[13.470,52.510],[13.499,52.517],[13.525,52.531]],pins:[[13.499,52.517,A]]},
+ {id:'Rte 21',stops:[[13.317,52.512],[13.291,52.505],[13.271,52.493],[13.288,52.477]],pins:[[13.291,52.505,A]]},
+ {id:'Rte 22',stops:[[13.383,52.489],[13.402,52.470],[13.424,52.455],[13.448,52.443]],pins:[[13.383,52.489,A],[13.448,52.443,A]]},
+ {id:'Rte 14',hi:true,stops:[[13.427,52.503],[13.462,52.482],[13.512,52.462],[13.548,52.451],[13.583,52.442]],pins:[[13.427,52.503,A],[13.548,52.451,A]]},
+];
+const KRANWEG=[13.583,52.442];
+const tilt=document.getElementById('tilt');
+const svg=d3.select('#map');
+let geo=null;
+function render(){
+  if(!geo)return;
+  const w=tilt.clientWidth,h=tilt.clientHeight;
+  svg.attr('width',w).attr('height',h).attr('viewBox',`0 0 ${w} ${h}`);
+  svg.selectAll('*').remove();
+  tilt.querySelectorAll('.pin').forEach(n=>n.remove());
+  const proj=d3.geoMercator().fitExtent([[-w*.04,-h*.05],[w*1.04,h*1.05]],geo);
+  const path=d3.geoPath(proj);
+  svg.append('g').selectAll('path').data(geo.features).join('path')
+    .attr('d',path).attr('fill','#EDF3EE').attr('stroke','#F7FAF8').attr('stroke-width',3).attr('stroke-linejoin','round');
+  svg.append('path').attr('d',path(({type:'FeatureCollection',features:geo.features})))
+    .attr('fill','none').attr('stroke','none');
+  // city outline
+  svg.append('g').selectAll('path').data(geo.features).join('path')
+    .attr('d',path).attr('fill','none').attr('stroke','#C9D6CD').attr('stroke-width',1);
+  // district labels
+  const LBL_OFF={'NEUKÖLLN':[26,14],'TEMPELHOF':[-20,6],'MITTE':[-26,-20],'FRIEDRICHSHAIN':[0,26],'LICHTENBERG':[-14,-16],'SPANDAU':[-6,18],'CHARLOTTENBURG':[0,18]};
+  geo.features.forEach(f=>{
+    const p=f.properties||{};
+    let nm=p.spatial_alias||p.name||p.Name||Object.values(p).find(v=>typeof v==='string'&&/[a-z]/i.test(v))||'';
+    nm=String(nm).split(/[-\s]/)[0].toUpperCase();
+    const c=path.centroid(f);
+    if(!isFinite(c[0]))return;
+    const off=LBL_OFF[nm]||[0,0];
+    svg.append('text').attr('x',c[0]+off[0]).attr('y',c[1]+off[1])
+      .attr('text-anchor','middle')
+      .attr('font-family','Inter, sans-serif').attr('font-size',9).attr('font-weight',600)
+      .attr('letter-spacing',1.2).attr('fill','#9AA8A0')
+      .attr('style','paint-order:stroke;stroke:#EDF3EE;stroke-width:3px')
+      .text(nm);
+  });
+  const line=d3.line().x(d=>proj([d[0],d[1]])[0]).y(d=>proj([d[0],d[1]])[1]);
+  ROUTES.forEach(r=>{
+    const pts=[DEPOT,...r.stops];
+    svg.append('path').attr('d',line(pts))
+      .attr('fill','none').attr('stroke',r.hi?'#12A06B':'#A9BBB0')
+      .attr('stroke-width',r.hi?3.5:2.5).attr('stroke-linecap','round').attr('stroke-linejoin','round')
+      .attr('opacity',r.hi?1:.65);
+    const last=r.stops[r.stops.length-1];
+    const lp=proj([last[0],last[1]]);
+    svg.append('text').attr('x',lp[0]+(r.hi?18:9)).attr('y',lp[1]+(r.hi?2:-9))
+      .attr('font-family','Inter, sans-serif').attr('font-size',r.hi?11.5:11).attr('font-weight',r.hi?700:600)
+      .attr('fill',r.hi?'#0E8A5C':'#78838A')
+      .attr('style','paint-order:stroke;stroke:#EDF3EE;stroke-width:4px')
+      .text(r.id);
+  });
+  // depot
+  const dp=proj(DEPOT);
+  svg.append('rect').attr('x',dp[0]-4.5).attr('y',dp[1]-4.5).attr('width',9).attr('height',9).attr('rx',3)
+    .attr('fill','#21262B').attr('stroke','#FFFFFF').attr('stroke-width',2);
+  svg.append('text').attr('x',dp[0]-9).attr('y',dp[1]+16).attr('text-anchor','end')
+    .attr('font-family','Inter, sans-serif').attr('font-size',10.5).attr('font-weight',600).attr('fill','#3D464B')
+    .attr('style','paint-order:stroke;stroke:#EDF3EE;stroke-width:4px').text('Nordhaven depot');
+  // stop pins
+  // Kranweg 12 — asked about in chat, Otto on site
+  const kp=proj(KRANWEG);
+  const k=document.createElement('div');
+  k.className='pin';k.style.left=kp[0]+'px';k.style.top=kp[1]+'px';k.style.zIndex=2;
+  k.innerHTML=`<div class="shadow" style="left:-8px;top:-3.5px;width:16px;height:7px;background:rgba(33,38,43,.2)"></div><div class="up"><div class="chip">Kranweg 12</div><div style="width:28px;height:28px;border-radius:99px;background:#FFFFFF;border:1px solid #E3E8E4;box-shadow:0 2px 6px rgba(33,38,43,.25);position:relative;display:flex;align-items:center;justify-content:center"><div style="position:absolute;inset:3.5px;background:linear-gradient(140deg,#aab6ff,#7c8cff 38%,#3cc0e0 80%,#0498ba);border-radius:42% 58% 56% 44% / 48% 42% 58% 52%;box-shadow:inset 0 2px 4px rgba(255,255,255,.32)"></div><div style="position:absolute;inset:5.5px;background:radial-gradient(circle at 36% 28%,rgba(255,255,255,.55),transparent 56%);border-radius:50%;opacity:.75"></div><div style="position:relative;display:flex;gap:3px;align-items:center"><span class="oeye"><i></i></span><span class="oeye"><i></i></span></div></div><div class="stem" style="width:2.5px;height:9px"></div></div>`;
+  tilt.appendChild(k);
+  // stop pins
+  ROUTES.forEach(r=>(r.pins||[]).forEach(s=>{
+    const p=proj([s[0],s[1]]);
+    const el=document.createElement('div');
+    el.className='pin';el.style.left=p[0]+'px';el.style.top=p[1]+'px';
+    el.innerHTML=`<div class="shadow"></div><div class="up"><div class="head" style="background:${s[2]}"></div><div class="stem"></div></div>`;
+    tilt.appendChild(el);
+  }));
+}
+d3.json('https://cdn.jsdelivr.net/gh/m-hoerz/berlin-shapes@master/berliner-bezirke.geojson')
+  .catch(()=>d3.json('https://raw.githubusercontent.com/m-hoerz/berlin-shapes/master/berliner-bezirke.geojson'))
+  .then(g=>{
+    g.features.forEach(f=>{const gm=f.geometry;if(!gm)return;const rev=r=>r.slice().reverse();
+      if(d3.geoArea(f)>Math.PI){
+        if(gm.type==='Polygon')gm.coordinates=gm.coordinates.map(rev);
+        else if(gm.type==='MultiPolygon')gm.coordinates=gm.coordinates.map(p=>p.map(rev));
+      }});
+    geo=g;render();})
+  .catch(()=>{document.body.insertAdjacentHTML('beforeend','<div style="position:absolute;inset:0;display:grid;place-items:center;font-family:Inter,sans-serif;font-size:13px;color:#78838A">Map data unavailable</div>');});
+let rt;addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(render,120);});
+</script>
+</body>
+</html>

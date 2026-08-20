@@ -1,0 +1,56 @@
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--pv-font-body);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--pv-green);
+  cursor: pointer;
+  margin-bottom: 10px;
+  border: 0;
+  background: none;
+  padding: 0;
+}
+
+.back:hover {
+  color: var(--pv-green-dark);
+}
+
+.back:focus-visible {
+  outline: 2px solid var(--pv-green);
+  outline-offset: 2px;
+}
+
+.stats {
+  margin: 12px 0 20px;
+}
+
+.alert {
+  background: var(--pv-honey-panel);
+  border: 1px solid var(--pv-honey-border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.alertBody {
+  flex: 1;
+  min-width: 280px;
+}
+
+.alertTitle {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--pv-ink);
+}
+
+.alertText {
+  font-size: 12.5px;
+  color: var(--pv-muted);
+  margin-top: 3px;
+}
