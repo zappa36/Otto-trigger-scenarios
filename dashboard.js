@@ -333,13 +333,20 @@ function centerOn(lat, lng) {
   Geo.simulate({ lat, lng });
   map.center();
 }
+/* The MEDIAN pin, not the mean: one scenario pinned in another country
+ * must not drag the opening view into an empty field between the pins
+ * — the map should open where most of the pins actually are. A loaded
+ * route counts too, so a route-heavy dashboard opens on the route. */
 function centerOnScenarios() {
-  let pins = scenarios.map(sc => sc.destination_id && destById(sc.destination_id)).filter(Boolean);
-  if (!pins.length) pins = destinations.filter(d => d.route); // a loaded route is a view too
+  const pins = scenarios.map(sc => sc.destination_id && destById(sc.destination_id)).filter(Boolean)
+    .concat(destinations.filter(d => d.route));
   if (!pins.length) { Geo.simulate({ lat: 52.5346, lng: 13.4109 }); return; }
-  const lat = pins.reduce((s, d) => s + d.lat, 0) / pins.length;
-  const lng = pins.reduce((s, d) => s + d.lng, 0) / pins.length;
-  Geo.simulate({ lat, lng });
+  const mid = list => {
+    const s = [...list].sort((a, b) => a - b);
+    const h = Math.floor(s.length / 2);
+    return s.length % 2 ? s[h] : (s[h - 1] + s[h]) / 2;
+  };
+  Geo.simulate({ lat: mid(pins.map(d => d.lat)), lng: mid(pins.map(d => d.lng)) });
 }
 
 /* ---------- load ---------- */
