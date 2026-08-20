@@ -365,8 +365,14 @@ business and note is invented.
 
 Load it from the dashboard — the **⇪ ROUTE chip in the header** (it
 flips to "✕ ROUTE · 100" for removal; the same toggle also lives in
-the ⎘ PASTE FROM EXCEL sheet and on the empty state). On a live
-backend, phones already open pick the new stops up with their ↻
+the ⎘ PASTE FROM EXCEL sheet and on the empty state). Loading also
+cuts **the route's own scenario row** — "Schöneberg 01 route", pinned
+at stop 1 — so the route has a proper place in the list: Show on map
+jumps to it, testers get the how-to on the stop-1 card, and its
+TUNABLE VALUES carry the reading rings (`notes_radius` /
+`notes_rearm`), which the phone applies to **every stop of the
+route**. Removing the route removes its scenario row with it. On a
+live backend, phones already open pick the new stops up with their ↻
 chip. Every stop becomes a destination row
 stamped with its route id and stop number, so the phone shows
 numbered pins ("7 · GOLTZSTRASSE 13"), the card opens as "Stop 7 ·

@@ -1852,25 +1852,60 @@ async function loadRoute() {
     added = rows.map(r => ({ ...r, id: localId('d'), created_at: at }));
   }
   destinations.push(...added);
+  /* the route is a scenario of its OWN — one row in the list to find
+   * it by, pinned at stop 1, with the reading rings as its tunable
+   * values. The phone applies those rings to EVERY stop of the route
+   * (notesRadiiOf in app.js), so this row is where the route is
+   * tuned, tested and judged — not a rider on someone else's row. */
+  const first = added[0];
+  if (first) {
+    const sc = await saveScenarioRow({
+      num: Math.max(0, ...scenarios.map(s => s.num || 0)) + 1,
+      title: `${ROUTE.name} route — drive the tour, Otto reads the notes`,
+      rule: 'Come within {notes_radius} m of any stop with notes on file — Otto reads consignee, floor, dispatch and driver notes aloud, once per approach; driving back out past {notes_rearm} m re-arms the reading.',
+      ar_states: 'IN_VEHICLE between stops; STILL / ON_FOOT at the door',
+      signals: 'GPS vs the stop pins; notes on file (dispatch + driver)',
+      timing: 'On approach — before the driver is at the door',
+      otto_says: '“Were the notes right — anything to correct for the next driver?”',
+      learns: 'ACCESS / INFO — corrections to the notes on file',
+      test_steps: `Drive the route in stop order (stop 1: ${first.title}). Otto reads ~{notes_radius} m ahead of each noted stop; ✕ on the banner stops a reading, and the phone's ROUTE chip hides the whole route for clean scenario tests.`,
+      params: [
+        { key: 'notes_radius', label: 'Notes read distance', value: 350, min: 50, max: 1000, step: 10, unit: 'm' },
+        { key: 'notes_rearm', label: 'Re-arm distance', value: 700, min: 100, max: 2000, step: 25, unit: 'm' },
+      ],
+      version: 1,
+      version_note: 'created with the route',
+      version_at: new Date().toISOString(),
+      destination_id: first.id,
+    });
+    scenarios.push(sc);
+    scenarios.sort((a, b) =>
+      ((a.num == null ? 1e9 : a.num) - (b.num == null ? 1e9 : b.num))
+      || String(a.created_at || '').localeCompare(String(b.created_at || '')));
+  }
   persistLocal();
   render();
   map.refresh();
-  if (added[0]) centerOn(added[0].lat, added[0].lng);
+  if (first) centerOn(first.lat, first.lng);
 }
 
 async function unloadRoute() {
   const mine = routeStops();
   if (!mine.length) return;
-  if (!confirm(`Remove the “${ROUTE.name}” demo route — all ${mine.length} stops, their notes and their debriefs?`)) return;
+  if (!confirm(`Remove the “${ROUTE.name}” demo route — all ${mine.length} stops, their notes and debriefs, and the route's scenario row?`)) return;
   el('import-sheet').hidden = true;
-  if (Backend.enabled) {
-    try { await Backend.deleteDestinationsByRoute(ROUTE.id); } catch (e) { warn(e); return; }
-  }
   const ids = new Set(mine.map(d => d.id));
+  /* the route's own scenario (the loader pins it at a stop — nothing
+   * else ever points a scenario at a route stop) leaves with it */
+  const routeScs = scenarios.filter(sc => sc.destination_id && ids.has(sc.destination_id));
+  if (Backend.enabled) {
+    try {
+      for (const sc of routeScs) await Backend.deleteScenario(sc.id);
+      await Backend.deleteDestinationsByRoute(ROUTE.id);
+    } catch (e) { warn(e); return; }
+  }
+  scenarios = scenarios.filter(sc => !routeScs.includes(sc));
   destinations = destinations.filter(d => !ids.has(d.id));
-  /* a scenario pinned onto a route stop loses its pin — live, the
-   * foreign key does the same (on delete set null) */
-  scenarios.forEach(sc => { if (sc.destination_id && ids.has(sc.destination_id)) sc.destination_id = null; });
   persistLocal();
   render();
   map.refresh();
