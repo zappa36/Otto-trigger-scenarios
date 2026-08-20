@@ -68,6 +68,65 @@ const scenarioNumPrefix = d => {
  * as one confused one */
 const sentence = s => { const t = String(s || '').trim(); return /[.!?…]$/.test(t) ? t : t + '.'; };
 
+/* ---------- debrief language (🇬🇧 EN / 🇮🇹 IT) ----------
+ * Picked on the scenario card before a run, sticky per phone. It steers
+ * the whole debrief: the ElevenLabs conversation gets a language
+ * override (Otto listens AND answers in Italian — the language must be
+ * enabled on the agent and its security settings must allow the
+ * override), the scenario's "Otto says" line is translated once via
+ * scenario-ai and cached, and the keyless fallback speaks the question
+ * with a matching voice. English is the untouched original behavior:
+ * no override sent, the agent in its own default language. */
+const LS_LANG = 'od_lang';
+const LS_SAYS_IT = 'od_says_it';
+let testLang = 'en';
+try { if (localStorage.getItem(LS_LANG) === 'it') testLang = 'it'; } catch { /* private mode */ }
+/* the app's own spoken lines, in both languages — scenario text comes
+ * from the sheet and goes through the translator instead */
+const LANG_TEXT = {
+  en: {
+    ask: 'What did you find?',
+    plain: 'Tap the mic and tell me what you found.',
+    at: d => `This is ${d.title}${d.addr ? ' — ' + d.addr : ''}. What's the situation there? Tap the mic and describe what you see.`,
+  },
+  it: {
+    ask: 'Cosa hai trovato?',
+    plain: 'Tocca il microfono e dimmi cosa hai trovato.',
+    at: d => `Questa è ${d.title}${d.addr ? ' — ' + d.addr : ''}. Com'è la situazione lì? Tocca il microfono e descrivi cosa vedi.`,
+  },
+};
+/* "Otto says" in Italian, one scenario-ai call per line, cached forever
+ * (keyed by the English text, so an edited question re-translates). */
+let saysItCache = {};
+try { saysItCache = JSON.parse(localStorage.getItem(LS_SAYS_IT)) || {}; } catch { saysItCache = {}; }
+let translateDown = false; // one failed call = the function is missing/old; stop asking this session
+function prefetchSaysIt(sc) {
+  if (testLang !== 'it' || !sc || !sc.otto_says || !Backend.enabled || translateDown) return;
+  const src = stripQuotes(sc.otto_says);
+  if (!src || saysItCache[src]) return;
+  Backend.scenarioAI({ op: 'translate', text: src, to: 'it' }).then(d => {
+    const t = d && String(d.text || '').trim();
+    if (!t) return;
+    saysItCache[src] = t;
+    try { localStorage.setItem(LS_SAYS_IT, JSON.stringify(saysItCache)); } catch { /* full */ }
+  }).catch(e => {
+    translateDown = true;
+    console.warn('scenario-ai translate unavailable — the opening question stays English:', e.message || e);
+  });
+}
+/* The question as it should be SPOKEN right now, with the voice that
+ * matches it: the cached Italian when the tester picked 🇮🇹 and the
+ * translation has landed, the English original otherwise — an English
+ * line read by an Italian voice helps nobody. */
+function questionFor(sc) {
+  if (sc && sc.otto_says) {
+    const src = stripQuotes(sc.otto_says);
+    const it = testLang === 'it' ? saysItCache[src] : null;
+    return { text: resolveSays(it || src), lang: it ? 'it-IT' : 'en-US' };
+  }
+  return { text: LANG_TEXT[testLang].ask, lang: testLang === 'it' ? 'it-IT' : 'en-US' };
+}
+
 /* A scenario rule can carry its tunable numbers as {key} placeholders;
  * the dashboard's sliders edit them (sc.params). Resolve them for
  * display here — and feed the same numbers into the trigger detector
@@ -193,6 +252,9 @@ function startTracking(sc, d) {
    * said yes to. Ask now, on the pavement, not when the trigger fires in
    * traffic — a permission dialog nobody sees is a debrief lost. */
   OttoAgent.prime();
+  /* same idea for a 🇮🇹 run: fetch the translated question NOW, on the
+   * pavement — by the time the trigger fires it reads from the cache */
+  prefetchSaysIt(sc);
   ActivityRec.start();
   lastRun = null; // a new run makes the old verdict question stale
   el('verdict-banner').hidden = true;
@@ -528,7 +590,7 @@ function detectorStep(snap) {
  * is the one that finishes their answer. No banner to notice, no
  * screen to find — the whole point of a trigger is that Otto comes to
  * you. */
-function speakThen(text, done) {
+function speakThen(text, done, lang) {
   stopOttoAudio(); // one voice at a time — a reading clip in flight yields
   let called = false;
   const finish = () => {
@@ -553,7 +615,9 @@ function speakThen(text, done) {
     if (!('speechSynthesis' in window) || !text) { setTimeout(finish, 1200); return; }
     speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = 'en-US';
+    /* the caller says which language the TEXT is in — the browser then
+     * picks a voice that can actually pronounce it */
+    u.lang = lang || 'en-US';
     u.onend = finish;
     u.onerror = finish;
     speechSynthesis.speak(u);
@@ -662,8 +726,8 @@ function fireTrigger(t) {
 /* The keyless hands-free opener: the question spoken by the browser,
  * then the kit's own mic tapped for them. */
 function openingQuestion() {
-  const sc = tracking && tracking.sc;
-  speakThen(sc && sc.otto_says ? resolveSays(stripQuotes(sc.otto_says)) : 'What did you find?', () => {
+  const q = questionFor(tracking && tracking.sc);
+  speakThen(q.text, () => {
     if (el('otto-screen').hidden) return; // they backed out while Otto was talking
     /* live mode only: auto-tap the widget's own mic. The scripted demo
      * paces itself, and a demo that pretends to listen teaches wrong. */
@@ -673,7 +737,7 @@ function openingQuestion() {
       if (navigator.vibrate) navigator.vibrate([40, 60, 40]); // "listening now" — felt, not just seen
       mic.click();
     }
-  });
+  }, q.lang);
 }
 
 /* ---------- pre-arrival notes ----------
@@ -1079,11 +1143,10 @@ const voiceOpts = () => {
     },
     greeting: () => {
       const s = scenarioOf(current);
-      /* the sheet's "Otto says" column IS the debrief opener */
-      if (s && s.otto_says) return resolveSays(stripQuotes(s.otto_says));
-      return current
-        ? `This is ${current.title}${current.addr ? ' — ' + current.addr : ''}. What's the situation there? Tap the mic and describe what you see.`
-        : 'Tap the mic and tell me what you found.';
+      /* the sheet's "Otto says" column IS the debrief opener — in the
+       * card's chosen language once the translation has landed */
+      if (s && s.otto_says) return questionFor(s).text;
+      return current ? LANG_TEXT[testLang].at(current) : LANG_TEXT[testLang].plain;
     },
     demo: sc && sc.otto_says ? [
       { q: stripQuotes(sc.otto_says), a: 'Scripted demo answer — with the backend live you would answer by voice here.' },
@@ -1158,7 +1221,9 @@ function agentVars() {
     scenario_num: sc && sc.num != null ? sc.num : '',
     scenario_title: sc ? sc.title : '',
     scenario_version: sc ? (sc.version || 1) : '',
-    scenario_question: sc && sc.otto_says ? resolveSays(stripQuotes(sc.otto_says)) : '',
+    scenario_question: sc && sc.otto_says ? questionFor(sc).text : '',
+    /* the card's 🇬🇧/🇮🇹 pick, for prompts that want to name it */
+    debrief_language: testLang === 'it' ? 'Italian' : 'English',
     scenario_rule: sc ? fillParams(sc.rule, p) : '',
     scenario_ar_states: sc ? sc.ar_states || '' : '',
     scenario_signals: sc ? sc.signals || '' : '',
@@ -1207,6 +1272,9 @@ function agentBriefing() {
   }
   if (v.activity_summary) lines.push(`Activity the phone observed: ${v.activity_summary}.`);
   lines.push('Ask about what they actually found on the ground, keep it to a couple of short questions, and let them go.');
+  /* belt to the language override's braces: an agent whose prompt never
+   * mentions language still gets told, in words, which one this run is */
+  if (testLang === 'it') lines.push('This tester chose Italian: conduct the entire debrief in Italian — every question and reply.');
   return lines.join(' ');
 }
 
@@ -1220,6 +1288,7 @@ function mountOtto(recorderOnly) {
       ...voiceOpts(),
       vars: agentVars,
       briefing: agentBriefing,
+      language: () => testLang,
       onFallback() {
         voice = mountOtto(true);
         /* a trigger that fired still owes the tester its question */
@@ -1245,8 +1314,15 @@ function openOtto(d) {
     if ('speechSynthesis' in window) speechSynthesis.cancel();
   } catch { /* optional */ }
   el('card').hidden = true;
-  el('otto-dest').textContent = (d.stop != null ? 'Stop ' + d.stop + ' · ' : '') + scenarioNumPrefix(d) + d.title;
+  /* the flag rides along so mid-debrief there is no doubt which
+   * language this conversation was opened in */
+  el('otto-dest').textContent = (testLang === 'it' ? '🇮🇹 ' : '🇬🇧 ')
+    + (d.stop != null ? 'Stop ' + d.stop + ' · ' : '') + scenarioNumPrefix(d) + d.title;
   el('otto-screen').hidden = false;
+  /* a manual "Report to Otto" tap never went through startTracking —
+   * kick the translation off now; the connect handshake usually gives
+   * it enough of a head start, and English is the harmless fallback */
+  prefetchSaysIt(scenarioOf(d));
   voice.destroy();
   voice = mountOtto(false); // mount() starts it
 }
@@ -1374,6 +1450,11 @@ el('build').onclick = async () => {
   out.push('ElevenLabs agent: ' + (OttoAgent.agentId()
     ? (OttoAgent.available() ? 'ON — ' + OttoAgent.agentId() : 'configured but UNUSABLE here')
     : 'not configured — recorded debrief'));
+  /* the card's 🇬🇧/🇮🇹 pick — an Italian debrief that comes out English
+   * usually means the agent declined the language override */
+  out.push('debrief language: ' + (testLang === 'it'
+    ? 'ITALIAN — needs Italian + the "language" override enabled on the agent'
+    : 'ENGLISH (agent default)'));
   /* the reading voice for pre-arrival notes — probed live, because a
    * silent fallback in the field reads as "ElevenLabs spoke" */
   if (Backend.enabled) {
@@ -1452,6 +1533,24 @@ el('card-sc-start').onclick = () => {
   if (tracking) stopTracking();
   startTracking(sc, current);
 };
+/* the debrief language, picked before the run and sticky until changed —
+ * takes effect when the NEXT conversation opens, so flipping it after a
+ * trigger fired still applies to the retry, not the line already open */
+function renderLang() {
+  el('lang-en').classList.toggle('on', testLang !== 'it');
+  el('lang-it').classList.toggle('on', testLang === 'it');
+}
+function setLang(l) {
+  testLang = l;
+  try { localStorage.setItem(LS_LANG, l); } catch { /* private mode */ }
+  renderLang();
+  /* start translating the question(s) this pick will need */
+  prefetchSaysIt(current ? scenarioOf(current) : null);
+  if (tracking) prefetchSaysIt(tracking.sc);
+}
+el('lang-en').onclick = () => setLang('en');
+el('lang-it').onclick = () => setLang('it');
+renderLang();
 el('trigger-banner').onclick = () => {
   el('trigger-banner').hidden = true;
   if (tracking) openOtto(tracking.d);

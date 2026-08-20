@@ -305,6 +305,27 @@
     letter-spacing: .07em;
     color: #ffd95e;
   }
+  /* the debrief language — picked here, before the run; the whole
+     conversation (Otto's question, his ear, his replies) follows it */
+  #card-sc-lang {
+    display: inline-flex;
+    border: 1px solid rgba(255,217,94,.35);
+    border-radius: 9px;
+    overflow: hidden;
+  }
+  #card-sc-lang button {
+    padding: 8px 9px;
+    border: none;
+    background: transparent;
+    color: #ffd95e;
+    font-size: 11.5px;
+    line-height: 1.2;
+    cursor: pointer;
+    opacity: .45;
+    filter: grayscale(55%);
+  }
+  #card-sc-lang button + button { border-left: 1px solid rgba(255,217,94,.25); }
+  #card-sc-lang button.on { opacity: 1; filter: none; background: rgba(255,217,94,.16); }
 
   /* pre-arrival notes on file: consignee, floor, dispatcher notes —
      what Otto reads aloud on approach, kept readable at the door */
@@ -510,6 +531,10 @@
       <p id="card-sc-steps"></p>
       <div class="sc-track-row">
         <button id="card-sc-start" type="button">▶ Start test tracking</button>
+        <span id="card-sc-lang" role="group" aria-label="Debrief language — Otto asks, listens and answers in this language">
+          <button id="lang-en" type="button" title="Debrief in English">🇬🇧 EN</button>
+          <button id="lang-it" type="button" title="Debrief in Italian">🇮🇹 IT</button>
+        </span>
         <span id="card-sc-track"></span>
       </div>
     </div>

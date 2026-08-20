@@ -10,6 +10,10 @@
 //                 (+ recent structured debriefs) in; a proposed next
 //                 version out: changed fields, adjusted params, and a
 //                 one-line changelog note.
+// And one for the phone (app.js):
+//   op:"translate" — a scenario's spoken "Otto says" line in, the same
+//                 line in the debrief language the tester picked out
+//                 (🇮🇹 on the card), {placeholder} tokens untouched.
 //
 // Same conventions as voice-note: the OpenAI key lives ONLY in this
 // function's secrets, an origin allow-list stands between the internet
@@ -94,6 +98,18 @@ const DRAFT_SYSTEM =
   'verbatim; otherwise omit the key entirely. ' +
   DRAFT_EXAMPLE;
 
+/* One short spoken line at a time — the phone caches the result, so a
+ * scenario's question is translated once per language, not per run. */
+const TRANSLATE_LANGS: Record<string, string> = {
+  it: 'Italian', en: 'English', de: 'German', fr: 'French', es: 'Spanish',
+};
+const TRANSLATE_SYSTEM =
+  'You translate one short spoken line for Otto, a voice assistant that talks to delivery drivers. ' +
+  'Return ONLY JSON: {"text":string} — the line in the requested language, natural and speakable, ' +
+  'same tone and roughly the same length. Keep every {placeholder} token (e.g. {park_m}, {walk_m}) ' +
+  'EXACTLY as written, untranslated, placed where the grammar wants it. Keep numbers and units as ' +
+  'they are. Do not add surrounding quotes.';
+
 const REVISE_SYSTEM =
   'You tune field-test trigger scenarios for Otto, a voice assistant for delivery drivers. You get ' +
   'the current scenario (fields + tunable params + version), the tester\'s feedback notes from real ' +
@@ -151,8 +167,15 @@ Deno.serve(async (req) => {
         feedback: body.feedback.map((f: unknown) => String(f).slice(0, 1000)).slice(0, 10),
         recent_results: Array.isArray(body.results) ? body.results.slice(0, 5) : [],
       }).slice(0, 12000);
+    } else if (op === 'translate') {
+      const text = String(body.text || '').trim().slice(0, 500);
+      const to = TRANSLATE_LANGS[String(body.to || '').trim().toLowerCase()];
+      if (!text) return fail(400, 'no text');
+      if (!to) return fail(400, `"to" must be one of ${Object.keys(TRANSLATE_LANGS).join(', ')}`);
+      system = TRANSLATE_SYSTEM;
+      user = `Language: ${to}\nLine: ${text}`;
     } else {
-      return fail(400, 'op must be "draft" or "revise"');
+      return fail(400, 'op must be "draft", "revise" or "translate"');
     }
 
     const r = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -161,8 +184,9 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         // full 4o, not mini: drafting a faithful scenario from two vague
         // sentences is an instruction-following task mini gets wrong
-        // (it drifts to the most common scenario instead of the described one)
-        model: 'gpt-4o',
+        // (it drifts to the most common scenario instead of the described one).
+        // Translating one line is not that task — mini does it fine.
+        model: op === 'translate' ? 'gpt-4o-mini' : 'gpt-4o',
         response_format: { type: 'json_object' },
         max_tokens: 900,
         messages: [

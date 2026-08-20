@@ -305,6 +305,37 @@ works whether or not the agent's prompt was written for this app:
    settings; if it is not, the session reconnects once without it and
    the agent opens in its own words.)
 
+### The debrief language — 🇬🇧 EN / 🇮🇹 IT on the card
+
+Every scenario card carries a small **🇬🇧 EN / 🇮🇹 IT** switch next to
+"Start test tracking". Pick before you start; the choice is sticky per
+phone and steers the whole debrief:
+
+- **🇮🇹** — the conversation opens with a `language: it` override, so
+  the agent transcribes AND answers in Italian. The sheet's "Otto
+  says" line is translated once (scenario-ai's `op:"translate"`,
+  cached on the phone — `startTracking` prefetches it so the trigger
+  never waits), and the keyless fallback asks the question with an
+  Italian voice. The Otto screen shows the flag it opened with.
+- **🇬🇧** — exactly the behavior before the switch existed: no
+  override is sent and the agent runs in its own default language.
+
+Two one-time settings on the ElevenLabs side, both in the agent's
+dashboard: add **Italian** under the agent's *Languages*, and allow the
+**Language** override under its security → overrides settings (next to
+the *First message* override this app already uses). An agent that
+declines the overrides is reconnected without any of them — its own
+language, its own greeting — and the chip on the debrief screen names
+the missing setting. Redeploy `scenario-ai` to get the translated
+opener; without it the opener stays English while the conversation
+itself still runs in Italian.
+
+Degradation, as everywhere else: translation function missing →
+English opener, Italian conversation. Override declined → English
+conversation, chip says why. Recorded-debrief fallback → the question
+in Italian (device voice), the transcription auto-detects the language
+it hears; only the fallback's own spoken replies may stay English.
+
 What comes back is the same debrief as before: the tester's side of the
 conversation is the transcript, structured into the same title +
 category the dashboard matches against the expected tip type, filed
@@ -726,4 +757,4 @@ The composition happens entirely through the kits' public seams:
 | `voice-note.js/.css` | from voice-notes-kit + hands-free pause-to-send |
 | `geolocate.js`, `field-map.js/.css` | verbatim from field-map-kit |
 | `supabase/schema.sql` | `destinations` (incl. pre-arrival notes: consignee / floor / notes, and route / stop) + `messages` (incl. the agent conversation) + `scenarios` (incl. params / versions / feedback), RLS |
-| `supabase/functions/` | `voice-note` (kit + trailing-"stop" strip + a text path for agent conversations) + `geocode` (verbatim) + `scenario-ai` (draft & revise) + `elevenlabs-token` (signed URLs for a private agent) + `elevenlabs-tts` (the pre-arrival notes read in Otto's real voice) |
+| `supabase/functions/` | `voice-note` (kit + trailing-"stop" strip + a text path for agent conversations) + `geocode` (verbatim) + `scenario-ai` (draft, revise & the 🇮🇹 question translation) + `elevenlabs-token` (signed URLs for a private agent) + `elevenlabs-tts` (the pre-arrival notes read in Otto's real voice) |
