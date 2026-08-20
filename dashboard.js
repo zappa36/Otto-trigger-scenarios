@@ -430,6 +430,8 @@ function renderStats() {
   if (by.partial) verdicts.push(`${by.partial} partial`);
   if (by.fail) verdicts.push(`${by.fail} fail`);
   if (verdicts.length) parts.push(verdicts.join(' / '));
+  const fs = scenarios.filter(fromSheet).length;
+  if (fs && fs < scenarios.length) parts.push(`${fs} from the starter sheet`);
   const rt = routeStops();
   if (rt.length) {
     const noted = rt.filter(d => dispatchNotesOf(d).length).length;
@@ -801,6 +803,7 @@ function renderScenario(sc) {
           <h3>${esc(sc.title)}</h3>
           ${addrLine}
         </div>
+        ${fromSheet(sc) ? '<span class="origin" title="From the shipped starter sheet (trigger-scenarios.js). Rows without this tag were made on this dashboard — rename a starter row and it becomes yours too.">⇩ STARTER</span>' : ''}
         <span class="ver" title="${esc(sc.version_note || 'version')}">v${ver}</span>
         <span class="badge badge-${st.key}">${esc(st.label)}</span>
       </header>
@@ -1790,10 +1793,16 @@ async function runImport() {
  * number is already taken, the new rows are numbered after the list's
  * max instead — in sheet order, never doubling up a pin label. */
 const SHEET = window.TRIGGER_SHEET || null;
+const normTitle = t => String(t || '').trim().toLowerCase();
+const SHEET_TITLES = new Set(SHEET ? SHEET.scenarios.map(r => normTitle(r.title)) : []);
+/* A row is "the sheet's" exactly when the loader would skip it: same
+ * title. Rename one and it is yours — the ⇩ STARTER chip goes, and the
+ * loader offers the original row back. One identity rule, two faces. */
+const fromSheet = sc => SHEET_TITLES.has(normTitle(sc.title));
 const sheetMissing = () => {
   if (!SHEET) return [];
-  const have = new Set(scenarios.map(sc => String(sc.title || '').trim().toLowerCase()));
-  return SHEET.scenarios.filter(r => !have.has(r.title.trim().toLowerCase()));
+  const have = new Set(scenarios.map(sc => normTitle(sc.title)));
+  return SHEET.scenarios.filter(r => !have.has(normTitle(r.title)));
 };
 
 function renderSheetLink() {
