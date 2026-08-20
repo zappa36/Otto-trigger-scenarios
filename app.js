@@ -41,9 +41,16 @@ let current = null; // destination in the open card / Otto session
  * card, and Otto opens the debrief with the scenario's own question. */
 let scenarios = [];
 let scenarioByDest = {};
+let routeScenario = null; // the route's own scenario (pinned at one stop by the loader)
 const rebuildScenarioIndex = () => {
   scenarioByDest = {};
   scenarios.forEach(s => { if (s.destination_id) scenarioByDest[s.destination_id] = s; });
+  /* its reading-ring params (notes_radius / notes_rearm) drive EVERY
+   * stop of the route, not just the stop it happens to be pinned at */
+  routeScenario = scenarios.find(s => {
+    const d = s.destination_id && destinations.find(x => x.id === s.destination_id);
+    return d && d.route;
+  }) || null;
 };
 const scenarioOf = d => (d && scenarioByDest[d.id]) || null;
 const stripQuotes = s => String(s || '').trim().replace(/^[“”"']+/, '').replace(/[“”"']+$/, '');
@@ -681,7 +688,9 @@ const NOTES = {
  * trigger detector's knobs (the notes block offers to add the first
  * one); the NOTES defaults above are only the fallback. */
 function notesRadiiOf(d) {
-  const sc = scenarioOf(d);
+  /* a route stop without its own scenario reads the route scenario's
+   * rings — one slider on the dashboard retunes the whole tour */
+  const sc = scenarioOf(d) || (d.route ? routeScenario : null);
   const val = k => {
     const p = sc && Array.isArray(sc.params) ? sc.params.find(x => x && x.key === k) : null;
     const v = p && parseFloat(p.value);

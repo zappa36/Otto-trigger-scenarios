@@ -333,13 +333,20 @@ function centerOn(lat, lng) {
   Geo.simulate({ lat, lng });
   map.center();
 }
+/* The MEDIAN pin, not the mean: one scenario pinned in another country
+ * must not drag the opening view into an empty field between the pins
+ * — the map should open where most of the pins actually are. A loaded
+ * route counts too, so a route-heavy dashboard opens on the route. */
 function centerOnScenarios() {
-  let pins = scenarios.map(sc => sc.destination_id && destById(sc.destination_id)).filter(Boolean);
-  if (!pins.length) pins = destinations.filter(d => d.route); // a loaded route is a view too
+  const pins = scenarios.map(sc => sc.destination_id && destById(sc.destination_id)).filter(Boolean)
+    .concat(destinations.filter(d => d.route));
   if (!pins.length) { Geo.simulate({ lat: 52.5346, lng: 13.4109 }); return; }
-  const lat = pins.reduce((s, d) => s + d.lat, 0) / pins.length;
-  const lng = pins.reduce((s, d) => s + d.lng, 0) / pins.length;
-  Geo.simulate({ lat, lng });
+  const mid = list => {
+    const s = [...list].sort((a, b) => a - b);
+    const h = Math.floor(s.length / 2);
+    return s.length % 2 ? s[h] : (s[h - 1] + s[h]) / 2;
+  };
+  Geo.simulate({ lat: mid(pins.map(d => d.lat)), lng: mid(pins.map(d => d.lng)) });
 }
 
 /* ---------- load ---------- */
@@ -1801,14 +1808,23 @@ async function loadSample() {
 const ROUTE = window.DEMO_ROUTE || null;
 const routeStops = () => (ROUTE ? destinations.filter(d => d.route === ROUTE.id) : []);
 
+/* The route rides two controls: a header chip — a loader buried in a
+ * sheet is a loader nobody finds once the dashboard has scenarios —
+ * and the link in the import sheet next to the other seed data. */
 function renderRouteToggle() {
   const btn = el('route-toggle');
-  if (!ROUTE) { btn.hidden = true; return; }
+  const chip = el('route-chip');
+  if (!ROUTE) { btn.hidden = true; chip.hidden = true; return; }
   const n = routeStops().length;
   btn.hidden = false;
   btn.textContent = n
     ? `✕ remove the “${ROUTE.name}” demo route (${n} stops loaded)`
     : `…or load the “${ROUTE.name}” demo route — ${ROUTE.stops.length} ${ROUTE.area} stops with delivery + driver notes`;
+  chip.hidden = false;
+  chip.textContent = n ? `✕ ROUTE · ${n}` : '⇪ ROUTE';
+  chip.title = n
+    ? `Remove the “${ROUTE.name}” demo route — all ${n} stops and their notes`
+    : `Load the “${ROUTE.name}” demo route — ${ROUTE.stops.length} ${ROUTE.area} stops, delivery + driver notes on file`;
 }
 
 async function loadRoute() {
@@ -1836,25 +1852,60 @@ async function loadRoute() {
     added = rows.map(r => ({ ...r, id: localId('d'), created_at: at }));
   }
   destinations.push(...added);
+  /* the route is a scenario of its OWN — one row in the list to find
+   * it by, pinned at stop 1, with the reading rings as its tunable
+   * values. The phone applies those rings to EVERY stop of the route
+   * (notesRadiiOf in app.js), so this row is where the route is
+   * tuned, tested and judged — not a rider on someone else's row. */
+  const first = added[0];
+  if (first) {
+    const sc = await saveScenarioRow({
+      num: Math.max(0, ...scenarios.map(s => s.num || 0)) + 1,
+      title: `${ROUTE.name} route — drive the tour, Otto reads the notes`,
+      rule: 'Come within {notes_radius} m of any stop with notes on file — Otto reads consignee, floor, dispatch and driver notes aloud, once per approach; driving back out past {notes_rearm} m re-arms the reading.',
+      ar_states: 'IN_VEHICLE between stops; STILL / ON_FOOT at the door',
+      signals: 'GPS vs the stop pins; notes on file (dispatch + driver)',
+      timing: 'On approach — before the driver is at the door',
+      otto_says: '“Were the notes right — anything to correct for the next driver?”',
+      learns: 'ACCESS / INFO — corrections to the notes on file',
+      test_steps: `Drive the route in stop order (stop 1: ${first.title}). Otto reads ~{notes_radius} m ahead of each noted stop; ✕ on the banner stops a reading, and the phone's ROUTE chip hides the whole route for clean scenario tests.`,
+      params: [
+        { key: 'notes_radius', label: 'Notes read distance', value: 350, min: 50, max: 1000, step: 10, unit: 'm' },
+        { key: 'notes_rearm', label: 'Re-arm distance', value: 700, min: 100, max: 2000, step: 25, unit: 'm' },
+      ],
+      version: 1,
+      version_note: 'created with the route',
+      version_at: new Date().toISOString(),
+      destination_id: first.id,
+    });
+    scenarios.push(sc);
+    scenarios.sort((a, b) =>
+      ((a.num == null ? 1e9 : a.num) - (b.num == null ? 1e9 : b.num))
+      || String(a.created_at || '').localeCompare(String(b.created_at || '')));
+  }
   persistLocal();
   render();
   map.refresh();
-  if (added[0]) centerOn(added[0].lat, added[0].lng);
+  if (first) centerOn(first.lat, first.lng);
 }
 
 async function unloadRoute() {
   const mine = routeStops();
   if (!mine.length) return;
-  if (!confirm(`Remove the “${ROUTE.name}” demo route — all ${mine.length} stops, their notes and their debriefs?`)) return;
+  if (!confirm(`Remove the “${ROUTE.name}” demo route — all ${mine.length} stops, their notes and debriefs, and the route's scenario row?`)) return;
   el('import-sheet').hidden = true;
-  if (Backend.enabled) {
-    try { await Backend.deleteDestinationsByRoute(ROUTE.id); } catch (e) { warn(e); return; }
-  }
   const ids = new Set(mine.map(d => d.id));
+  /* the route's own scenario (the loader pins it at a stop — nothing
+   * else ever points a scenario at a route stop) leaves with it */
+  const routeScs = scenarios.filter(sc => sc.destination_id && ids.has(sc.destination_id));
+  if (Backend.enabled) {
+    try {
+      for (const sc of routeScs) await Backend.deleteScenario(sc.id);
+      await Backend.deleteDestinationsByRoute(ROUTE.id);
+    } catch (e) { warn(e); return; }
+  }
+  scenarios = scenarios.filter(sc => !routeScs.includes(sc));
   destinations = destinations.filter(d => !ids.has(d.id));
-  /* a scenario pinned onto a route stop loses its pin — live, the
-   * foreign key does the same (on delete set null) */
-  scenarios.forEach(sc => { if (sc.destination_id && ids.has(sc.destination_id)) sc.destination_id = null; });
   persistLocal();
   render();
   map.refresh();
@@ -1987,6 +2038,7 @@ el('import-cancel').onclick = () => { el('import-sheet').hidden = true; };
 el('import-go').onclick = runImport;
 el('import-sample').onclick = loadSample;
 el('route-toggle').onclick = () => (routeStops().length ? unloadRoute() : loadRoute());
+el('route-chip').onclick = () => (routeStops().length ? unloadRoute() : loadRoute());
 el('import-text').addEventListener('input', previewImport);
 el('addr-close').onclick = closeAddr;
 el('addr-input').addEventListener('input', e => onAddrInput(e.target.value));
