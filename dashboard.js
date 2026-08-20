@@ -728,6 +728,11 @@ function demoSpokenLines(sc, d) {
   return lines;
 }
 
+/* The person in the client's story is a driver — "tester" is workshop
+ * vocabulary that must not reach the DEMO view, however a rule was
+ * worded. Display-time only: the TESTING tab keeps the literal text. */
+const driverWord = t => String(t).replace(/\b([Tt])ester(s?)\b/g, (m, T, s) => (T === 'T' ? 'D' : 'd') + 'river' + s);
+
 function renderDemoBody(sc, d) {
   /* staged slider drags ride along, like everywhere on the card — what
    * is on screen in TESTING is what the demo retells */
@@ -742,9 +747,19 @@ function renderDemoBody(sc, d) {
   const spoken = d ? demoSpokenLines(sc, d) : [];
   /* the reading opens as the phone opens it (speakPreArrival in app.js),
    * with the ring where the reading starts standing in for the live
-   * distance */
+   * distance. Spoken by ADDRESS, not by pin name: a scenario pin is
+   * named after its scenario ("Inside the building"), which announces
+   * nonsense — "Str. delle Trincee 10, about 350 meters ahead" is what
+   * a driver would actually want to hear. */
   const spokenDist = m => (m < 1000 ? Math.round(m / 10) * 10 + ' meters' : (m / 1000).toFixed(1) + ' kilometers');
-  const head = d ? `Heads up — ${d.stop != null ? 'stop ' + d.stop + ', ' : ''}${d.title || shortTitle(sc)}, about ${spokenDist(radius)} ahead.` : '';
+  const spokenAddr = a => {
+    /* street and house number only — the postal tail ("37135 Verona VR,
+     * Italy") is for envelopes, not for speech */
+    const parts = String(a || '').split(/\s*,\s*/).filter(Boolean);
+    const cut = parts.findIndex(p => /^\d{4,}/.test(p));
+    return (cut > 0 ? parts.slice(0, cut) : parts).join(', ');
+  };
+  const head = d ? `Heads up — ${d.stop != null ? 'stop ' + d.stop + ', ' : ''}${spokenAddr(d.addr) || d.title || shortTitle(sc)}, about ${spokenDist(radius)} ahead.` : '';
   const answers = msgsOf(sc).filter(m => m && (m.transcript || m.title)).slice(0, 2);
   const story = String(sc.described || '').trim();
   const sayLine = (ico, text, meta) => `
@@ -759,10 +774,10 @@ function renderDemoBody(sc, d) {
       </div>
       <div class="demo-step trigger">
         <span class="addr-tag">2 · THE MOMENT — WHAT OTTO NOTICES</span>
-        ${story ? `<p class="demo-sub demo-story">${esc(story)}</p>` : ''}
-        ${sc.rule ? `<p class="demo-sub"><b>${story ? 'Detected as' : 'The trigger'}:</b> ${esc(fp(sc.rule))}</p>`
+        ${story ? `<p class="demo-sub demo-story"><b>The situation:</b> ${esc(driverWord(story))}</p>` : ''}
+        ${sc.rule ? `<p class="demo-sub"><b>${story ? 'Detected as' : 'The trigger'}:</b> ${esc(driverWord(fp(sc.rule)))}</p>`
     : story ? '' : '<p class="demo-empty">No trigger rule defined yet — edit the scenario in the TESTING tab.</p>'}
-        ${sc.timing ? `<p class="demo-sub"><b>When he speaks:</b> ${esc(fp(sc.timing))}</p>` : ''}
+        ${sc.timing ? `<p class="demo-sub"><b>When he speaks:</b> ${esc(driverWord(fp(sc.timing)))}</p>` : ''}
       </div>
       <div class="demo-step asks">
         <span class="addr-tag">3 · OTTO ASKS — ONE QUESTION, HANDS-FREE</span>
