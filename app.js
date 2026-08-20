@@ -789,8 +789,13 @@ const notesOnFile = d => {
 };
 /* what other drivers left behind: the debriefs already filed against
  * the pin — the structured title where Otto made one, the raw words
- * otherwise. Demo rows stay out: nothing counts them as real data. */
-const driverReportsOf = d => (messagesByDest[d.id] || []).filter(m => m && !m.demo && (m.title || m.transcript));
+ * otherwise. Demo rows stay out: nothing counts them as real data.
+ * Sorted here, not trusted from insertion order: boot unshifts a
+ * newest-first backend page (reversing it), live reports unshift on
+ * top — only an explicit sort keeps "newest" actually newest. */
+const driverReportsOf = d => (messagesByDest[d.id] || [])
+  .filter(m => m && !m.demo && (m.title || m.transcript))
+  .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
 
 /* a bare "3" in the floor field should not be read as "three" */
 const speakFloor = f => (/^\d+$/.test(String(f).trim()) ? 'floor ' + String(f).trim() : String(f).trim());
