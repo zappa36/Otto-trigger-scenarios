@@ -71,9 +71,11 @@ The loop:
    **Street View** links; the pin lands on the live map and on every
    tester's phone. A scenario without an address is flagged loudly —
    it cannot be tested.
-3. **Test** — on the phone, the destination card carries the scenario's
-   "how to test it" steps, and Otto opens the debrief with the scenario's
-   own question (the "Otto says" column). The phone is the tester's
+3. **Test** — on the phone, pin label and card title lead with the
+   scenario's own number ("#3 · Short stop"), the same number the
+   dashboard's list and pins lead with, the destination card carries the
+   scenario's "how to test it" steps, and Otto opens the debrief with
+   the scenario's own question (the "Otto says" column). The phone is the tester's
    surface only: destinations are defined and managed on the dashboard,
    and the phone's old add-a-destination sheet is gone.
 4. **Compare** — the dashboard puts the definition (**defined — what

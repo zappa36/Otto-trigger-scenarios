@@ -55,6 +55,14 @@ const rebuildScenarioIndex = () => {
 const scenarioOf = d => (d && scenarioByDest[d.id]) || null;
 const stripQuotes = s => String(s || '').trim().replace(/^[“”"']+/, '').replace(/[“”"']+$/, '');
 const scenarioShort = sc => String(sc.title || '').split(/\s+—\s+|\s+-\s+/)[0].trim();
+/* "#3 · " — the sheet row's number. The dashboard leads with it on its
+ * pins and list rows; pin labels and card titles here lead with the
+ * same one, so "test #3" is findable on the phone without opening
+ * every card. */
+const scenarioNumPrefix = d => {
+  const sc = scenarioOf(d);
+  return sc && sc.num != null && sc.num !== '' ? '#' + sc.num + ' · ' : '';
+};
 /* sheet cells and notes rarely end in a full stop; text that gets
  * spoken or stitched into a briefing needs one, or two sentences read
  * as one confused one */
@@ -1012,7 +1020,7 @@ const map = FieldMap.mount({
       const done = reportedIds.has(d.id);
       return {
         id: d.id, lat: d.lat, lng: d.lng,
-        label: (done ? '✓ ' : '') + (d.stop != null ? d.stop + ' · ' : '')
+        label: (done ? '✓ ' : '') + (d.stop != null ? d.stop + ' · ' : '') + scenarioNumPrefix(d)
           + String(d.title || 'Destination').toUpperCase().slice(0, 22),
         color: done ? '70,211,154' : '255,107,107',
         labelColor: done ? '#7ce0b8' : '#ff9b9b',
@@ -1237,7 +1245,7 @@ function openOtto(d) {
     if ('speechSynthesis' in window) speechSynthesis.cancel();
   } catch { /* optional */ }
   el('card').hidden = true;
-  el('otto-dest').textContent = (d.stop != null ? 'Stop ' + d.stop + ' · ' : '') + d.title;
+  el('otto-dest').textContent = (d.stop != null ? 'Stop ' + d.stop + ' · ' : '') + scenarioNumPrefix(d) + d.title;
   el('otto-screen').hidden = false;
   voice.destroy();
   voice = mountOtto(false); // mount() starts it
@@ -1261,7 +1269,7 @@ function closeOtto() {
 /* ---------- destination card ---------- */
 function openCard(d) {
   current = d;
-  el('card-title').textContent = (d.stop != null ? 'Stop ' + d.stop + ' · ' : '') + d.title;
+  el('card-title').textContent = (d.stop != null ? 'Stop ' + d.stop + ' · ' : '') + scenarioNumPrefix(d) + d.title;
   el('card-addr').textContent = d.addr || `${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}`;
   updateCardDistance();
   el('card-dir').href = dirUrl(d);
@@ -1272,7 +1280,7 @@ function openCard(d) {
   const sc = scenarioOf(d);
   el('card-scenario').hidden = !sc;
   if (sc) {
-    el('card-sc-name').textContent = (sc.num != null ? '#' + sc.num + ' · ' : '') + sc.title
+    el('card-sc-name').textContent = scenarioNumPrefix(d) + sc.title
       + ((sc.version || 1) > 1 ? ' · v' + sc.version : '');
     const steps = fillParams(sc.test_steps || sc.rule || '', sc.params);
     el('card-sc-steps').textContent = steps;
