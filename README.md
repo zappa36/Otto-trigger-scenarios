@@ -99,6 +99,13 @@ old single-sample load gains only the nine missing rows). Each row
 still needs its test address after loading — the sheet is situations,
 not places, and a scenario without a pin is flagged loudly.
 
+Loaded rows wear a **⇩ STARTER** chip in the list, so the sheet's rows
+and the dashboard's own stay tellable apart, and the header counts the
+split ("10 from the starter sheet") whenever the list is mixed. The
+chip follows the same identity the loader skips by — the title — so
+renaming a starter row makes it yours: the chip goes, and the loader
+offers the original row back.
+
 Together the ten walk one delivery front to back — the approach, the
 park, the door, the handover — and end on a control:
 
