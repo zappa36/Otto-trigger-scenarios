@@ -101,10 +101,14 @@ not places, and a scenario without a pin is flagged loudly.
 
 Loaded rows wear a **⇩ STARTER** chip in the list, so the sheet's rows
 and the dashboard's own stay tellable apart, and the header counts the
-split ("10 from the starter sheet") whenever the list is mixed. The
-chip follows the same identity the loader skips by — the title — so
-renaming a starter row makes it yours: the chip goes, and the loader
-offers the original row back.
+split ("10 from the starter sheet") whenever the list is mixed. A
+mixed list also splits into **two tabs** — YOUR SCENARIOS / ⇩ STARTER
+SHEET — a per-browser view choice like the ROUTE chip: the map keeps
+every pin, and opening a row that lives in the other tab (a pin
+click, a load, a paste) switches there by itself. Chip and tabs
+follow the same identity the loader skips by — the title — so
+renaming a starter row makes it yours: the chip goes, the row moves
+to your tab, and the loader offers the original back.
 
 Together the ten walk one delivery front to back — the approach, the
 park, the door, the handover — and end on a control:

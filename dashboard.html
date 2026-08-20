@@ -123,6 +123,27 @@
   /* ---------- scenario list ---------- */
   .list { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 
+  /* two tabs when the list is mixed: the dashboard's own rows / the starter sheet's */
+  .tabs { display: flex; gap: 8px; }
+  .tab {
+    flex: none;
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(140,165,200,.25);
+    background: rgba(8,18,16,.8);
+    color: #94a1b2;
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 10px;
+    letter-spacing: .1em;
+    cursor: pointer;
+  }
+  .tab:hover { border-color: rgba(60,192,224,.5); color: #cfe9f2; }
+  .tab.on {
+    border-color: rgba(60,192,224,.55);
+    background: rgba(60,192,224,.1);
+    color: #7fd6ea;
+  }
+
   .sc {
     border-radius: 16px;
     border: 1px solid rgba(140,165,200,.18);
