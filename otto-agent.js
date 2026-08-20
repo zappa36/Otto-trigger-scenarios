@@ -24,9 +24,11 @@
  *
  * It is YOUR agent: the prompt, the voice and the tools are
  * whatever you built in ElevenLabs. Nothing here overrides the
- * prompt — only the opening line, and only because the scenario
- * owns that line. (If the agent's security settings do not allow
- * a first-message override, the session retries without it.)
+ * prompt — only the opening line, because the scenario owns that
+ * line, and the conversation language when the tester picked one
+ * on the card (🇬🇧/🇮🇹 — the language must be enabled on the agent
+ * AND its security settings must allow both overrides; on refusal
+ * the session retries once with no overrides at all).
  *
  * The mount seams are VoiceNote's, so app.js swaps one for the
  * other: mount({ el, context, greeting, extra, onSaved }) and
@@ -93,6 +95,9 @@ const OttoAgent = (() => {
     think: ['Saving…', 'Filing the debrief against the pin'],
     done: ['Saved', 'The dashboard compares this with the scenario'],
     error: ['Otto could not connect', 'Tap to try the recorded debrief instead'],
+    /* the line DID connect — it just heard no words to file. Saying
+     * "could not connect" here sent testers hunting the wrong problem. */
+    empty: ['Nothing was filed', 'Tap to talk to Otto again'],
   };
 
   /* A conversation is metered by the minute at both ends of the wire, so
@@ -238,6 +243,9 @@ const OttoAgent = (() => {
     const opt = {
       el: '#otto', assistant: 'Otto',
       context: () => '', greeting: null, vars: () => ({}), briefing: () => '',
+      /* ISO code ('it') to run THIS conversation in — '' / 'en' sends no
+       * override and the agent stays in its own default language */
+      language: () => '',
       extra: () => ({}), onSaved: null, onError: null, onFallback: null,
       ...(options || {}),
     };
@@ -255,7 +263,7 @@ const OttoAgent = (() => {
     const state = {
       ws: null, stream: null, inCtx: null, node: null, src: null,
       turns: [], phase: 'connect', ending: false, saved: false, dead: false, opened: false,
-      allowOverrides: true, tried: 0, lastVoice: 0, timers: [],
+      allowOverrides: true, wantsLanguage: false, tried: 0, lastVoice: 0, timers: [],
       inFmt: { codec: 'pcm', rate: 16000 }, outFmt: { codec: 'pcm', rate: 16000 },
       queue: [], playHead: 0,
     };
@@ -436,13 +444,22 @@ const OttoAgent = (() => {
         dynamic_variables[k] = typeof v === 'number' || typeof v === 'boolean' ? v : String(v);
       });
       const payload = { type: 'conversation_initiation_client_data', dynamic_variables };
-      /* The scenario owns the opening line ("Otto says" on the sheet) —
-       * that is the one thing overridden, and only if the agent's
-       * security settings allow it (retried without on refusal). The
-       * prompt, the voice and the tools stay exactly as built. */
+      /* Two things overridden, both only if the agent's security settings
+       * allow it (retried without on refusal): the opening line, because
+       * the scenario owns it ("Otto says" on the sheet), and the
+       * conversation language, because the tester picked it on the card.
+       * 'en' is not sent — that is the agent's own default, and an
+       * override the agent has not allowed would cost the opening line
+       * for nothing. The prompt, voice and tools stay exactly as built. */
+      const agent = {};
       let first = '';
       try { first = String((opt.greeting && opt.greeting()) || '').trim(); } catch { first = ''; }
-      if (first && state.allowOverrides) payload.conversation_config_override = { agent: { first_message: first } };
+      if (first) agent.first_message = first;
+      let lang = '';
+      try { lang = String((opt.language && opt.language()) || '').trim().toLowerCase(); } catch { lang = ''; }
+      if (lang && lang !== 'en') agent.language = lang;
+      state.wantsLanguage = !!agent.language;
+      if (Object.keys(agent).length && state.allowOverrides) payload.conversation_config_override = { agent };
       return payload;
     }
 
@@ -545,8 +562,11 @@ const OttoAgent = (() => {
           const why = String(e.reason || '');
           if (state.opened && state.allowOverrides && state.tried < 2 && !state.turns.length) {
             state.allowOverrides = false;
-            console.warn('OttoAgent: reconnecting without the first-message override' + (why ? ' — ' + why : ''));
-            chip('AGENT DECLINED THE OPENING LINE');
+            console.warn('OttoAgent: reconnecting without the overrides' + (why ? ' — ' + why : ''));
+            /* a declined language override is fixable — name the fix */
+            chip(state.wantsLanguage
+              ? 'OVERRIDES DECLINED — ALLOW "LANGUAGE" IN THE AGENT\'S SECURITY SETTINGS'
+              : 'AGENT DECLINED THE OPENING LINE');
             stopMic();
             connect();
             return;
@@ -584,10 +604,19 @@ const OttoAgent = (() => {
     async function finish() {
       if (state.ending || state.saved) return;
       state.ending = true;
+      const said = () => state.turns.some(t => t.from === 'me');
+      /* Transcripts arrive a beat after the words: a tester who answers
+       * and taps END in the same breath would have their whole debrief
+       * still in flight — closing the socket now files "nothing was
+       * said". Hold the line open a moment and let it land. */
+      if (!said() && state.ws && state.ws.readyState === 1) {
+        render(null, 'think');
+        await new Promise(r => setTimeout(r, 2000));
+      }
       teardown();
       const spoken = state.turns.filter(t => t.from === 'me').map(t => t.text).join(' ').trim();
       if (!spoken) {
-        render({ from: 'ai', text: 'Nothing was said, so there is nothing to file. Tap to talk to Otto again.' }, 'error');
+        render({ from: 'ai', text: 'Nothing was said, so there is nothing to file. Tap to talk to Otto again.' }, 'empty');
         ui.mic.hidden = false;
         state.ending = false;
         state.tried = 0;
@@ -674,7 +703,7 @@ const OttoAgent = (() => {
 
     ui.mic.addEventListener('click', () => {
       if (state.phase === 'listening' || state.phase === 'speaking') { finish(); return; }
-      if (state.phase === 'error') { state.tried = 0; state.allowOverrides = true; connect(); }
+      if (state.phase === 'error' || state.phase === 'empty') { state.tried = 0; state.allowOverrides = true; connect(); }
     });
 
     const api = {
