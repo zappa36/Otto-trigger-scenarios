@@ -218,6 +218,47 @@
   .sc-body { padding: 2px 16px 16px; border-top: 1px solid rgba(140,165,200,.12); }
   .sc-body[hidden] { display: none; }
 
+  /* ---------- DEMO / TESTING — the two faces of an open card ---------- */
+  .sc-tabs { margin-top: 13px; }
+
+  /* the demo view: the scenario as the driver's ride, one step per block */
+  .demo-step {
+    margin-top: 13px;
+    padding: 12px 14px;
+    border-radius: 13px;
+    border: 1px solid rgba(140,165,200,.14);
+    background: rgba(140,165,200,.04);
+  }
+  .demo-step.reads   { border-color: rgba(60,192,224,.3);  background: rgba(60,192,224,.05); }
+  .demo-step.reads .addr-tag   { color: #7fd6ea; }
+  .demo-step.trigger { border-color: rgba(124,140,255,.3); background: rgba(124,140,255,.05); }
+  .demo-step.trigger .addr-tag { color: #aab6ff; }
+  .demo-step.asks    { border-color: rgba(255,217,94,.32); background: rgba(255,217,94,.05); }
+  .demo-step.asks .addr-tag    { color: #ffd95e; }
+  .demo-step.heard   { border-color: rgba(70,211,154,.28); background: rgba(70,211,154,.04); }
+  .demo-step.heard .addr-tag   { color: #7ce0b8; }
+  .say-line {
+    display: flex;
+    flex-wrap: wrap; /* a narrow screen drops the meta under the words, never squeezes them */
+    align-items: baseline;
+    gap: 5px 9px;
+    margin-top: 7px;
+    padding: 8px 11px;
+    border-radius: 10px;
+    border: 1px solid rgba(140,165,200,.13);
+    background: rgba(7,13,22,.5);
+    font-size: 13px;
+  }
+  .say-ico { flex: none; }
+  .say-text { flex: 1; min-width: 180px; white-space: pre-wrap; }
+  .say-line .note-meta { margin-left: auto; }
+  .demo-quote { margin: 6px 0 0; font-size: 15.5px; font-style: italic; color: #ffe9ad; }
+  .demo-sub { margin: 7px 0 0; font-size: 12.5px; color: #d7dfe9; white-space: pre-wrap; }
+  .demo-story { font-size: 13.5px; color: #eef2f7; }
+  .demo-sub b { color: #aab6ff; }
+  .demo-sub .cmp-k { margin-bottom: 4px; }
+  .demo-empty { margin: 6px 0 0; font-size: 12.5px; color: #94a1b2; }
+
   /* the address block — deliberately loud: this is where the test happens */
   .addr-block {
     margin-top: 13px;

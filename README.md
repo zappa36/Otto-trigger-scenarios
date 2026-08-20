@@ -88,6 +88,21 @@ Statuses roll up in the header and colour the pins: *needs address* →
 *awaiting test* (red, like the phone) → *debriefed · n* (cyan) → verdict
 (green / amber / orange).
 
+### DEMO / TESTING — the card's two faces
+
+An open card carries two tabs. **⚙ TESTING** is everything above — the
+loop's full workbench. **▶ DEMO** retells the same scenario for a
+client across the table (a parcel company's management, not its
+drivers): the spoken pre-arrival briefing exactly as the phone builds
+it — consignee and floor, dispatch notes, what earlier drivers
+reported — then the moment the trigger watches for, Otto's question
+and the tip type it files, and the answers that actually came back.
+Read-only by design: no inputs, no sliders, no verdict buttons, and
+the header sheds its workshop chrome too (version, starter chip,
+delete — only a verdict badge survives). One choice for the whole
+dashboard, kept per browser like the list tabs — flip to DEMO once
+and every card is ready for the meeting.
+
 ## The starter sheet — ten scenarios on file
 
 [`trigger-scenarios.js`](trigger-scenarios.js) ships the "Otto triggers"
