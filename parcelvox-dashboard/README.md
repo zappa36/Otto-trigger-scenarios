@@ -40,15 +40,22 @@ pipeline stays untouched and there is no build step to break. If the app ever
 earns a real build on Vercel, delete the root copy and teach
 `scripts/vercel-build.sh` to run the two commands above instead.
 
+The deployed page shape also carries `<script src="config.js"></script>`, so the
+same deploy-time-injected Supabase values the phone and the trigger dashboard read
+reach this page too — that is the whole live hookup
+([details](#connected-to-the-real-app-map-and-notes)). Locally the placeholders
+leave it keyless and the store is the shared localStorage instead.
+
 The bundler writes a second file, `dist/parcelvox-dashboard.artifact.html` — the
 same page as a body fragment, for publishing to a Claude Artifact, which supplies
-its own document wrapper. Deploy the first; publish the second.
+its own document wrapper. Deploy the first; publish the second (it has no
+`config.js` and stays in sample mode by design).
 
 ## The six views
 
 | View | What it does |
 | --- | --- |
-| **Map** (default) | Citywide Berlin view — all 8 routes fanning out from the Nordhaven depot, Rte 14 highlighted, amber pins on stops whose tips are going stale, and Kranweg 12 marked with Otto's orb. The Ask panel beside it is the primary pane. |
+| **Map** (default) | Live when the surrounding app has stops on file: the real destinations from the shared store, framed on the data — route lines in driving order, amber pins where pre-arrival notes wait, green where a driver debriefed; click a stop to read and edit its notes ([see below](#connected-to-the-real-app-map-and-notes)). Empty store → the fictional citywide sample: all 8 routes fanning out from the Nordhaven depot, Rte 14 highlighted, Kranweg 12 marked with Otto's orb. The Ask panel beside it is the primary pane either way. |
 | **Routes** | Coverage, failed stops and ETA accuracy per route, with a note on every route that runs late. Rows open the route detail. |
 | **Route detail** | Rte 14 stop by stop: tips on file, last confirmed, and the last four Mondays. |
 | **Curation queue** | Tips from Otto debriefs awaiting review — approve, edit or reject. The nav badge tracks what is left. |
@@ -56,29 +63,58 @@ its own document wrapper. Deploy the first; publish the second.
 | **Analytics** | ETA accuracy, failed stops by cause, capture rate by route, tip freshness. |
 | **Ask** | Plain-language questions answered from the approved knowledge base, by voice or text. |
 
+## Connected to the real app: map and notes
+
+The two surfaces around this repo — the phone (`index.html`) and the trigger-scenarios dashboard
+(`dashboard.html`) — share one store of destinations and pre-arrival notes. The dispatcher
+dashboard's **Map view reads and writes that same store**, through `src/otto/depot.ts`, which
+mirrors the app's `backend.js` and decides once at load:
+
+- **Supabase**, when the deployed page carries real values in `config.js` (the standalone bundle
+  loads it from its own origin; deploy-time injection fills it — see [How it ships](#how-it-ships)).
+  Reads poll every 30 s, REST only, exactly like `dashboard.js`; writes `PATCH` the
+  `destinations` row.
+- **localStorage** otherwise, under the same keys the other two pages use (`od_destinations` /
+  `od_messages`). Same origin means same store: load the Schöneberg demo route on
+  `dashboard.html` and this map goes live off the storage event, no reload.
+
+With stops on file, the map frames itself on the data and draws the real thing: route lines in
+driving order, flat dots for plain stops (green once a driver has debriefed), standing **amber
+pins where pre-arrival notes are on file**. Click any stop and the **stop panel** opens — every
+parcel behind that door, its consignee and floor (editable), the dispatch notes Otto reads aloud
+on approach (add and remove them right here), and the latest real driver debriefs, read-only. A
+note added here is read out on the driver's phone on its next approach; scenario pins outside
+the Berlin frame are counted in the legend rather than drawn.
+
+An empty store is not an error: the map falls back to the fictional sample below, labelled as
+such. The artifact build ships no `config.js` and stays on the sample by design.
+
 ## What is real and what is scripted
 
-Everything on screen is fictional sample data — Nordhaven depot, its routes, drivers and stops do
-not exist. Two things are genuinely live:
+Beyond the [live map and notes](#connected-to-the-real-app-map-and-notes), everything on screen is
+fictional sample data — Nordhaven depot, its routes, drivers and stops do not exist. Two more
+things are genuinely live:
 
-- **The map.** Real Berlin district geometry, projected with `d3-geo` and tilted back in CSS
-  perspective; pins counter-rotate to stand upright on the plane. The geometry is vendored at
+- **The map geometry.** Real Berlin district shapes, projected with `d3-geo` and tilted back in
+  CSS perspective; pins counter-rotate to stand upright on the plane. The geometry is vendored at
   `public/data/berliner-bezirke.geojson` — see its [attribution](public/data/ATTRIBUTION.md).
-- **The interactions.** Nav, route drill-in, map tip-type filters, queue approve/edit/reject with
+- **The interactions.** Nav, route drill-in, map filters, queue approve/edit/reject with
   undo, and both chat threads all work against local state.
 
 **Otto's answers are scripted**, not generated — `src/data/chat.ts` matches a question to a canned
 answer and falls back when nothing matches. The voice capture is a scripted transcript too; no
-microphone is ever opened. The UI says so where a viewer could be misled.
+microphone is ever opened. The UI says so where a viewer could be misled — in live mode the Ask
+panel labels itself a scripted demo, and the sidebar chip says which parts are real.
 
 ## Layout
 
 ```
 src/
   App.tsx              shell: left nav + view switch
-  components/          BerlinMap, Chat bubbles, Composer, VoiceCapture, OttoOrb, Icons, EtaTrendChart
+  components/          BerlinMap, StopPanel (the live stop sheet), Chat bubbles, Composer, VoiceCapture, OttoOrb, Icons, EtaTrendChart
   views/               one file per view, each with its CSS module
   data/                sample content — routes, stops, queue, drivers, analytics, map geometry, chat script
+  otto/                the wire to the real app: depot.ts (shared store, Supabase / localStorage), doors.ts (door + route grouping), useDepot
   hooks/               useOttoThread (scripted conversation), useVoiceCapture (timer + partial transcript)
   state/               useCurationQueue (review state behind the nav badge)
   styles/              tokens.css (palette, type, motion) and shared.module.css (cards, tables, chips, meters)

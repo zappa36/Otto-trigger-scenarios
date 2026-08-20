@@ -96,6 +96,28 @@
   background: var(--pv-honey);
 }
 
+.legendDotGreen {
+  width: 9px;
+  height: 9px;
+  border-radius: 99px;
+  background: var(--pv-green);
+}
+
+.legendDotPlain {
+  width: 9px;
+  height: 9px;
+  border-radius: 99px;
+  background: #fff;
+  border: 1.5px solid var(--pv-route-grey);
+}
+
+.legendNote {
+  border-top: 1px solid var(--pv-line-soft);
+  margin-top: 9px;
+  padding-top: 9px;
+  color: var(--pv-muted-3);
+}
+
 .legendSquare {
   width: 9px;
   height: 9px;

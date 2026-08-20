@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { geoArea, geoMercator, geoPath } from 'd3-geo';
 import { line as d3line } from 'd3-shape';
 import type { Feature, FeatureCollection, Geometry } from 'geojson';
@@ -12,6 +12,7 @@ import {
   type MapPin,
 } from '../data/map';
 import type { TipCategory } from '../data/queue';
+import { doorLabel, type DepotDoor, type DepotRouteLine } from '../otto/doors';
 import { OttoOrb } from './OttoOrb';
 import styles from './BerlinMap.module.css';
 
@@ -75,12 +76,28 @@ function useElementSize<T extends HTMLElement>() {
   return [ref, size] as const;
 }
 
-interface BerlinMapProps {
-  /** Null shows every stale-tip pin; otherwise only pins with that tip type. */
-  filter: TipCategory | null;
+/** The real app's stops, when the shared store has any — replaces the sample. */
+export interface LiveScene {
+  doors: DepotDoor[];
+  routes: DepotRouteLine[];
+  /**
+   * Every in-frame door, unfiltered — what the projection is fitted to. A real
+   * route is one neighbourhood, unreadable at the citywide fit; and framing on
+   * the unfiltered set keeps the camera still while filters come and go.
+   */
+  frame: LngLat[];
+  selectedKey: string | null;
+  onSelectDoor: (key: string) => void;
 }
 
-export function BerlinMap({ filter }: BerlinMapProps) {
+interface BerlinMapProps {
+  /** Null shows every stale-tip pin; otherwise only pins with that tip type. Sample mode only. */
+  filter: TipCategory | null;
+  /** When set, the map draws the depot's real stops instead of the fictional sample. */
+  live?: LiveScene | null;
+}
+
+export function BerlinMap({ filter, live }: BerlinMapProps) {
   const [tiltRef, { width, height }] = useElementSize<HTMLDivElement>();
   const [geo, setGeo] = useState<FeatureCollection | null>(null);
   const [failed, setFailed] = useState(false);
@@ -108,16 +125,46 @@ export function BerlinMap({ filter }: BerlinMapProps) {
     };
   }, []);
 
+  const liveDoors = live ? live.doors : null;
+  const liveRoutes = live ? live.routes : null;
+  const liveFrame = live ? live.frame : null;
+
+  /* Selection is deliberately NOT a dependency — picking a door restyles
+   * pins without re-projecting a hundred of them. */
   const scene = useMemo(() => {
     if (!geo || width === 0 || height === 0) return null;
 
-    const projection = geoMercator().fitExtent(
-      [
-        [-width * 0.04, -height * 0.05],
-        [width * 1.04, height * 1.05],
-      ],
-      geo,
-    );
+    const projection = geoMercator();
+    if (liveFrame && liveFrame.length > 0) {
+      /* Fit the stops, not the city: a real route is one neighbourhood.
+       * A padded bbox with a minimum span keeps a single pin from zooming
+       * to a degenerate scale; the Bezirk plane just extends past the card. */
+      const lngs = liveFrame.map((p) => p[0]);
+      const lats = liveFrame.map((p) => p[1]);
+      const padLng = Math.max((Math.max(...lngs) - Math.min(...lngs)) * 0.18, 0.012);
+      const padLat = Math.max((Math.max(...lats) - Math.min(...lats)) * 0.18, 0.008);
+      projection.fitExtent(
+        [
+          [width * 0.04, height * 0.07],
+          [width * 0.96, height * 0.96],
+        ],
+        {
+          type: 'MultiPoint',
+          coordinates: [
+            [Math.min(...lngs) - padLng, Math.min(...lats) - padLat],
+            [Math.max(...lngs) + padLng, Math.max(...lats) + padLat],
+          ],
+        },
+      );
+    } else {
+      projection.fitExtent(
+        [
+          [-width * 0.04, -height * 0.05],
+          [width * 1.04, height * 1.05],
+        ],
+        geo,
+      );
+    }
     const path = geoPath(projection);
     const project = (at: LngLat) => projection(at) ?? [0, 0];
     const routeLine = d3line<LngLat>()
@@ -132,6 +179,23 @@ export function BerlinMap({ filter }: BerlinMapProps) {
       const [dx, dy] = DISTRICT_LABEL_OFFSETS[name] ?? [0, 0];
       return [{ name, d, x: centroid[0] + dx, y: centroid[1] + dy }];
     });
+
+    if (liveDoors && liveRoutes) {
+      return {
+        districts,
+        live: {
+          routes: liveRoutes.map((route) => {
+            const [sx, sy] = project(route.points[0]);
+            return { id: route.id, d: routeLine(route.points) ?? '', labelX: sx + 9, labelY: sy - 9 };
+          }),
+          doors: liveDoors.map((door) => {
+            const [x, y] = project(door.at);
+            return { door, x, y };
+          }),
+        },
+        sample: null,
+      };
+    }
 
     const routes = MAP_ROUTES.map((route) => {
       const last = route.stops[route.stops.length - 1];
@@ -152,14 +216,24 @@ export function BerlinMap({ filter }: BerlinMapProps) {
 
     return {
       districts,
-      routes,
-      depot: project(DEPOT),
-      pins: MAP_ROUTES.flatMap((route) => route.pins).map(placePin),
-      otto: placePin(KRANWEG),
+      live: null,
+      sample: {
+        routes,
+        depot: project(DEPOT),
+        pins: MAP_ROUTES.flatMap((route) => route.pins).map(placePin),
+        otto: placePin(KRANWEG),
+      },
     };
-  }, [geo, width, height]);
+  }, [geo, width, height, liveDoors, liveRoutes, liveFrame]);
 
   const visible = (pin: MapPin) => filter === null || pin.categories.includes(filter);
+
+  const selectDoor = (key: string) => live && live.onSelectDoor(key);
+  const doorKeyDown = (key: string) => (e: KeyboardEvent) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    selectDoor(key);
+  };
 
   return (
     <div className={styles.stage}>
@@ -172,7 +246,11 @@ export function BerlinMap({ filter }: BerlinMapProps) {
               height={height}
               viewBox={`0 0 ${width} ${height}`}
               role="img"
-              aria-label="Berlin, with all eight routes fanning out from the Nordhaven depot and Rte 14 highlighted"
+              aria-label={
+                scene.live
+                  ? `Berlin, with the depot's ${scene.live.doors.length} stops from the dispatch board`
+                  : 'Berlin, with all eight routes fanning out from the Nordhaven depot and Rte 14 highlighted'
+              }
             >
               <g>
                 {scene.districts.map((district) => (
@@ -216,85 +294,176 @@ export function BerlinMap({ filter }: BerlinMapProps) {
                 ))}
               </g>
 
-              {scene.routes.map((route) => (
-                <path
-                  key={route.id}
-                  d={route.d}
-                  fill="none"
-                  stroke={route.highlighted ? 'var(--pv-green)' : 'var(--pv-route-grey)'}
-                  strokeWidth={route.highlighted ? 3.5 : 2.5}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  opacity={route.highlighted ? 1 : 0.65}
-                />
-              ))}
-              {scene.routes.map((route) => (
-                <text
-                  key={`${route.id}-label`}
-                  x={route.labelX}
-                  y={route.labelY}
-                  fontFamily="Inter, sans-serif"
-                  fontSize={route.highlighted ? 11.5 : 11}
-                  fontWeight={route.highlighted ? 700 : 600}
-                  fill={route.highlighted ? 'var(--pv-green-dark)' : 'var(--pv-muted-2)'}
-                  style={{ paintOrder: 'stroke', stroke: 'var(--pv-map-land)', strokeWidth: 4 }}
-                >
-                  {route.id}
-                </text>
-              ))}
+              {scene.sample && (
+                <>
+                  {scene.sample.routes.map((route) => (
+                    <path
+                      key={route.id}
+                      d={route.d}
+                      fill="none"
+                      stroke={route.highlighted ? 'var(--pv-green)' : 'var(--pv-route-grey)'}
+                      strokeWidth={route.highlighted ? 3.5 : 2.5}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      opacity={route.highlighted ? 1 : 0.65}
+                    />
+                  ))}
+                  {scene.sample.routes.map((route) => (
+                    <text
+                      key={`${route.id}-label`}
+                      x={route.labelX}
+                      y={route.labelY}
+                      fontFamily="Inter, sans-serif"
+                      fontSize={route.highlighted ? 11.5 : 11}
+                      fontWeight={route.highlighted ? 700 : 600}
+                      fill={route.highlighted ? 'var(--pv-green-dark)' : 'var(--pv-muted-2)'}
+                      style={{ paintOrder: 'stroke', stroke: 'var(--pv-map-land)', strokeWidth: 4 }}
+                    >
+                      {route.id}
+                    </text>
+                  ))}
 
-              <rect
-                x={scene.depot[0] - 4.5}
-                y={scene.depot[1] - 4.5}
-                width={9}
-                height={9}
-                rx={3}
-                fill="var(--pv-ink)"
-                stroke="#FFFFFF"
-                strokeWidth={2}
-              />
-              <text
-                x={scene.depot[0] - 9}
-                y={scene.depot[1] + 16}
-                textAnchor="end"
-                fontFamily="Inter, sans-serif"
-                fontSize={10.5}
-                fontWeight={600}
-                fill="var(--pv-ink-2)"
-                style={{ paintOrder: 'stroke', stroke: 'var(--pv-map-land)', strokeWidth: 4 }}
-              >
-                {DEPOT_LABEL}
-              </text>
+                  <rect
+                    x={scene.sample.depot[0] - 4.5}
+                    y={scene.sample.depot[1] - 4.5}
+                    width={9}
+                    height={9}
+                    rx={3}
+                    fill="var(--pv-ink)"
+                    stroke="#FFFFFF"
+                    strokeWidth={2}
+                  />
+                  <text
+                    x={scene.sample.depot[0] - 9}
+                    y={scene.sample.depot[1] + 16}
+                    textAnchor="end"
+                    fontFamily="Inter, sans-serif"
+                    fontSize={10.5}
+                    fontWeight={600}
+                    fill="var(--pv-ink-2)"
+                    style={{ paintOrder: 'stroke', stroke: 'var(--pv-map-land)', strokeWidth: 4 }}
+                  >
+                    {DEPOT_LABEL}
+                  </text>
+                </>
+              )}
+
+              {scene.live && (
+                <>
+                  {scene.live.routes.map((route) => (
+                    <path
+                      key={route.id}
+                      d={route.d}
+                      fill="none"
+                      stroke="var(--pv-green)"
+                      strokeWidth={3}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      opacity={0.9}
+                    />
+                  ))}
+                  {scene.live.routes.map((route) => (
+                    <text
+                      key={`${route.id}-label`}
+                      x={route.labelX}
+                      y={route.labelY}
+                      fontFamily="Inter, sans-serif"
+                      fontSize={11.5}
+                      fontWeight={700}
+                      fill="var(--pv-green-dark)"
+                      style={{ paintOrder: 'stroke', stroke: 'var(--pv-map-land)', strokeWidth: 4 }}
+                    >
+                      {route.id}
+                    </text>
+                  ))}
+
+                  {/* Doors without notes lie flat on the plane; a click stands them up. */}
+                  {scene.live.doors
+                    .filter(({ door }) => !door.hasNotes && door.key !== live?.selectedKey)
+                    .map(({ door, x, y }) => (
+                      <g
+                        key={door.key}
+                        className={styles.doorDot}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={doorLabel(door)}
+                        onClick={() => selectDoor(door.key)}
+                        onKeyDown={doorKeyDown(door.key)}
+                      >
+                        <title>{doorLabel(door)}</title>
+                        <circle
+                          cx={x}
+                          cy={y}
+                          r={4.5}
+                          fill={door.debriefed ? 'var(--pv-green)' : '#fff'}
+                          stroke={door.debriefed ? '#fff' : 'var(--pv-route-grey)'}
+                          strokeWidth={1.6}
+                        />
+                      </g>
+                    ))}
+                </>
+              )}
             </svg>
 
-            {visible(scene.otto) && (
+            {scene.sample && visible(scene.sample.otto) && (
               <div
                 className={`${styles.pin} ${styles.ottoPin}`}
-                style={{ left: scene.otto.x, top: scene.otto.y }}
+                style={{ left: scene.sample.otto.x, top: scene.sample.otto.y }}
               >
                 <div className={styles.pinShadow} />
                 <div className={styles.pinUp}>
-                  <div className={styles.chip}>{scene.otto.stop}</div>
+                  <div className={styles.chip}>{scene.sample.otto.stop}</div>
                   <OttoOrb variant="pin" />
                   <div className={styles.pinStem} />
                 </div>
               </div>
             )}
 
-            {scene.pins.filter(visible).map((pin) => (
-              <div
-                key={pin.stop}
-                className={styles.pin}
-                style={{ left: pin.x, top: pin.y }}
-                title={`${pin.stop} — tips going stale`}
-              >
-                <div className={styles.pinShadow} />
-                <div className={styles.pinUp}>
-                  <div className={styles.pinHead} />
-                  <div className={styles.pinStem} />
+            {scene.sample &&
+              scene.sample.pins.filter(visible).map((pin) => (
+                <div
+                  key={pin.stop}
+                  className={styles.pin}
+                  style={{ left: pin.x, top: pin.y }}
+                  title={`${pin.stop} — tips going stale`}
+                >
+                  <div className={styles.pinShadow} />
+                  <div className={styles.pinUp}>
+                    <div className={styles.pinHead} />
+                    <div className={styles.pinStem} />
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+
+            {/* Standing pins: amber where notes are on file, and whichever door is open. */}
+            {scene.live &&
+              scene.live.doors
+                .filter(({ door }) => door.hasNotes || door.key === live?.selectedKey)
+                .map(({ door, x, y }) => {
+                  const selected = door.key === live?.selectedKey;
+                  return (
+                    <div
+                      key={door.key}
+                      className={`${styles.pin} ${styles.livePin} ${selected ? styles.pinSelected : ''}`}
+                      style={{ left: x, top: y }}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={doorLabel(door)}
+                      title={door.hasNotes ? `${doorLabel(door)} — notes on file` : doorLabel(door)}
+                      onClick={() => selectDoor(door.key)}
+                      onKeyDown={doorKeyDown(door.key)}
+                    >
+                      <div className={styles.pinShadow} />
+                      <div className={styles.pinUp}>
+                        {selected && <div className={styles.chip}>{doorLabel(door)}</div>}
+                        <div
+                          className={`${styles.pinHead} ${door.hasNotes ? '' : styles.pinHeadPlain}`}
+                        />
+                        <div className={styles.pinStem} />
+                      </div>
+                    </div>
+                  );
+                })}
           </>
         )}
       </div>
