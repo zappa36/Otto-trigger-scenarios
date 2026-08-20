@@ -1,5 +1,13 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { geoArea, geoMercator, geoPath } from 'd3-geo';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
+import { geoArea, geoMercator, geoPath, type GeoProjection } from 'd3-geo';
 import { line as d3line } from 'd3-shape';
 import type { Feature, FeatureCollection, Geometry } from 'geojson';
 import {
@@ -57,6 +65,13 @@ function districtLabel(feature: Feature<Geometry>): string {
     '';
   return String(raw).split(/[-\s]/)[0].toUpperCase();
 }
+
+/* Keep in sync with --tilt and scale() in BerlinMap.module.css — pointer
+ * deltas arrive in screen px, and the plane lives behind that transform. */
+const TILT_SCALE = 1.18;
+const TILT_COS = Math.cos((40 * Math.PI) / 180);
+
+const clampK = (k: number) => Math.min(60, Math.max(0.4, k));
 
 function useElementSize<T extends HTMLElement>() {
   const ref = useRef<T>(null);
@@ -129,6 +144,25 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
   const liveRoutes = live ? live.routes : null;
   const liveFrame = live ? live.frame : null;
 
+  /* Manual camera. null = the automatic fit; k is a multiple of the fitted
+   * scale, so ⌖ and a fresh data set mean the same thing at k = 1. */
+  const [camera, setCamera] = useState<{ center: LngLat; k: number } | null>(null);
+  /* An in-flight drag is a pure CSS translate of the plane (in plane px) —
+   * the projection is recomputed once, on release. */
+  const [panPx, setPanPx] = useState<[number, number] | null>(null);
+  const dragRef = useRef<{ sx: number; sy: number; moved: boolean } | null>(null);
+  const suppressClick = useRef(false);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const projectionRef = useRef<GeoProjection | null>(null);
+  const baseScaleRef = useRef(1);
+  const sizeRef = useRef({ w: 0, h: 0 });
+  sizeRef.current = { w: width, h: height };
+
+  /* Switching between the sample and the live data is a different world —
+   * a camera aimed at one makes no sense over the other. */
+  const liveOn = !!(liveDoors && liveRoutes);
+  useEffect(() => setCamera(null), [liveOn]);
+
   /* Selection is deliberately NOT a dependency — picking a door restyles
    * pins without re-projecting a hundred of them. */
   const scene = useMemo(() => {
@@ -136,13 +170,21 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
 
     const projection = geoMercator();
     if (liveFrame && liveFrame.length > 0) {
-      /* Fit the stops, not the city: a real route is one neighbourhood.
-       * A padded bbox with a minimum span keeps a single pin from zooming
-       * to a degenerate scale; the Bezirk plane just extends past the card. */
-      const lngs = liveFrame.map((p) => p[0]);
-      const lats = liveFrame.map((p) => p[1]);
-      const padLng = Math.max((Math.max(...lngs) - Math.min(...lngs)) * 0.18, 0.012);
-      const padLat = Math.max((Math.max(...lats) - Math.min(...lats)) * 0.18, 0.008);
+      /* Fit the stops, not the city — and not the strays: with enough
+       * doors, clip the frame to the 6th–94th percentile per axis so a
+       * couple of far-out scenario pins don't stretch the whole view
+       * (they stay reachable by panning and zooming out). A padded
+       * minimum span keeps a single pin from a degenerate scale. */
+      const q = (sorted: number[], p: number) => sorted[Math.round(p * (sorted.length - 1))];
+      const lngs = liveFrame.map((p) => p[0]).sort((a, b) => a - b);
+      const lats = liveFrame.map((p) => p[1]).sort((a, b) => a - b);
+      const [lo, hi] = liveFrame.length >= 20 ? [0.06, 0.94] : [0, 1];
+      const minLng = q(lngs, lo);
+      const maxLng = q(lngs, hi);
+      const minLat = q(lats, lo);
+      const maxLat = q(lats, hi);
+      const padLng = Math.max((maxLng - minLng) * 0.18, 0.012);
+      const padLat = Math.max((maxLat - minLat) * 0.18, 0.008);
       projection.fitExtent(
         [
           [width * 0.04, height * 0.07],
@@ -151,8 +193,8 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
         {
           type: 'MultiPoint',
           coordinates: [
-            [Math.min(...lngs) - padLng, Math.min(...lats) - padLat],
-            [Math.max(...lngs) + padLng, Math.max(...lats) + padLat],
+            [minLng - padLng, minLat - padLat],
+            [maxLng + padLng, maxLat + padLat],
           ],
         },
       );
@@ -165,6 +207,14 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
         geo,
       );
     }
+    baseScaleRef.current = projection.scale();
+    if (camera) {
+      projection
+        .center(camera.center)
+        .translate([width / 2, height / 2])
+        .scale(baseScaleRef.current * camera.k);
+    }
+    projectionRef.current = projection;
     const path = geoPath(projection);
     const project = (at: LngLat) => projection(at) ?? [0, 0];
     const routeLine = d3line<LngLat>()
@@ -224,7 +274,82 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
         otto: placePin(KRANWEG),
       },
     };
-  }, [geo, width, height, liveDoors, liveRoutes, liveFrame]);
+  }, [geo, width, height, liveDoors, liveRoutes, liveFrame, camera]);
+
+  /* The camera as the projection currently sees it, so wheel, buttons and
+   * drags compose with whatever the fit produced. Reads refs only. */
+  const cameraNow = (): { center: LngLat; k: number } | null => {
+    const proj = projectionRef.current;
+    const { w, h } = sizeRef.current;
+    if (!proj || !proj.invert || !w || !h) return null;
+    const center = proj.invert([w / 2, h / 2]);
+    return center ? { center: center as LngLat, k: proj.scale() / baseScaleRef.current } : null;
+  };
+  const cameraRef = useRef(cameraNow);
+  cameraRef.current = cameraNow;
+
+  const zoomBy = (factor: number) => {
+    const cam = cameraNow();
+    if (cam) setCamera({ center: cam.center, k: clampK(cam.k * factor) });
+  };
+
+  /* Wheel needs a native non-passive listener — a synthetic onWheel can't
+   * preventDefault the page scroll. */
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const cam = cameraRef.current();
+      if (cam) setCamera({ center: cam.center, k: clampK(cam.k * Math.exp(-e.deltaY * 0.0016)) });
+    };
+    stage.addEventListener('wheel', onWheel, { passive: false });
+    return () => stage.removeEventListener('wheel', onWheel);
+  }, []);
+
+  /* Screen-px pointer delta → plane px (the tilt scales x, foreshortens y). */
+  const planeDelta = (
+    e: { clientX: number; clientY: number },
+    d: { sx: number; sy: number },
+  ): [number, number] => [
+    (e.clientX - d.sx) / TILT_SCALE,
+    (e.clientY - d.sy) / (TILT_SCALE * TILT_COS),
+  ];
+
+  const onPointerDown = (e: ReactPointerEvent) => {
+    if (e.button !== 0) return;
+    /* A fresh press is a fresh intent — the previous drag's suppression must
+     * not survive to eat this press's click (the browser doesn't always fire
+     * a click at the end of a drag, so the flag can't count on being consumed). */
+    suppressClick.current = false;
+    dragRef.current = { sx: e.clientX, sy: e.clientY, moved: false };
+  };
+  const onPointerMove = (e: ReactPointerEvent) => {
+    const d = dragRef.current;
+    if (!d) return;
+    if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 4) return;
+    d.moved = true;
+    setPanPx(planeDelta(e, d));
+  };
+  const endPan = (e: ReactPointerEvent) => {
+    const d = dragRef.current;
+    dragRef.current = null;
+    if (!d || !d.moved) return;
+    suppressClick.current = true; // the release lands on a pin — that's not a pick
+    const [pdx, pdy] = planeDelta(e, d);
+    const proj = projectionRef.current;
+    const { w, h } = sizeRef.current;
+    const cam = cameraNow();
+    const center = proj && proj.invert && w && h ? proj.invert([w / 2 - pdx, h / 2 - pdy]) : null;
+    if (center && cam) setCamera({ center: center as LngLat, k: clampK(cam.k) });
+    setPanPx(null); // batched with setCamera — the committed projection replaces the preview
+  };
+  const onClickCapture = (e: ReactMouseEvent) => {
+    if (!suppressClick.current) return;
+    suppressClick.current = false;
+    e.preventDefault();
+    e.stopPropagation();
+  };
 
   const visible = (pin: MapPin) => filter === null || pin.categories.includes(filter);
 
@@ -236,10 +361,23 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
   };
 
   return (
-    <div className={styles.stage}>
+    <div
+      className={`${styles.stage} ${panPx ? styles.dragging : ''}`}
+      ref={stageRef}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endPan}
+      onPointerCancel={endPan}
+      onPointerLeave={endPan}
+      onClickCapture={onClickCapture}
+    >
       <div className={styles.tilt} ref={tiltRef}>
-        {scene && (
-          <>
+        <div
+          className={styles.content}
+          style={panPx ? { transform: `translate(${panPx[0]}px, ${panPx[1]}px)` } : undefined}
+        >
+          {scene && (
+            <>
             <svg
               className={styles.svg}
               width={width}
@@ -464,8 +602,30 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
                     </div>
                   );
                 })}
-          </>
-        )}
+            </>
+          )}
+        </div>
+      </div>
+      <div className={styles.controls}>
+        <button type="button" aria-label="Zoom in" title="Zoom in" onClick={() => zoomBy(1.5)}>
+          +
+        </button>
+        <button
+          type="button"
+          aria-label="Zoom out"
+          title="Zoom out"
+          onClick={() => zoomBy(1 / 1.5)}
+        >
+          −
+        </button>
+        <button
+          type="button"
+          aria-label="Fit the stops"
+          title="Back to the fitted view"
+          onClick={() => setCamera(null)}
+        >
+          ⌖
+        </button>
       </div>
       {failed && <div className={styles.message}>Map data unavailable</div>}
     </div>

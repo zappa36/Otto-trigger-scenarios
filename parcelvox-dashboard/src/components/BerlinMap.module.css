@@ -11,6 +11,14 @@
   inset: 0;
   perspective: 1900px;
   --tilt: 40deg;
+  /* the map pans and zooms — pointer gestures belong to it */
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+}
+
+.dragging {
+  cursor: grabbing;
 }
 
 .tilt {
@@ -19,6 +27,49 @@
   transform: rotateX(var(--tilt)) scale(1.18);
   transform-origin: 50% 58%;
   transform-style: preserve-3d;
+}
+
+/* Everything drawn on the plane; an in-flight drag translates this layer,
+ * the projection catches up on release. preserve-3d keeps the pins'
+ * counter-rotation alive through the extra wrapper. */
+.content {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+}
+
+.controls {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.controls button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--pv-line);
+  border-radius: 9px;
+  background: var(--pv-surface);
+  color: var(--pv-ink-2);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: var(--pv-shadow-sm);
+}
+
+.controls button:hover {
+  border-color: var(--pv-line-hover);
+  color: var(--pv-ink);
+}
+
+.controls button:focus-visible {
+  outline: 2px solid var(--pv-green);
+  outline-offset: 1px;
 }
 
 .svg {
