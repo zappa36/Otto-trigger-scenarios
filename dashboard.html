@@ -197,6 +197,24 @@
   .badge-partial  { color: #ffd95e; border-color: rgba(255,217,94,.45); background: rgba(255,217,94,.09); }
   .badge-fail     { color: #ffab8a; border-color: rgba(255,120,69,.5);  background: rgba(255,120,69,.1); }
 
+  /* the row's own delete — quiet until hovered, so a list of 17 doesn't
+   * read as a row of warnings; the same confirm guards it either way */
+  .sc-del {
+    flex: none;
+    width: 26px; height: 26px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    border: 1px solid rgba(140,165,200,.22);
+    background: none;
+    color: #8b97a8;
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .sc-del:hover { color: #ff9b9b; border-color: rgba(255,107,107,.5); background: rgba(255,107,107,.08); }
+
   .sc-body { padding: 2px 16px 16px; border-top: 1px solid rgba(140,165,200,.12); }
   .sc-body[hidden] { display: none; }
 
