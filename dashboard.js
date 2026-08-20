@@ -769,7 +769,7 @@ function renderDemoBody(sc, d) {
       </div>
       <div class="demo-step trigger">
         <span class="addr-tag">2 · THE MOMENT — WHAT OTTO NOTICES</span>
-        ${story ? `<p class="demo-sub demo-story">${esc(story)}</p>` : ''}
+        ${story ? `<p class="demo-sub demo-story"><b>The situation:</b> ${esc(story)}</p>` : ''}
         ${sc.rule ? `<p class="demo-sub"><b>${story ? 'Detected as' : 'The trigger'}:</b> ${esc(fp(sc.rule))}</p>`
     : story ? '' : '<p class="demo-empty">No trigger rule defined yet — edit the scenario in the TESTING tab.</p>'}
         ${sc.timing ? `<p class="demo-sub"><b>When he speaks:</b> ${esc(fp(sc.timing))}</p>` : ''}
