@@ -728,6 +728,11 @@ function demoSpokenLines(sc, d) {
   return lines;
 }
 
+/* The person in the client's story is a driver — "tester" is workshop
+ * vocabulary that must not reach the DEMO view, however a rule was
+ * worded. Display-time only: the TESTING tab keeps the literal text. */
+const driverWord = t => String(t).replace(/\b([Tt])ester(s?)\b/g, (m, T, s) => (T === 'T' ? 'D' : 'd') + 'river' + s);
+
 function renderDemoBody(sc, d) {
   /* staged slider drags ride along, like everywhere on the card — what
    * is on screen in TESTING is what the demo retells */
@@ -769,10 +774,10 @@ function renderDemoBody(sc, d) {
       </div>
       <div class="demo-step trigger">
         <span class="addr-tag">2 · THE MOMENT — WHAT OTTO NOTICES</span>
-        ${story ? `<p class="demo-sub demo-story"><b>The situation:</b> ${esc(story)}</p>` : ''}
-        ${sc.rule ? `<p class="demo-sub"><b>${story ? 'Detected as' : 'The trigger'}:</b> ${esc(fp(sc.rule))}</p>`
+        ${story ? `<p class="demo-sub demo-story"><b>The situation:</b> ${esc(driverWord(story))}</p>` : ''}
+        ${sc.rule ? `<p class="demo-sub"><b>${story ? 'Detected as' : 'The trigger'}:</b> ${esc(driverWord(fp(sc.rule)))}</p>`
     : story ? '' : '<p class="demo-empty">No trigger rule defined yet — edit the scenario in the TESTING tab.</p>'}
-        ${sc.timing ? `<p class="demo-sub"><b>When he speaks:</b> ${esc(fp(sc.timing))}</p>` : ''}
+        ${sc.timing ? `<p class="demo-sub"><b>When he speaks:</b> ${esc(driverWord(fp(sc.timing)))}</p>` : ''}
       </div>
       <div class="demo-step asks">
         <span class="addr-tag">3 · OTTO ASKS — ONE QUESTION, HANDS-FREE</span>
