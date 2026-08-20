@@ -38,6 +38,7 @@ let tune = null;         // { id, params } — slider values not yet saved as a 
 let fbRec = null;        // { id, text, via, state } — the open feedback recorder
 let proposal = null;     // { id, changes, params, note, demo, fb_ids, none } — a proposed next version
 let proposalBusy = null; // scenario id while the revision round-trip runs
+let sayEdit = null;      // { id, text } — the card's "Otto asks" line, open for rewording in place
 
 const destById = id => destinations.find(d => d.id === id) || null;
 const localId = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -59,7 +60,7 @@ const notesEditing = () => {
   if (a && a.closest && a.closest('.notes-block')) return true;
   return [...document.querySelectorAll('[data-note-new]')].some(i => i.value.trim());
 };
-const uiBusy = () => !!(tune || fbRec || proposal || proposalBusy)
+const uiBusy = () => !!(tune || fbRec || proposal || proposalBusy || sayEdit)
   || !el('form-sheet').hidden || !el('stop-sheet').hidden || notesEditing();
 
 const persistLocal = () => {
@@ -682,6 +683,31 @@ function renderRuns(sc) {
     </div>`;
 }
 
+/* The debrief opener, editable in place: the AI drafts the question,
+ * the wording stays the designer's. ✎ swaps the quote for a box right
+ * on the card; saving cuts a manual-edit version, same as the form. */
+function renderSayRow(sc, ver) {
+  if (sayEdit && sayEdit.id === sc.id) return `
+    <div class="cmp-row">
+      <span class="cmp-k">Otto asks</span>
+      <div class="say-edit">
+        <textarea data-say-text placeholder="One short spoken question — the line Otto opens the debrief with">${esc(sayEdit.text)}</textarea>
+        <div class="say-edit-foot">
+          <button class="mini-btn accent" type="button" data-act="say-save">Save as v${ver + 1}</button>
+          <button class="mini-btn" type="button" data-act="say-cancel">Cancel</button>
+          <span class="say-hint">Spoken on the phone when this trigger fires — Enter saves, Esc cancels.</span>
+        </div>
+      </div>
+    </div>`;
+  if (!sc.otto_says) return '';
+  return `
+    <div class="cmp-row">
+      <span class="cmp-k">Otto asks</span>
+      <span class="cmp-v say">&ldquo;${esc(stripQuotes(sc.otto_says))}&rdquo;</span>
+      <button class="say-edit-open" type="button" data-act="say-edit" title="Reword the question right here — saved as v${ver + 1}">✎ edit</button>
+    </div>`;
+}
+
 function renderScenario(sc) {
   const st = statusOf(sc);
   const d = sc.destination_id && destById(sc.destination_id);
@@ -767,7 +793,7 @@ function renderScenario(sc) {
       <div class="compare">
         <div class="cmp-col cmp-defined">
           <h4>DEFINED — WHAT SHOULD HAPPEN</h4>
-          ${sc.otto_says ? `<div class="cmp-row"><span class="cmp-k">Otto asks</span><span class="cmp-v say">&ldquo;${esc(stripQuotes(sc.otto_says))}&rdquo;</span></div>` : ''}
+          ${renderSayRow(sc, ver)}
           ${sc.learns ? `<div class="cmp-row"><span class="cmp-k">Expected tip type</span><span class="tip-chip">${esc(sc.learns)}</span></div>` : ''}
           ${sc.ar_states ? `<div class="cmp-row"><span class="cmp-k">Expected activity (Google AR states)</span><span class="cmp-v mono-v">${esc(fp(sc.ar_states))}</span></div>` : ''}
           ${sc.test_steps ? `<div class="cmp-row"><span class="cmp-k">How to test it</span><span class="cmp-v">${esc(fp(sc.test_steps))}</span></div>` : ''}
@@ -871,6 +897,7 @@ async function deleteScenario(sc) {
     } catch { /* private mode */ }
   }
   if (expandedId === sc.id) expandedId = null;
+  if (sayEdit && sayEdit.id === sc.id) sayEdit = null; // a gone card must not hold auto-refresh
   persistLocal();
   render();
   map.refresh();
@@ -880,6 +907,27 @@ async function setVerdict(sc, v) {
   await patchScenario(sc, { verdict: sc.verdict === v ? null : v });
   render();
   map.refresh();
+}
+
+/* ---------- inline "Otto asks" edit ----------
+ * One click on the card, retype, Enter — the version trail records it
+ * as a manual edit, exactly as the form would have. */
+function openSayEdit(sc) {
+  sayEdit = { id: sc.id, text: stripQuotes(sc.otto_says) };
+  render();
+  const ta = el('list').querySelector(`[data-id="${CSS.escape(sc.id)}"] [data-say-text]`);
+  if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+}
+
+async function saveSayEdit(sc) {
+  if (!sayEdit || sayEdit.id !== sc.id) return;
+  const text = stripQuotes(sayEdit.text);
+  sayEdit = null;
+  /* emptied or unchanged: close without cutting a version — deleting
+   * the question outright is a form job, not a slip of the card */
+  if (!text || text === stripQuotes(sc.otto_says)) { render(); return; }
+  await saveNewVersion(sc, { otto_says: text }, 'Manual edit: Otto says');
+  render();
 }
 
 /* ---------- scenario form ---------- */
@@ -2068,6 +2116,9 @@ el('list').addEventListener('click', e => {
     else if (a === 'spec') exportSpec(sc);
     else if (a === 'note-add') addDestNote(sc, card);
     else if (a === 'notes-radius') addNotesRadiusParam(sc);
+    else if (a === 'say-edit') openSayEdit(sc);
+    else if (a === 'say-save') saveSayEdit(sc);
+    else if (a === 'say-cancel') { sayEdit = null; render(); }
     return;
   }
 
@@ -2088,6 +2139,10 @@ el('list').addEventListener('input', e => {
   if (e.target.classList.contains('tune-slider')) { onTuneInput(sc, card, e.target); return; }
   if (e.target.hasAttribute('data-fb-text')) {
     if (fbRec && fbRec.id === sc.id) fbRec.text = e.target.value;
+    return;
+  }
+  if (e.target.hasAttribute('data-say-text')) {
+    if (sayEdit && sayEdit.id === sc.id) sayEdit.text = e.target.value;
     return;
   }
   if (proposal && proposal.id === sc.id) {
@@ -2117,12 +2172,21 @@ el('list').addEventListener('change', e => {
   saveDestPatch(d, { [k]: v });
 });
 
-/* Enter in the note field adds it, like the button */
+/* Enter in the note field adds it, like the button; in the "Otto asks"
+ * box Enter saves and Esc cancels (Shift+Enter for a rare line break) */
 el('list').addEventListener('keydown', e => {
-  if (e.key !== 'Enter' || !(e.target.hasAttribute && e.target.hasAttribute('data-note-new'))) return;
-  e.preventDefault();
+  if (!e.target.hasAttribute) return;
   const card = e.target.closest('.sc');
   const sc = card && scenarios.find(x => x.id === card.dataset.id);
+  if (e.target.hasAttribute('data-say-text')) {
+    if (e.key === 'Escape') { sayEdit = null; render(); return; }
+    if (e.key !== 'Enter' || e.shiftKey) return;
+    e.preventDefault();
+    if (sc) saveSayEdit(sc);
+    return;
+  }
+  if (e.key !== 'Enter' || !e.target.hasAttribute('data-note-new')) return;
+  e.preventDefault();
   if (sc) addDestNote(sc, card);
 });
 

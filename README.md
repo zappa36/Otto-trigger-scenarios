@@ -103,7 +103,10 @@ dashboard runs that loop end to end:
    draft lands in the form to be edited before saving. The **test
    address is set right in the form** (search or paste coordinates; an
    address mentioned in the description comes back as a search to
-   confirm) — the separate picker only pops up if it was skipped.
+   confirm) — the separate picker only pops up if it was skipped. And
+   the drafted question stays yours after saving too: the card's **"Otto
+   asks" line edits in place** (✎ next to the quote — Enter saves, Esc
+   cancels), cut as a manual-edit version like any other change.
 2. **Tune with sliders.** An expanded scenario shows its tunable values
    as sliders; the rule text follows the drag live. Params whose keys
    match the detector's (`radius`, `passes_needed`, `stop_dwell_s`, …)

@@ -359,6 +359,27 @@
   }
   .cmp-v { font-size: 13px; white-space: pre-wrap; }
   .cmp-v.say { color: #dbe2ff; font-style: italic; }
+  /* the "Otto asks" line edits in place — ✎ swaps the quote for a box
+   * styled like the quote itself, so it reads as the same text */
+  .say-edit-open { background: none; border: none; padding: 0; margin-left: 8px; font-size: 11px; color: #8b97a8; cursor: pointer; }
+  .say-edit-open:hover { color: #cfe9f2; }
+  .say-edit textarea {
+    width: 100%;
+    min-height: 44px;
+    resize: vertical;
+    padding: 8px 10px;
+    border-radius: 9px;
+    border: 1px solid rgba(124,140,255,.4);
+    background: rgba(7,13,22,.7);
+    color: #dbe2ff;
+    font-size: 13px;
+    font-style: italic;
+    font-family: inherit;
+    outline: none;
+  }
+  .say-edit textarea:focus { border-color: rgba(124,140,255,.7); }
+  .say-edit-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 7px; }
+  .say-hint { font-size: 11px; color: #6d7a8c; flex: 1; min-width: 150px; }
   .tip-chip {
     display: inline-block;
     padding: 4px 9px;
