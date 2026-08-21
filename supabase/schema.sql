@@ -188,6 +188,16 @@ drop policy if exists "anyone adds messages" on public.messages;
 create policy "anyone adds messages" on public.messages
   for insert to anon, authenticated with check (true);
 
+-- the dashboard rewords and removes debriefs — a bad take must not
+-- ride into a client demo, or be read to the next driver
+drop policy if exists "anyone updates messages" on public.messages;
+create policy "anyone updates messages" on public.messages
+  for update to anon, authenticated using (true) with check (true);
+
+drop policy if exists "anyone deletes messages" on public.messages;
+create policy "anyone deletes messages" on public.messages
+  for delete to anon, authenticated using (true);
+
 drop policy if exists "anyone reads scenarios" on public.scenarios;
 create policy "anyone reads scenarios" on public.scenarios
   for select to anon, authenticated using (true);

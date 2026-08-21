@@ -38,6 +38,7 @@ let tune = null;         // { id, params } — slider values not yet saved as a 
 let fbRec = null;        // { id, text, via, state } — the open feedback recorder
 let proposal = null;     // { id, changes, params, note, demo, fb_ids, none } — a proposed next version
 let proposalBusy = null; // scenario id while the revision round-trip runs
+let msgEdit = null;      // { destId, i, title, transcript } — a debrief being reworded
 
 const destById = id => destinations.find(d => d.id === id) || null;
 const localId = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -64,7 +65,7 @@ const notesEditing = () => {
  * live. The state itself is kept (it lives JS-side), so flipping back to
  * TESTING restores drags, drafts and proposals exactly as left. */
 const uiBusy = () => !!proposalBusy
-  || (cardView !== 'demo' && !!(tune || fbRec || proposal))
+  || (cardView !== 'demo' && !!(tune || fbRec || proposal || msgEdit))
   || !el('form-sheet').hidden || !el('stop-sheet').hidden || notesEditing();
 
 const persistLocal = () => {
@@ -240,6 +241,58 @@ function tuneDiff(saved, cur) {
 /* ---------- status model ---------- */
 function msgsOf(sc) {
   return (sc.destination_id && messagesByDest[sc.destination_id]) || [];
+}
+
+/* ---------- debrief editing ----------
+ * What Otto filed is not sacred: a mumbled take, a wrong word, a test
+ * answer that must not be read to the next driver (or shown to a
+ * client) gets reworded or removed right where it is displayed. Rows
+ * are addressed by position in the card's own list — local-mode rows
+ * may carry no id — and the backend call goes by the row's id. */
+const persistMessagesLocal = () => {
+  if (Backend.enabled) return;
+  try {
+    localStorage.setItem(LS_MSGS, JSON.stringify([].concat(...Object.values(messagesByDest))));
+  } catch { /* private mode */ }
+};
+/* A live backend without the messages update/delete policies (a
+ * schema.sql behind this build) matches zero rows without erroring —
+ * an empty representation is the failure to report. */
+const msgPolicyHint = rows => {
+  if (!Array.isArray(rows) || rows.length) return;
+  el('stats').textContent = 'The change did not reach the messages table — it lacks the update/delete policies. Re-run supabase/schema.sql, then ↻ REFRESH.';
+};
+
+function deleteMessage(sc, i) {
+  const destId = sc.destination_id;
+  const list = (destId && messagesByDest[destId]) || [];
+  const m = list[i];
+  if (!m) return;
+  if (!confirm('Delete this debrief?\n\n' + String(m.title || m.transcript || '').slice(0, 120))) return;
+  messagesByDest[destId] = list.filter(x => x !== m);
+  msgEdit = null; // positions shifted — an open editor would rewrite the wrong row
+  if (Backend.enabled && m.id != null) Backend.deleteMessage(m.id).then(msgPolicyHint).catch(warn);
+  persistMessagesLocal();
+  render();
+  map.refresh(); // the badge and pin colour may drop back to AWAITING TEST
+}
+
+function saveMessageEdit() {
+  if (!msgEdit) return;
+  const list = (msgEdit.destId && messagesByDest[msgEdit.destId]) || [];
+  const m = list[msgEdit.i];
+  const patch = {
+    title: String(msgEdit.title || '').trim() || null,
+    transcript: String(msgEdit.transcript || '').trim() || null,
+  };
+  msgEdit = null;
+  /* both fields emptied is a delete in disguise — the × is the honest
+   * way to do that, so treat it as a cancel instead */
+  if (!m || (!patch.title && !patch.transcript)) { render(); return; }
+  Object.assign(m, patch);
+  if (Backend.enabled && m.id != null) Backend.updateMessage(m.id, patch).then(msgPolicyHint).catch(warn);
+  persistMessagesLocal();
+  render();
 }
 const runsOf = sc => runsByScenario[sc.id] || [];
 
@@ -459,8 +512,9 @@ function renderMessages(sc) {
       ? 'No debrief possible yet — set the address first so the scenario is on the tester\'s map.'
       : 'No debrief yet — run the test on the phone: open the pin, act out the scenario, then “Report to Otto”.'}</p>`;
   }
-  return list.map(m => {
+  return list.map((m, i) => {
     const match = catMatches(m.category, sc.learns);
+    const editing = msgEdit && msgEdit.destId === sc.destination_id && msgEdit.i === i;
     /* observed activity, if the phone was tracking (jsonb object from
      * Supabase, plain object from localStorage, string if hand-fed) */
     let trace = m.ar_trace;
@@ -480,9 +534,22 @@ function renderMessages(sc) {
           ${m.demo ? '<span class="msg-demo">DEMO</span>' : ''}
           ${m.via === 'elevenlabs' ? '<span class="msg-via" title="Debriefed by your ElevenLabs agent — a live conversation, not a recorded clip">◆ AGENT</span>' : ''}
           <span class="msg-time">${esc(fmtTime(m.created_at))}</span>
+          ${editing ? '' : `<button class="row-link" type="button" data-msg-edit="${i}" title="Reword what Otto filed — the phone reads this to the next driver">edit</button>
+          <button class="note-del" type="button" data-msg-del="${i}" title="Delete this debrief">×</button>`}
         </div>
+        ${editing ? `
+        <div class="msg-edit">
+          <label class="cmp-k">Filed title — what Otto reads to the next driver</label>
+          <input type="text" data-msg-field="title" value="${esc(msgEdit.title)}">
+          <label class="cmp-k">Raw transcript — the driver's words</label>
+          <textarea data-msg-field="transcript">${esc(msgEdit.transcript)}</textarea>
+          <div class="fb-rec-foot">
+            <button class="mini-btn accent" type="button" data-act="msg-save">Save</button>
+            <button class="mini-btn" type="button" data-act="msg-cancel">Cancel</button>
+          </div>
+        </div>` : `
         ${m.title ? `<div class="msg-title">${esc(m.title)}</div>` : ''}
-        ${m.transcript ? `<p class="msg-tr">&ldquo;${esc(m.transcript)}&rdquo;</p>` : ''}
+        ${m.transcript ? `<p class="msg-tr">&ldquo;${esc(m.transcript)}&rdquo;</p>` : ''}`}
         ${trig ? `<span class="trig-chip" title="${esc(trig.tuning ? 'Ran with: ' + Object.entries(trig.tuning).map(([k, v]) => k + '=' + v).join(', ') : '')}">TRIGGER FIRED · ${esc(trig.passes)} PASS${trig.passes === 1 ? '' : 'ES'}${trig.stopped ? ' + STOP' : ''}${trig.scenario_version ? ' · v' + esc(trig.scenario_version) : ''}</span>` : ''}
         ${m.ar_summary ? `<div class="msg-ar" title="Activity observed on the device (${esc((trace && trace.source) || 'web')} inference)">AR&nbsp;·&nbsp;${esc(m.ar_summary)}</div>` : ''}
         ${convo ? `<details class="msg-convo">
@@ -2255,6 +2322,18 @@ el('list').addEventListener('click', e => {
   const nd = e.target.closest('[data-note-del]');
   if (nd) { deleteDestNote(sc, parseInt(nd.dataset.noteDel, 10)); return; }
 
+  const me = e.target.closest('[data-msg-edit]');
+  if (me) {
+    const m = msgsOf(sc)[parseInt(me.dataset.msgEdit, 10)];
+    if (m) {
+      msgEdit = { destId: sc.destination_id, i: parseInt(me.dataset.msgEdit, 10), title: m.title || '', transcript: m.transcript || '' };
+      render();
+    }
+    return;
+  }
+  const md = e.target.closest('[data-msg-del]');
+  if (md) { deleteMessage(sc, parseInt(md.dataset.msgDel, 10)); return; }
+
   const act = e.target.closest('[data-act]');
   if (act) {
     const a = act.dataset.act;
@@ -2278,6 +2357,8 @@ el('list').addEventListener('click', e => {
     else if (a === 'spec') exportSpec(sc);
     else if (a === 'note-add') addDestNote(sc, card);
     else if (a === 'notes-radius') addNotesRadiusParam(sc);
+    else if (a === 'msg-save') saveMessageEdit();
+    else if (a === 'msg-cancel') { msgEdit = null; render(); }
     return;
   }
 
@@ -2296,6 +2377,10 @@ el('list').addEventListener('input', e => {
   const sc = scenarios.find(x => x.id === card.dataset.id);
   if (!sc) return;
   if (e.target.classList.contains('tune-slider')) { onTuneInput(sc, card, e.target); return; }
+  if (msgEdit) {
+    const mf = e.target.getAttribute('data-msg-field');
+    if (mf) { msgEdit[mf] = e.target.value; return; }
+  }
   if (e.target.hasAttribute('data-fb-text')) {
     if (fbRec && fbRec.id === sc.id) fbRec.text = e.target.value;
     return;

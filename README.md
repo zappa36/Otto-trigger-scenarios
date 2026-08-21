@@ -83,6 +83,11 @@ The loop:
    understood**: category, structured title, raw transcript). A category
    that matches the expected tip type is flagged `= EXPECTED TYPE`. Close
    the case with a **PASS / PARTIAL / FAIL** verdict per scenario.
+   Each debrief carries its own **edit / ×** — a mumbled take gets
+   reworded or removed right there, before the phone reads it to the
+   next driver or the DEMO tab shows it to a client. (Live backends
+   need the messages update/delete policies — re-run
+   `supabase/schema.sql` once.)
 
 Statuses roll up in the header and colour the pins: *needs address* →
 *awaiting test* (red, like the phone) → *debriefed · n* (cyan) → verdict
