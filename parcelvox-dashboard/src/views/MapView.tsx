@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { BerlinMap, type LiveScene } from '../components/BerlinMap';
 import { Composer } from '../components/Composer';
 import { OperatorBubble, OttoBubble, OttoThinking } from '../components/Chat';
+import { FindStop } from '../components/FindStop';
 import { StopPanel } from '../components/StopPanel';
 import { VoiceCapture } from '../components/VoiceCapture';
 import { MAP_PARTIAL_TRANSCRIPT, MAP_THREAD } from '../data/chat';
@@ -11,6 +12,7 @@ import {
   MAP_ROUTES,
   KRANWEG,
   STALE_TIP_COUNT,
+  type LngLat,
   type MapFilter,
 } from '../data/map';
 import { groupDoors, routeLines } from '../otto/doors';
@@ -83,6 +85,14 @@ export function MapView() {
 
   const frame = useMemo(() => doors.map((d) => d.at), [doors]);
 
+  /* A finder pick both selects the door and asks the map to travel there. */
+  const [focus, setFocus] = useState<{ at: LngLat; seq: number } | null>(null);
+  const openDoor = (key: string) => {
+    setSelectedKey(key);
+    const door = doors.find((d) => d.key === key);
+    if (door) setFocus((cur) => ({ at: door.at, seq: (cur?.seq ?? 0) + 1 }));
+  };
+
   const liveScene = useMemo<LiveScene | null>(
     () =>
       live
@@ -91,10 +101,11 @@ export function MapView() {
             routes: lines,
             frame,
             selectedKey,
+            focus,
             onSelectDoor: (key) => setSelectedKey((cur) => (cur === key ? null : key)),
           }
         : null,
-    [live, shownDoors, lines, frame, selectedKey],
+    [live, shownDoors, lines, frame, selectedKey, focus],
   );
 
   const category = filter === 'All types' ? null : FILTER_CATEGORY[filter];
@@ -233,7 +244,18 @@ export function MapView() {
           )}
         </div>
 
-        <aside className={styles.panel} aria-label="Ask ParcelVox">
+        <aside className={styles.panel} aria-label={live ? 'Find a stop' : 'Ask ParcelVox'}>
+          {live ? (
+            /* The scripted Ask is sample theater — next to real data it earns
+             * its keep as a real search over what is actually on file. */
+            <FindStop
+              doors={doors}
+              debriefs={depot.debriefs}
+              total={depot.stops.length}
+              onOpen={openDoor}
+            />
+          ) : (
+            <>
           <div className={styles.panelHead}>
             <div className={styles.panelTitleRow}>
               <h2 className={styles.panelTitle}>Ask ParcelVox</h2>
@@ -249,9 +271,7 @@ export function MapView() {
 
           <div className={styles.thread} ref={threadRef}>
             <div className={styles.grounding}>
-              {live
-                ? 'Scripted demo — Otto’s answers here are canned, not read from your stops'
-                : `Grounded on the selected stop — ${KRANWEG.stop} · Rte 14`}
+              Grounded on the selected stop — {KRANWEG.stop} · Rte 14
             </div>
             {turns.map((turn) =>
               turn.role === 'operator' ? (
@@ -285,6 +305,8 @@ export function MapView() {
               </>
             )}
           </div>
+            </>
+          )}
         </aside>
       </div>
     </div>
