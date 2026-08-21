@@ -89,14 +89,3 @@ export function routeLines(stops: DepotStop[]): DepotRouteLine[] {
     })
     .filter((line) => line.points.length > 1);
 }
-
-/*
- * The map is a Berlin frame — the projection is fitted to the twelve
- * Bezirke, so a pin elsewhere would land far off the card. Scenario pins
- * can be anywhere in the world; those outside are counted, not drawn.
- * Bounds are the Bezirk geometry's bbox with a little slack.
- */
-export const inBerlinFrame = (door: DepotDoor): boolean => {
-  const [lng, lat] = door.at;
-  return lng > 13.05 && lng < 13.8 && lat > 52.32 && lat < 52.7;
-};

@@ -32,6 +32,7 @@ if (!cssFile || !jsFile) throw new Error('Run `npm run build` first.');
 const css = readFileSync(join(ASSETS, cssFile), 'utf8');
 const js = readFileSync(join(ASSETS, jsFile), 'utf8');
 const geo = readFileSync('public/data/berliner-bezirke.geojson', 'utf8');
+const europe = readFileSync('public/data/europe-countries.geojson', 'utf8');
 
 // `</script` inside an inline script closes the tag early, whatever it is
 // nested in. Escape it defensively in both the geometry and the bundle.
@@ -52,8 +53,12 @@ ${css}
 
 const SCRIPTS = `<script>
 /* Berlin Bezirk boundaries, WGS84. Source: github.com/m-hoerz/berlin-shapes,
-   derived from Berlin open data. Everything drawn on top is fictional. */
+   derived from Berlin open data. Sample stops drawn on top are fictional. */
 window.__PARCELVOX_BERLIN_GEO__ = ${safe(geo)};
+/* Country boundaries around Europe — the backdrop once the camera leaves
+   Berlin. Natural Earth 1:110m (public domain), reduced; see
+   public/data/ATTRIBUTION.md. */
+window.__PARCELVOX_EUROPE_GEO__ = ${safe(europe)};
 </script>
 <script type="module">
 ${safe(js)}
