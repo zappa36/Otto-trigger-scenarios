@@ -149,6 +149,8 @@ export interface LiveScene {
    */
   frame: LngLat[];
   selectedKey: string | null;
+  /** A travel request (from the finder): centre this spot; seq re-triggers. */
+  focus: { at: LngLat; seq: number } | null;
   onSelectDoor: (key: string) => void;
 }
 
@@ -373,6 +375,28 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
     const all = fitAllRef.current;
     if (all) setCamera({ center: all.center, k: clampK(all.k, kMinRef.current) });
   };
+
+  /* A finder pick: land the stop left of centre (the stop panel occupies the
+   * card's right) at street zoom, keeping any deeper zoom the user had. */
+  const focusSeq = live && live.focus ? live.focus.seq : 0;
+  const focusAt = live && live.focus ? live.focus.at : null;
+  useEffect(() => {
+    if (!focusAt) return;
+    const cam = cameraRef.current();
+    const { w, h } = sizeRef.current;
+    if (!cam || !w || !h) return;
+    const k = clampK(Math.max(cam.k, 1), kMinRef.current);
+    /* mercator translation is linear at a fixed scale: putting the stop at
+     * [0.32w, 0.45h] means centring on the point that projects to
+     * [0.68w, 0.55h] in a stop-centred projection */
+    const temp = geoMercator()
+      .center(focusAt)
+      .translate([w / 2, h / 2])
+      .scale(baseScaleRef.current * k);
+    const center = temp.invert ? temp.invert([w * 0.68, h * 0.55]) : null;
+    if (center) setCamera({ center: center as LngLat, k });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusSeq]);
 
   /* Wheel needs a native non-passive listener — a synthetic onWheel can't
    * preventDefault the page scroll. */

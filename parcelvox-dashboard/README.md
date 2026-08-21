@@ -55,7 +55,7 @@ its own document wrapper. Deploy the first; publish the second (it has no
 
 | View | What it does |
 | --- | --- |
-| **Map** (default) | Live when the surrounding app has stops on file: the real destinations from the shared store, framed on the data — route lines in driving order, amber pins where pre-arrival notes wait, green where a driver debriefed; click a stop to read and edit its notes ([see below](#connected-to-the-real-app-map-and-notes)). Empty store → the fictional citywide sample: all 8 routes fanning out from the Nordhaven depot, Rte 14 highlighted, Kranweg 12 marked with Otto's orb. The Ask panel beside it is the primary pane either way. |
+| **Map** (default) | Live when the surrounding app has stops on file: the real destinations from the shared store, framed on the data — route lines in driving order, amber pins where pre-arrival notes wait, green where a driver debriefed; click a stop to read and edit its notes ([see below](#connected-to-the-real-app-map-and-notes)). The side pane is then **Find a stop** — a real search over the store; a pick flies the map there and opens the notes. Empty store → the fictional citywide sample: all 8 routes fanning out from the Nordhaven depot, Rte 14 highlighted, Kranweg 12 marked with Otto's orb, and the scripted Ask panel beside it. |
 | **Routes** | Coverage, failed stops and ETA accuracy per route, with a note on every route that runs late. Rows open the route detail. |
 | **Route detail** | Rte 14 stop by stop: tips on file, last confirmed, and the last four Mondays. |
 | **Curation queue** | Tips from Otto debriefs awaiting review — approve, edit or reject. The nav badge tracks what is left. |
@@ -110,8 +110,11 @@ things are genuinely live:
 
 **Otto's answers are scripted**, not generated — `src/data/chat.ts` matches a question to a canned
 answer and falls back when nothing matches. The voice capture is a scripted transcript too; no
-microphone is ever opened. The UI says so where a viewer could be misled — in live mode the Ask
-panel labels itself a scripted demo, and the sidebar chip says which parts are real.
+microphone is ever opened. The UI says so where a viewer could be misled. In live mode the map's
+side pane stops pretending entirely: the scripted Ask is replaced by the real stop finder
+(`FindStop`), which searches titles, addresses, consignees, notes, debriefs and stop numbers
+straight from the store. The **Ask** nav view stays a scripted demo either way, and the sidebar
+chip says which parts are real.
 
 ## Layout
 
