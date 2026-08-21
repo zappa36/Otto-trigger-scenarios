@@ -69,3 +69,36 @@
   border-radius: 16px;
   padding: 14px 16px 12px;
 }
+
+/* --- live mode: the real conversation --- */
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.voiceToggle {
+  font-family: var(--pv-font-body);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pv-muted);
+  background: var(--pv-surface);
+  border: 1px solid var(--pv-line);
+  border-radius: 999px;
+  padding: 5px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.voiceToggle:hover {
+  border-color: var(--pv-line-hover);
+}
+
+.voiceToggleOn,
+.voiceToggleOn:hover {
+  color: var(--pv-green-dark);
+  background: var(--pv-mint);
+  border-color: var(--pv-mint-border);
+}

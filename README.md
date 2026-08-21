@@ -561,7 +561,17 @@ Deployed with the Supabase env vars, the page reads the same
 `destinations` and `messages` tables as every phone (it loads
 `config.js` from its own origin, so the deploy-time injection reaches
 it unchanged). An empty store falls back to the dashboard's fictional
-Nordhaven sample, labelled as such. Details in
+Nordhaven sample, labelled as such.
+
+Its **Ask view is a conversation with Otto about the same store** —
+"what do we know about Goltzstraße 13?", "summary of the situation" —
+by text or voice (the mic transcribes through `voice-note`; replies
+can be read aloud in Otto's ElevenLabs voice via `elevenlabs-tts`,
+browser speech keyless). With
+[`dispatch-ask`](supabase/functions/dispatch-ask/index.ts) deployed
+the answers are a real model grounded in a per-question snapshot of
+the stops, notes and debriefs; without it, deterministic lookups and
+summaries — labelled as such. Details in
 [`parcelvox-dashboard/README.md`](parcelvox-dashboard/README.md).
 
 ## Activity recognition (and the Google AR API)
@@ -677,7 +687,12 @@ never carries them.
    search + street names; needs `GMAPS_SERVER_KEY`) and
    [`scenario-ai`](supabase/functions/scenario-ai/index.ts) (the
    dashboard's describe→draft and feedback→new-version loop; shares
-   `OPENAI_API_KEY`) — plus
+   `OPENAI_API_KEY`) and
+   [`dispatch-ask`](supabase/functions/dispatch-ask/index.ts) (the
+   dispatcher dashboard's Otto conversation — questions about stops,
+   notes and debriefs answered from the store; shares `OPENAI_API_KEY`;
+   without it the conversation falls back to deterministic lookups,
+   labelled as such) — plus
    [`elevenlabs-token`](supabase/functions/elevenlabs-token/index.ts) if
    Otto is a private ElevenLabs agent (see above; a public agent needs
    no function at all) and

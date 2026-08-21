@@ -38,7 +38,12 @@ const article = (word: string) => (/^[aeiou]/i.test(word) ? 'an' : 'a');
 const LIVE_FILTERS = ['All stops', 'With notes', 'Debriefed'] as const;
 type LiveFilter = (typeof LIVE_FILTERS)[number];
 
-export function MapView() {
+interface MapViewProps {
+  /** Jump to the Ask view — the conversation over the same store. */
+  onAskOtto: () => void;
+}
+
+export function MapView({ onAskOtto }: MapViewProps) {
   const depot = useDepot();
   const [filter, setFilter] = useState<MapFilter>('All types');
   const [liveFilter, setLiveFilter] = useState<LiveFilter>('All stops');
@@ -253,6 +258,7 @@ export function MapView() {
               debriefs={depot.debriefs}
               total={depot.stops.length}
               onOpen={openDoor}
+              onAskOtto={onAskOtto}
             />
           ) : (
             <>

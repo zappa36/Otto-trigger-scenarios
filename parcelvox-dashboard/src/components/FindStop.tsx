@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
-import { notesOf, type DepotDebrief } from '../otto/depot';
+import type { DepotDebrief } from '../otto/depot';
 import { doorLabel, type DepotDoor } from '../otto/doors';
+import { buildIndex, searchIndex } from '../otto/search';
 import styles from './FindStop.module.css';
 
 /*
@@ -16,42 +17,14 @@ interface FindStopProps {
   /** Individual stops on file (doors can hold several parcels). */
   total: number;
   onOpen: (key: string) => void;
+  /** Jump to the Ask view — the conversation over the same store. */
+  onAskOtto: () => void;
 }
 
-export function FindStop({ doors, debriefs, total, onOpen }: FindStopProps) {
+export function FindStop({ doors, debriefs, total, onOpen, onAskOtto }: FindStopProps) {
   const [query, setQuery] = useState('');
 
-  const indexed = useMemo(
-    () =>
-      doors.map((door) => {
-        const rows = door.rows;
-        const notes = rows.flatMap((r) => notesOf(r));
-        const filed = rows.flatMap((r) => debriefs[r.id] || []);
-        const consignees = rows.map((r) => String(r.consignee || '').trim()).filter(Boolean);
-        return {
-          door,
-          consignees,
-          notes,
-          filed,
-          hay: {
-            strong: [door.title, rows[0].addr || '', door.stopNos.map((n) => `stop ${n}`).join(' ')]
-              .join(' ')
-              .toLowerCase(),
-            mid: consignees.join(' ').toLowerCase(),
-            weak: [
-              rows.map((r) => r.floor || '').join(' '),
-              rows.map((r) => r.route || '').join(' '),
-              notes.map((n) => n.text).join(' '),
-              filed.map((m) => m.title || m.transcript || '').join(' '),
-            ]
-              .join(' ')
-              .toLowerCase(),
-          },
-          newestAt: (notes[0] && notes[0].at) || '',
-        };
-      }),
-    [doors, debriefs],
-  );
+  const indexed = useMemo(() => buildIndex(doors, debriefs), [doors, debriefs]);
 
   const q = query.trim().toLowerCase();
   const results = useMemo(() => {
@@ -63,27 +36,7 @@ export function FindStop({ doors, debriefs, total, onOpen }: FindStopProps) {
         .sort((a, b) => b.newestAt.localeCompare(a.newestAt))
         .slice(0, 8);
     }
-    const tokens = q.split(/\s+/);
-    return indexed
-      .map((e) => {
-        let score = 0;
-        for (const t of tokens) {
-          if (e.hay.strong.includes(t)) score += 3;
-          else if (e.hay.mid.includes(t)) score += 2;
-          else if (e.hay.weak.includes(t)) score += 1;
-          else return { e, score: 0 }; // every word must match somewhere
-        }
-        return { e, score };
-      })
-      .filter((x) => x.score > 0)
-      .sort(
-        (a, b) =>
-          b.score - a.score ||
-          (a.e.door.stopNos[0] ?? 1e9) - (b.e.door.stopNos[0] ?? 1e9) ||
-          a.e.door.title.localeCompare(b.e.door.title),
-      )
-      .slice(0, 12)
-      .map((x) => x.e);
+    return searchIndex(indexed, q).slice(0, 12);
   }, [indexed, q]);
 
   const withNotes = doors.filter((d) => d.hasNotes).length;
@@ -102,6 +55,9 @@ export function FindStop({ doors, debriefs, total, onOpen }: FindStopProps) {
           onChange={(e) => setQuery(e.target.value)}
           aria-label="Search stops"
         />
+        <button type="button" className={styles.askOtto} onClick={onAskOtto}>
+          💬 Ask Otto about these stops
+        </button>
       </div>
 
       <div className={styles.list}>
