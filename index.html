@@ -259,7 +259,21 @@
     backdrop-filter: blur(8px);
   }
   #card[hidden] { display: none; }
-  #card h3 { margin: 0 0 2px; font-size: 17px; }
+  /* the card's own × — the footer's Close link stays as the fallback a
+     card taller than the screen can still reach */
+  #card-x {
+    position: absolute;
+    top: 12px; right: 12px;
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    border: 1px solid rgba(140,165,200,.3);
+    background: transparent;
+    color: #cfe9f2;
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  #card h3 { margin: 0 0 2px; font-size: 17px; padding-right: 36px; }
   #card-addr { margin: 0; font-size: 13px; color: #94a1b2; }
   #card-dist {
     display: inline-block;
@@ -522,6 +536,7 @@
   </div>
 
   <div id="card" hidden>
+    <button id="card-x" type="button" aria-label="Close">×</button>
     <h3 id="card-title"></h3>
     <p id="card-addr"></p>
     <span id="card-dist"></span>

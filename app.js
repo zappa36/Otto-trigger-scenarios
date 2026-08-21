@@ -1549,7 +1549,7 @@ el('build').onclick = async () => {
 el('gps').onclick = () => Geo.locate();
 el('zoom-in').onclick = () => { const g = map.map; if (g) g.setZoom(Math.min(20, (g.getZoom() || 17) + 1)); };
 el('zoom-out').onclick = () => { const g = map.map; if (g) g.setZoom(Math.max(3, (g.getZoom() || 17) - 1)); };
-el('card-close').onclick = () => { el('card').hidden = true; };
+el('card-close').onclick = el('card-x').onclick = () => { el('card').hidden = true; };
 el('card-otto').onclick = () => current && openOtto(current);
 el('card-remove').onclick = removeCurrent;
 el('otto-back').onclick = closeOtto;
