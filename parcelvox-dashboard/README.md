@@ -61,7 +61,7 @@ its own document wrapper. Deploy the first; publish the second (it has no
 | **Curation queue** | Tips from Otto debriefs awaiting review — approve, edit or reject. The nav badge tracks what is left. |
 | **Drivers** | Contribution only: tips shared, tips accepted, routes covered. No pace, speed, or stops per hour. |
 | **Analytics** | ETA accuracy, failed stops by cause, capture rate by route, tip freshness. |
-| **Ask** | Plain-language questions answered from the approved knowledge base, by voice or text. |
+| **Ask** | Live: a real conversation with Otto about the stops on file — by text or voice, with replies optionally read aloud in Otto's voice ([see below](#ask-otto--the-conversation-over-the-store)). Sample: the scripted demo conversation. |
 
 ## Connected to the real app: map and notes
 
@@ -95,6 +95,29 @@ to see everything at once, and the zoom-out floor always reaches that far.
 
 An empty store is not an error: the map falls back to the fictional sample below, labelled as
 such. The artifact build ships no `config.js` and stays on the sample by design.
+
+## Ask Otto — the conversation over the store
+
+In live mode the **Ask** view is a real conversation about the stops on file — "what do we know
+about Goltzstraße 13?", "summary of the situation", "latest driver debriefs" — with the answer
+grounded in a per-question snapshot of the store (`src/otto/ask.ts` serialises stops, notes and
+debriefs into a compact STOP DATA block).
+
+- **With the [`dispatch-ask`](../supabase/functions/dispatch-ask/index.ts) Edge Function
+  deployed** (same `OPENAI_API_KEY` + `ALLOWED_ORIGINS` secrets as `scenario-ai`; deploy it next
+  to the others), answers come from a model that is told to answer ONLY from that snapshot and to
+  say when nothing is on file. Answers arrive in the same bubble shape the scripted demo uses and
+  are labelled **Live answer · grounded in the store**.
+- **Without it** — keyless, or the function not deployed — a deterministic answerer over the
+  finder's own index covers situation summaries, noted-stop lists, latest debriefs and per-stop
+  lookups, and every such answer says what it is: **Deterministic lookup**.
+- **Voice both ways**: the mic records and transcribes through the `voice-note` function when the
+  backend is live (the browser's own on-device SpeechRecognition keyless), and the **🔊 Replies
+  aloud** toggle reads answers in Otto's ElevenLabs voice via `elevenlabs-tts`, falling back to
+  the browser's speech.
+
+The map pane's finder links here (**💬 Ask Otto about these stops**), and the sample mode keeps
+the scripted demo conversation unchanged.
 
 ## What is real and what is scripted
 

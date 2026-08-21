@@ -33,7 +33,7 @@ export function App() {
     <div className={styles.shell}>
       <Sidebar view={view} onNavigate={setView} pendingCount={queue.pendingCount} live={live} />
       <main className={styles.canvas}>
-        {view === 'map' && <MapView />}
+        {view === 'map' && <MapView onAskOtto={() => setView('ask')} />}
         {view === 'routes' && <RoutesView onOpenRoute={() => setView('routeDetail')} />}
         {view === 'routeDetail' && (
           <RouteDetailView onBack={() => setView('routes')} onAskForDebrief={askOtto} />

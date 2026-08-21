@@ -286,3 +286,54 @@ export function setStopField(stop: DepotStop, field: 'consignee' | 'floor', valu
   if ((cur[field] ?? null) === v) return;
   saveStopPatch(cur.id, { [field]: v });
 }
+
+/* ---------- Edge Functions (the slice this dashboard talks to) ---------- */
+
+/** Which store this page runs against — 'local' means no functions exist. */
+export const storeMode = mode;
+
+/** POST a JSON Edge Function, time-boxed — mirrors backend.js's fn(). */
+export async function callFn(name: string, body: unknown, timeoutMs = 30000): Promise<unknown> {
+  if (mode !== 'supabase') throw new Error('keyless');
+  const r = await fetch(`${url}/functions/v1/${name}`, {
+    method: 'POST',
+    headers: { apikey: key, Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(String((d as { error?: unknown }).error || `${name} ${r.status}`));
+  return d;
+}
+
+/** The pre-arrival reading voice: text in, a short ElevenLabs mp3 out.
+ * Time-boxed hard — the caller has the browser's own voice ready. */
+export async function callTts(text: string): Promise<Blob> {
+  if (mode !== 'supabase') throw new Error('keyless');
+  const r = await fetch(`${url}/functions/v1/elevenlabs-tts`, {
+    method: 'POST',
+    headers: { apikey: key, Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+    signal: AbortSignal.timeout(12000),
+  });
+  if (!r.ok) throw new Error('elevenlabs-tts ' + r.status);
+  return r.blob();
+}
+
+/** A recorded question through the voice-note function (transcription leg
+ * only — nothing is saved; saving debriefs is the phone's job). */
+export async function transcribeClip(blob: Blob, context: string): Promise<string> {
+  if (mode !== 'supabase') throw new Error('keyless');
+  const ext = blob.type.includes('mp4') ? 'mp4' : blob.type.includes('ogg') ? 'ogg' : 'webm';
+  const fd = new FormData();
+  fd.append('audio', blob, 'clip.' + ext);
+  fd.append('context', context);
+  const r = await fetch(`${url}/functions/v1/voice-note`, {
+    method: 'POST',
+    headers: { apikey: key, Authorization: 'Bearer ' + key }, // browser sets the multipart boundary
+    body: fd,
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(String((d as { error?: unknown }).error || `voice-note ${r.status}`));
+  return String((d as { transcript?: unknown }).transcript || '');
+}
