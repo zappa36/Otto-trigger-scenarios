@@ -88,22 +88,49 @@ const LANG_TEXT = {
     ask: 'What did you find?',
     plain: 'Tap the mic and tell me what you found.',
     at: d => `This is ${d.title}${d.addr ? ' — ' + d.addr : ''}. What's the situation there? Tap the mic and describe what you see.`,
+    /* the pre-arrival reading */
+    headsUp: (t, dm) => `Heads up — ${t}, about ${dm} ahead.`,
+    youreAt: t => `You're at ${t}.`,
+    stop: n => `stop ${n}, `,
+    floorNum: n => 'floor ' + n,
+    floorRaw: f => f,
+    deliveryFor: (n, f) => `Delivery is for ${n}${f ? ', ' + f : ''}.`,
+    deliveryTo: f => `Delivery goes to ${f}.`,
+    fromDispatch: 'From dispatch: ',
+    driverSaid: 'A driver reported: ',
+    meters: ' meters', km: ' kilometers',
   },
   it: {
     ask: 'Cosa hai trovato?',
     plain: 'Tocca il microfono e dimmi cosa hai trovato.',
     at: d => `Questa è ${d.title}${d.addr ? ' — ' + d.addr : ''}. Com'è la situazione lì? Tocca il microfono e descrivi cosa vedi.`,
+    headsUp: (t, dm) => `Attenzione — ${t}, a circa ${dm}.`,
+    youreAt: t => `Sei a ${t}.`,
+    stop: n => `fermata ${n}, `,
+    floorNum: n => 'al piano ' + n,
+    floorRaw: f => 'a ' + f,
+    deliveryFor: (n, f) => `La consegna è per ${n}${f ? ', ' + f : ''}.`,
+    deliveryTo: f => `La consegna va ${f}.`,
+    fromDispatch: 'Dalla centrale: ',
+    driverSaid: 'Un autista ha segnalato: ',
+    meters: ' metri', km: ' chilometri',
   },
 };
-/* "Otto says" in Italian, one scenario-ai call per line, cached forever
- * (keyed by the English text, so an edited question re-translates). */
+const speechLangOf = () => (testLang === 'it' ? 'it-IT' : 'en-US');
+/* Sheet and note text in Italian, one scenario-ai call per line, cached
+ * forever (keyed by the English text, so an edited line re-translates).
+ * Serves the scenario's "Otto says" question AND the pre-arrival notes:
+ * the app's own phrases live in LANG_TEXT above; only the free text a
+ * person wrote — a question, a dispatch note, an old debrief — goes
+ * through the translator. */
 let saysItCache = {};
 try { saysItCache = JSON.parse(localStorage.getItem(LS_SAYS_IT)) || {}; } catch { saysItCache = {}; }
 let translateDown = false; // one failed call = the function is missing/old; stop asking this session
-function prefetchSaysIt(sc) {
-  if (testLang !== 'it' || !sc || !sc.otto_says || !Backend.enabled || translateDown) return;
-  const src = stripQuotes(sc.otto_says);
-  if (!src || saysItCache[src]) return;
+const itInFlight = new Set(); // approach scans repeat every 2 s — never ask twice for the same line
+function translateIt(src) {
+  src = String(src || '').trim();
+  if (!src || saysItCache[src] || itInFlight.has(src) || !Backend.enabled || translateDown) return;
+  itInFlight.add(src);
   Backend.scenarioAI({ op: 'translate', text: src, to: 'it' }).then(d => {
     const t = d && String(d.text || '').trim();
     if (!t) return;
@@ -111,8 +138,13 @@ function prefetchSaysIt(sc) {
     try { localStorage.setItem(LS_SAYS_IT, JSON.stringify(saysItCache)); } catch { /* full */ }
   }).catch(e => {
     translateDown = true;
-    console.warn('scenario-ai translate unavailable — the opening question stays English:', e.message || e);
-  });
+    console.warn('scenario-ai translate unavailable — Italian keeps the English text:', e.message || e);
+  }).finally(() => itInFlight.delete(src));
+}
+/* the Italian for a line, when 🇮🇹 is picked and the translation landed */
+const inItalian = src => (testLang === 'it' && saysItCache[String(src || '').trim()]) || null;
+function prefetchSaysIt(sc) {
+  if (testLang === 'it' && sc && sc.otto_says) translateIt(stripQuotes(sc.otto_says));
 }
 /* The question as it should be SPOKEN right now, with the voice that
  * matches it: the cached Italian when the tester picked 🇮🇹 and the
@@ -121,10 +153,10 @@ function prefetchSaysIt(sc) {
 function questionFor(sc) {
   if (sc && sc.otto_says) {
     const src = stripQuotes(sc.otto_says);
-    const it = testLang === 'it' ? saysItCache[src] : null;
+    const it = inItalian(src);
     return { text: resolveSays(it || src), lang: it ? 'it-IT' : 'en-US' };
   }
-  return { text: LANG_TEXT[testLang].ask, lang: testLang === 'it' ? 'it-IT' : 'en-US' };
+  return { text: LANG_TEXT[testLang].ask, lang: speechLangOf() };
 }
 
 /* A scenario rule can carry its tunable numbers as {key} placeholders;
@@ -662,7 +694,7 @@ function stopOttoAudio() {
 /* Otto speaks: the ElevenLabs voice when it is reachable, speakThen
  * (wrapper TTS, then browser TTS) otherwise. onVoice fires only when
  * the real voice actually starts, so callers can label truthfully. */
-async function speakOtto(text, done, onVoice) {
+async function speakOtto(text, done, onVoice, lang) {
   let called = false;
   const finish = () => {
     if (called) return;
@@ -697,7 +729,7 @@ async function speakOtto(text, done, onVoice) {
       }
     }
   }
-  speakThen(text, finish);
+  speakThen(text, finish, lang);
 }
 
 /* {park_m} / {walk_m} in a scenario's "Otto says" become the actual
@@ -798,20 +830,35 @@ const driverReportsOf = d => (messagesByDest[d.id] || [])
   .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
 
 /* a bare "3" in the floor field should not be read as "three" */
-const speakFloor = f => (/^\d+$/.test(String(f).trim()) ? 'floor ' + String(f).trim() : String(f).trim());
+const speakFloor = f => {
+  f = String(f).trim();
+  return /^\d+$/.test(f) ? LANG_TEXT[testLang].floorNum(f) : LANG_TEXT[testLang].floorRaw(f);
+};
 /* "250 m" reads fine on a card; spoken it needs the unit spelled out */
-const speakDist = m => (m < 1000 ? Math.round(m / 10) * 10 + ' meters' : (m / 1000).toFixed(1) + ' kilometers');
+const speakDist = m => (m < 1000 ? Math.round(m / 10) * 10 + LANG_TEXT[testLang].meters : (m / 1000).toFixed(1) + LANG_TEXT[testLang].km);
 
+/* The reading in the card's language: Otto's own phrasing comes from
+ * LANG_TEXT; the free text people wrote (dispatch notes, old debriefs)
+ * is swapped for its cached translation when there is one and read as
+ * written otherwise — the multilingual reading voice copes either way. */
 function briefingLines(d) {
+  const T = LANG_TEXT[testLang];
   const lines = [];
   const name = String(d.consignee || '').trim();
   const floor = String(d.floor || '').trim();
-  if (name) lines.push(`Delivery is for ${name}${floor ? ', ' + speakFloor(floor) : ''}.`);
-  else if (floor) lines.push(`Delivery goes to ${speakFloor(floor)}.`);
+  if (name) lines.push(T.deliveryFor(name, floor ? speakFloor(floor) : ''));
+  else if (floor) lines.push(T.deliveryTo(speakFloor(floor)));
   notesOnFile(d).slice(0, NOTES.maxNotes).forEach(n =>
-    lines.push((n.by === 'driver' ? 'A driver reported: ' : 'From dispatch: ') + sentence(n.text)));
-  driverReportsOf(d).slice(0, NOTES.maxDriver).forEach(m => lines.push('A driver reported: ' + sentence(m.title || m.transcript)));
+    lines.push((n.by === 'driver' ? T.driverSaid : T.fromDispatch) + sentence(inItalian(n.text) || n.text)));
+  driverReportsOf(d).slice(0, NOTES.maxDriver).forEach(m =>
+    lines.push(T.driverSaid + sentence(inItalian(m.title || m.transcript) || m.title || m.transcript)));
   return lines;
+}
+/* everything an approach would read that the translator can help with */
+function prefetchNotesIt(d) {
+  if (testLang !== 'it' || !d) return;
+  notesOnFile(d).slice(0, NOTES.maxNotes).forEach(n => translateIt(n.text));
+  driverReportsOf(d).slice(0, NOTES.maxDriver).forEach(m => translateIt(m.title || m.transcript));
 }
 
 /* Runs on every fresh fix (ActivityRec's continuous stream while armed,
@@ -828,6 +875,9 @@ function checkApproach(pos) {
     const dist = distM(pos, d);
     const rings = notesRadiiOf(d);
     if (dist > rings.rearm) { notesRead.delete(d.id); continue; }
+    /* 🇮🇹: inside the rearm ring the reading is coming — translate the
+     * pin's notes NOW so the approach reads from the cache */
+    prefetchNotesIt(d);
     if (busy || dist > rings.approach || notesRead.get(d.id) === 'done') continue;
     if (!briefingLines(d).length) continue; // nothing on file — nothing to read
     /* on a dense route several stops arm at once — the nearest one is
@@ -838,14 +888,13 @@ function checkApproach(pos) {
 }
 
 /* "stop 12, Goltzstraße 13" when the pin is one stop of a route */
-const spokenTitle = d => (d.stop != null ? `stop ${d.stop}, ` : '') + d.title;
+const spokenTitle = d => (d.stop != null ? LANG_TEXT[testLang].stop(d.stop) : '') + d.title;
 
 function speakPreArrival(d, dist) {
   notesRead.set(d.id, 'done');
   notesSpeaking = true;
-  const head = dist > 60
-    ? `Heads up — ${spokenTitle(d)}, about ${speakDist(dist)} ahead.`
-    : `You're at ${spokenTitle(d)}.`;
+  const T = LANG_TEXT[testLang];
+  const head = dist > 60 ? T.headsUp(spokenTitle(d), speakDist(dist)) : T.youreAt(spokenTitle(d));
   const text = [head, ...briefingLines(d)].join(' ');
   if (navigator.vibrate) navigator.vibrate([60, 40, 60]); // softer than the trigger's buzz
   notesBannerDest = d;
@@ -855,7 +904,8 @@ function speakPreArrival(d, dist) {
   /* the ◆ label appears only once the ElevenLabs clip actually plays —
    * a silent fallback never masquerades as the real thing */
   speakOtto(text, () => { notesSpeaking = false; },
-    () => { el('nb-title').textContent = 'OTTO · PRE-ARRIVAL NOTES · ◆ ELEVENLABS'; });
+    () => { el('nb-title').textContent = 'OTTO · PRE-ARRIVAL NOTES · ◆ ELEVENLABS'; },
+    speechLangOf());
 }
 
 /* the card's notes box — exactly what an approach would read out */
@@ -1373,6 +1423,8 @@ function openCard(d) {
   /* what an approach would read out — consignee, floor, dispatch notes;
    * the driver debriefs listed below are the rest of the briefing */
   renderCardNotes(d);
+  /* 🇮🇹: the card's replay button reads the same lines — warm the cache */
+  prefetchNotesIt(d);
 
   const list = messagesByDest[d.id] || [];
   const box = el('card-msgs');
@@ -1549,8 +1601,10 @@ function setLang(l) {
   testLang = l;
   try { localStorage.setItem(LS_LANG, l); } catch { /* private mode */ }
   renderLang();
-  /* start translating the question(s) this pick will need */
+  /* start translating what this pick will need — the open card's
+   * question and notes, and the armed test's question */
   prefetchSaysIt(current ? scenarioOf(current) : null);
+  prefetchNotesIt(current);
   if (tracking) prefetchSaysIt(tracking.sc);
 }
 el('lang-en').onclick = () => setLang('en');
@@ -1587,7 +1641,7 @@ el('nb-close').onclick = e => {
 el('card-notes-play').onclick = () => {
   if (!current) return;
   const lines = briefingLines(current);
-  if (lines.length) speakOtto(lines.join(' '), () => {});
+  if (lines.length) speakOtto(lines.join(' '), () => {}, null, speechLangOf());
 };
 /* A pre-arrival reading can be the first thing Otto ever says — no
  * tracking tap came before it — and browsers refuse both speak() and

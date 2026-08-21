@@ -331,7 +331,16 @@ phone and steers the whole debrief:
   says" line is translated once (scenario-ai's `op:"translate"`,
   cached on the phone — `startTracking` prefetches it so the trigger
   never waits), and the keyless fallback asks the question with an
-  Italian voice. The Otto screen shows the flag it opened with.
+  Italian voice. The Otto screen shows the flag it opened with. The
+  [pre-arrival notes](#pre-arrival-notes--otto-reads-before-you-arrive)
+  follow the same pick: Otto's own phrasing ("You're at…", "A driver
+  reported…") switches to Italian outright, and the free text on file —
+  dispatch notes, old debriefs — is translated through the same cache,
+  prefetched while you are still inside the outer ring so the reading
+  at the inner one comes from cache. A line whose translation has not
+  landed yet is read as written; the reading voice
+  (`eleven_flash_v2_5`) is multilingual, so mixed lines stay listenable
+  and the next approach heals itself.
 - **🇬🇧** — exactly the behavior before the switch existed: no
   override is sent and the agent runs in its own default language.
 
