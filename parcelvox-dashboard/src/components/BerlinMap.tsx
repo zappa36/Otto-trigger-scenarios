@@ -25,14 +25,16 @@ import { OttoOrb } from './OttoOrb';
 import styles from './BerlinMap.module.css';
 
 const GEOJSON_URL = '/data/berliner-bezirke.geojson';
+const EUROPE_URL = '/data/europe-countries.geojson';
 
 /**
- * Single-file builds (see `scripts/bundle-standalone.mjs`) inline the district
- * geometry here so the page needs no server at all.
+ * Single-file builds (see `scripts/bundle-standalone.mjs`) inline both
+ * geometries here so the page needs no server at all.
  */
 declare global {
   interface Window {
     __PARCELVOX_BERLIN_GEO__?: FeatureCollection;
+    __PARCELVOX_EUROPE_GEO__?: FeatureCollection;
   }
 }
 
@@ -71,7 +73,52 @@ function districtLabel(feature: Feature<Geometry>): string {
 const TILT_SCALE = 1.18;
 const TILT_COS = Math.cos((40 * Math.PI) / 180);
 
-const clampK = (k: number) => Math.min(60, Math.max(0.4, k));
+/* The zoom-out floor is dynamic: at least region scale, and always far
+ * enough out to see every stop on file at once. */
+const clampK = (k: number, min: number) => Math.min(60, Math.max(min, k));
+
+/**
+ * Fits `projection` to `pts` with padding and a minimum span (a single pin
+ * must not zoom to a degenerate scale). With `trim`, the frame is clipped to
+ * the 6th–94th percentile per axis — only when there are enough points to
+ * trim — so a few far-out pins don't dictate the whole view; they stay
+ * reachable by panning, zooming out, or the "show all" jump.
+ */
+function fitPoints(
+  projection: GeoProjection,
+  pts: LngLat[],
+  width: number,
+  height: number,
+  trim: boolean,
+) {
+  const q = (sorted: number[], p: number) => sorted[Math.round(p * (sorted.length - 1))];
+  const lngs = pts.map((p) => p[0]).sort((a, b) => a - b);
+  const lats = pts.map((p) => p[1]).sort((a, b) => a - b);
+  const [lo, hi] = trim && pts.length >= 20 ? [0.06, 0.94] : [0, 1];
+  const minLng = q(lngs, lo);
+  const maxLng = q(lngs, hi);
+  const minLat = q(lats, lo);
+  const maxLat = q(lats, hi);
+  const padLng = Math.max((maxLng - minLng) * 0.18, 0.012);
+  const padLat = Math.max((maxLat - minLat) * 0.18, 0.008);
+  /* The extent stops well short of the plane's bottom: the CSS tilt brings
+   * the lower edge toward the viewer and the card crops it, and the legend
+   * sits in the lower-left corner — content there would be fitted "in" yet
+   * invisible. */
+  projection.fitExtent(
+    [
+      [width * 0.05, height * 0.09],
+      [width * 0.95, height * 0.78],
+    ],
+    {
+      type: 'MultiPoint',
+      coordinates: [
+        [minLng - padLng, minLat - padLat],
+        [maxLng + padLng, maxLat + padLat],
+      ],
+    },
+  );
+}
 
 function useElementSize<T extends HTMLElement>() {
   const ref = useRef<T>(null);
@@ -96,9 +143,9 @@ export interface LiveScene {
   doors: DepotDoor[];
   routes: DepotRouteLine[];
   /**
-   * Every in-frame door, unfiltered — what the projection is fitted to. A real
-   * route is one neighbourhood, unreadable at the citywide fit; and framing on
-   * the unfiltered set keeps the camera still while filters come and go.
+   * Every door, unfiltered — what the projection is fitted to. A real route
+   * is one neighbourhood, unreadable at the citywide fit; and framing on the
+   * unfiltered set keeps the camera still while filters come and go.
    */
   frame: LngLat[];
   selectedKey: string | null;
@@ -115,6 +162,7 @@ interface BerlinMapProps {
 export function BerlinMap({ filter, live }: BerlinMapProps) {
   const [tiltRef, { width, height }] = useElementSize<HTMLDivElement>();
   const [geo, setGeo] = useState<FeatureCollection | null>(null);
+  const [euGeo, setEuGeo] = useState<FeatureCollection | null>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
@@ -122,19 +170,32 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
     const inlined = window.__PARCELVOX_BERLIN_GEO__;
     if (inlined) {
       setGeo(rewind(inlined));
-      return;
+    } else {
+      fetch(GEOJSON_URL)
+        .then((response) => {
+          if (!response.ok) throw new Error(`${response.status}`);
+          return response.json() as Promise<FeatureCollection>;
+        })
+        .then((collection) => {
+          if (!cancelled) setGeo(rewind(collection));
+        })
+        .catch(() => {
+          if (!cancelled) setFailed(true);
+        });
     }
-    fetch(GEOJSON_URL)
-      .then((response) => {
-        if (!response.ok) throw new Error(`${response.status}`);
-        return response.json() as Promise<FeatureCollection>;
-      })
-      .then((collection) => {
-        if (!cancelled) setGeo(rewind(collection));
-      })
-      .catch(() => {
-        if (!cancelled) setFailed(true);
-      });
+    /* The countries backdrop is a nice-to-have — without it the map still
+     * works, only the land beyond Berlin goes blank. */
+    const euInlined = window.__PARCELVOX_EUROPE_GEO__;
+    if (euInlined) {
+      setEuGeo(rewind(euInlined));
+    } else {
+      fetch(EUROPE_URL)
+        .then((response) => (response.ok ? (response.json() as Promise<FeatureCollection>) : null))
+        .then((collection) => {
+          if (!cancelled && collection) setEuGeo(rewind(collection));
+        })
+        .catch(() => {});
+    }
     return () => {
       cancelled = true;
     };
@@ -155,6 +216,9 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
   const stageRef = useRef<HTMLDivElement>(null);
   const projectionRef = useRef<GeoProjection | null>(null);
   const baseScaleRef = useRef(1);
+  /* The every-stop camera (the "show all" jump) and the matching zoom-out floor. */
+  const fitAllRef = useRef<{ center: LngLat; k: number } | null>(null);
+  const kMinRef = useRef(0.12);
   const sizeRef = useRef({ w: 0, h: 0 });
   sizeRef.current = { w: width, h: height };
 
@@ -170,34 +234,7 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
 
     const projection = geoMercator();
     if (liveFrame && liveFrame.length > 0) {
-      /* Fit the stops, not the city — and not the strays: with enough
-       * doors, clip the frame to the 6th–94th percentile per axis so a
-       * couple of far-out scenario pins don't stretch the whole view
-       * (they stay reachable by panning and zooming out). A padded
-       * minimum span keeps a single pin from a degenerate scale. */
-      const q = (sorted: number[], p: number) => sorted[Math.round(p * (sorted.length - 1))];
-      const lngs = liveFrame.map((p) => p[0]).sort((a, b) => a - b);
-      const lats = liveFrame.map((p) => p[1]).sort((a, b) => a - b);
-      const [lo, hi] = liveFrame.length >= 20 ? [0.06, 0.94] : [0, 1];
-      const minLng = q(lngs, lo);
-      const maxLng = q(lngs, hi);
-      const minLat = q(lats, lo);
-      const maxLat = q(lats, hi);
-      const padLng = Math.max((maxLng - minLng) * 0.18, 0.012);
-      const padLat = Math.max((maxLat - minLat) * 0.18, 0.008);
-      projection.fitExtent(
-        [
-          [width * 0.04, height * 0.07],
-          [width * 0.96, height * 0.96],
-        ],
-        {
-          type: 'MultiPoint',
-          coordinates: [
-            [minLng - padLng, minLat - padLat],
-            [maxLng + padLng, maxLat + padLat],
-          ],
-        },
-      );
+      fitPoints(projection, liveFrame, width, height, true);
     } else {
       projection.fitExtent(
         [
@@ -208,6 +245,21 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
       );
     }
     baseScaleRef.current = projection.scale();
+
+    /* The untrimmed fit is the "show all" camera, and sets how far out the
+     * zoom may go — always far enough to see every stop on file at once. */
+    if (liveFrame && liveFrame.length > 0) {
+      const all = geoMercator();
+      fitPoints(all, liveFrame, width, height, false);
+      const center = all.invert ? all.invert([width / 2, height / 2]) : null;
+      const kAll = all.scale() / baseScaleRef.current;
+      fitAllRef.current = center ? { center: center as LngLat, k: kAll } : null;
+      kMinRef.current = Math.min(0.12, kAll * 0.85);
+    } else {
+      fitAllRef.current = null;
+      kMinRef.current = 0.12;
+    }
+
     if (camera) {
       projection
         .center(camera.center)
@@ -221,27 +273,49 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
       .x((d) => project(d)[0])
       .y((d) => project(d)[1]);
 
-    const districts = geo.features.flatMap((feature) => {
-      const d = path(feature);
-      const centroid = path.centroid(feature);
-      if (!d || !Number.isFinite(centroid[0])) return [];
-      const name = districtLabel(feature);
-      const [dx, dy] = DISTRICT_LABEL_OFFSETS[name] ?? [0, 0];
-      return [{ name, d, x: centroid[0] + dx, y: centroid[1] + dy }];
-    });
+    /* Bezirk detail only near city scale — its strokes and labels are
+     * constant-px and turn a fingernail-sized Berlin into a blot. Further
+     * out, the countries backdrop carries the map. */
+    const cityDetail = projection.scale() > 9000;
+
+    const countries = euGeo
+      ? euGeo.features.flatMap((feature) => {
+          const d = path(feature);
+          if (!d) return [];
+          const centroid = path.centroid(feature);
+          const props = (feature.properties ?? {}) as Record<string, unknown>;
+          const name = String(props.name || '').toUpperCase();
+          return [{ name, d, x: centroid[0], y: centroid[1] }];
+        })
+      : [];
+
+    const districts = !cityDetail
+      ? []
+      : geo.features.flatMap((feature) => {
+          const d = path(feature);
+          const centroid = path.centroid(feature);
+          if (!d || !Number.isFinite(centroid[0])) return [];
+          const name = districtLabel(feature);
+          const [dx, dy] = DISTRICT_LABEL_OFFSETS[name] ?? [0, 0];
+          return [{ name, d, x: centroid[0] + dx, y: centroid[1] + dy }];
+        });
 
     if (liveDoors && liveRoutes) {
+      const doors = liveDoors.map((door) => {
+        const [x, y] = project(door.at);
+        return { door, x, y };
+      });
       return {
+        countries,
         districts,
         live: {
           routes: liveRoutes.map((route) => {
             const [sx, sy] = project(route.points[0]);
             return { id: route.id, d: routeLine(route.points) ?? '', labelX: sx + 9, labelY: sy - 9 };
           }),
-          doors: liveDoors.map((door) => {
-            const [x, y] = project(door.at);
-            return { door, x, y };
-          }),
+          doors,
+          /* stops currently outside the card — drives the "show all" pill */
+          beyond: doors.filter(({ x, y }) => x < 0 || x > width || y < 0 || y > height).length,
         },
         sample: null,
       };
@@ -265,6 +339,7 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
     };
 
     return {
+      countries,
       districts,
       live: null,
       sample: {
@@ -274,7 +349,7 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
         otto: placePin(KRANWEG),
       },
     };
-  }, [geo, width, height, liveDoors, liveRoutes, liveFrame, camera]);
+  }, [geo, euGeo, width, height, liveDoors, liveRoutes, liveFrame, camera]);
 
   /* The camera as the projection currently sees it, so wheel, buttons and
    * drags compose with whatever the fit produced. Reads refs only. */
@@ -290,7 +365,13 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
 
   const zoomBy = (factor: number) => {
     const cam = cameraNow();
-    if (cam) setCamera({ center: cam.center, k: clampK(cam.k * factor) });
+    if (cam) setCamera({ center: cam.center, k: clampK(cam.k * factor, kMinRef.current) });
+  };
+
+  /* Jump to the untrimmed fit — every stop on file in one view. */
+  const showAll = () => {
+    const all = fitAllRef.current;
+    if (all) setCamera({ center: all.center, k: clampK(all.k, kMinRef.current) });
   };
 
   /* Wheel needs a native non-passive listener — a synthetic onWheel can't
@@ -301,7 +382,7 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const cam = cameraRef.current();
-      if (cam) setCamera({ center: cam.center, k: clampK(cam.k * Math.exp(-e.deltaY * 0.0016)) });
+      if (cam) setCamera({ center: cam.center, k: clampK(cam.k * Math.exp(-e.deltaY * 0.0016), kMinRef.current) });
     };
     stage.addEventListener('wheel', onWheel, { passive: false });
     return () => stage.removeEventListener('wheel', onWheel);
@@ -341,7 +422,7 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
     const { w, h } = sizeRef.current;
     const cam = cameraNow();
     const center = proj && proj.invert && w && h ? proj.invert([w / 2 - pdx, h / 2 - pdy]) : null;
-    if (center && cam) setCamera({ center: center as LngLat, k: clampK(cam.k) });
+    if (center && cam) setCamera({ center: center as LngLat, k: clampK(cam.k, kMinRef.current) });
     setPanPx(null); // batched with setCamera — the committed projection replaces the preview
   };
   const onClickCapture = (e: ReactMouseEvent) => {
@@ -386,10 +467,43 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
               role="img"
               aria-label={
                 scene.live
-                  ? `Berlin, with the depot's ${scene.live.doors.length} stops from the dispatch board`
+                  ? `Map of the depot's ${scene.live.doors.length} stops from the dispatch board`
                   : 'Berlin, with all eight routes fanning out from the Nordhaven depot and Rte 14 highlighted'
               }
             >
+              <g>
+                {scene.countries.map((country) => (
+                  <path
+                    key={`country-${country.name}-${country.x}`}
+                    d={country.d}
+                    fill="var(--pv-map-land)"
+                    stroke="var(--pv-map-outline)"
+                    strokeWidth={1}
+                    strokeLinejoin="round"
+                  />
+                ))}
+              </g>
+              <g>
+                {scene.countries.map(
+                  (country) =>
+                    country.name && (
+                      <text
+                        key={`country-label-${country.name}-${country.x}`}
+                        x={country.x}
+                        y={country.y}
+                        textAnchor="middle"
+                        fontFamily="Inter, sans-serif"
+                        fontSize={9.5}
+                        fontWeight={600}
+                        letterSpacing={1.2}
+                        fill="var(--pv-map-label)"
+                        style={{ paintOrder: 'stroke', stroke: 'var(--pv-map-land)', strokeWidth: 3 }}
+                      >
+                        {country.name}
+                      </text>
+                    ),
+                )}
+              </g>
               <g>
                 {scene.districts.map((district) => (
                   <path
@@ -627,6 +741,12 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
           ⌖
         </button>
       </div>
+      {scene?.live && scene.live.beyond > 0 && (
+        <button type="button" className={styles.beyond} onClick={showAll}>
+          {scene.live.beyond} {scene.live.beyond === 1 ? 'stop' : 'stops'} beyond this view — show
+          all
+        </button>
+      )}
       {failed && <div className={styles.message}>Map data unavailable</div>}
     </div>
   );

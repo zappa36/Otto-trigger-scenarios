@@ -6,5 +6,15 @@
 - Derived from Berlin open data (Geoportal Berlin / Amt für Statistik Berlin-Brandenburg)
 - Vendored verbatim, with whitespace stripped, so the app has no runtime dependency on a CDN
 
-Everything drawn on top of these boundaries — the Nordhaven depot, the eight routes, and every
-stop — is fictional demo content and does not correspond to any real address or operation.
+`europe-countries.geojson` — country boundaries around Europe in WGS84, the backdrop behind the
+Bezirke once the camera leaves Berlin.
+
+- Source: [Natural Earth](https://www.naturalearthdata.com/) 1:110m Admin 0 – Countries
+  (public domain), via
+  [nvkelso/natural-earth-vector](https://github.com/nvkelso/natural-earth-vector)
+- Reduced here: clipped to a European window, far-flung territories dropped, properties reduced
+  to the country name, coordinates rounded to three decimals
+
+Everything drawn on top of these boundaries in the sample data — the Nordhaven depot, the eight
+routes, and their stops — is fictional demo content and does not correspond to any real address
+or operation. In live mode the stops come from the app's own shared store.
