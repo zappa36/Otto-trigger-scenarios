@@ -141,6 +141,18 @@ const Backend = (() => {
     }),
     deleteDestination: id => rest('/rest/v1/destinations?id=eq.' + encodeURIComponent(id), { method: 'DELETE' }),
     listMessages: limit => rest(`/rest/v1/${table}?select=*&order=created_at.desc&limit=${limit || 500}`),
+    /* return=representation on both: RLS without the update/delete
+     * policies (a schema.sql behind this build) silently matches zero
+     * rows instead of erroring — the empty array IS the error signal */
+    updateMessage: (id, patch) => rest(`/rest/v1/${table}?id=eq.` + encodeURIComponent(id), {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify(patch),
+    }),
+    deleteMessage: id => rest(`/rest/v1/${table}?id=eq.` + encodeURIComponent(id), {
+      method: 'DELETE',
+      headers: { Prefer: 'return=representation' },
+    }),
 
     /* ---------- trigger scenarios (dashboard.js) ---------- */
     /* draft/revise round-trips are an LLM call each — a far longer box
