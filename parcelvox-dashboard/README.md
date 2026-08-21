@@ -83,8 +83,15 @@ driving order, flat dots for plain stops (green once a driver has debriefed), st
 pins where pre-arrival notes are on file**. Click any stop and the **stop panel** opens — every
 parcel behind that door, its consignee and floor (editable), the dispatch notes Otto reads aloud
 on approach (add and remove them right here), and the latest real driver debriefs, read-only. A
-note added here is read out on the driver's phone on its next approach; scenario pins outside
-the Berlin frame are counted in the legend rather than drawn.
+note added here is read out on the driver's phone on its next approach.
+
+The map moves: drag to pan, scroll to zoom, `+` / `−` / `⌖` controls. Every stop is drawn
+wherever it is — a Natural Earth countries backdrop (see
+[attribution](public/data/ATTRIBUTION.md)) takes over from the Bezirk detail once the camera
+leaves Berlin, so pins in another city or country sit on real land, not in a void. The default
+view frames the main cluster (outliers are clipped from the automatic fit); when stops sit
+outside the current view, a **"n stops beyond this view — show all"** pill jumps out far enough
+to see everything at once, and the zoom-out floor always reaches that far.
 
 An empty store is not an error: the map falls back to the fictional sample below, labelled as
 such. The artifact build ships no `config.js` and stays on the sample by design.

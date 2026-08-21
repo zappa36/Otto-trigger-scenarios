@@ -13,7 +13,7 @@ import {
   STALE_TIP_COUNT,
   type MapFilter,
 } from '../data/map';
-import { groupDoors, inBerlinFrame, routeLines } from '../otto/doors';
+import { groupDoors, routeLines } from '../otto/doors';
 import { useDepot } from '../otto/useDepot';
 import { useOttoThread } from '../hooks/useOttoThread';
 import { useVoiceCapture } from '../hooks/useVoiceCapture';
@@ -60,19 +60,17 @@ export function MapView() {
 
   const doors = useMemo(() => groupDoors(depot.stops, depot.debriefs), [depot.stops, depot.debriefs]);
   const lines = useMemo(() => routeLines(depot.stops), [depot.stops]);
-  const framed = useMemo(() => doors.filter(inBerlinFrame), [doors]);
-  const offFrame = doors.length - framed.length;
   const withNotes = doors.filter((d) => d.hasNotes).length;
   const debriefed = doors.filter((d) => d.debriefed).length;
 
   const shownDoors = useMemo(
     () =>
       liveFilter === 'With notes'
-        ? framed.filter((d) => d.hasNotes)
+        ? doors.filter((d) => d.hasNotes)
         : liveFilter === 'Debriefed'
-          ? framed.filter((d) => d.debriefed)
-          : framed,
-    [framed, liveFilter],
+          ? doors.filter((d) => d.debriefed)
+          : doors,
+    [doors, liveFilter],
   );
 
   /* The open door leaves with its data (a route removed on the trigger
@@ -83,7 +81,7 @@ export function MapView() {
 
   const selectedDoor = (selectedKey && doors.find((d) => d.key === selectedKey)) || null;
 
-  const frame = useMemo(() => framed.map((d) => d.at), [framed]);
+  const frame = useMemo(() => doors.map((d) => d.at), [doors]);
 
   const liveScene = useMemo<LiveScene | null>(
     () =>
@@ -130,7 +128,7 @@ export function MapView() {
     <div className={shared.pageTight}>
       <div className={styles.header}>
         <div>
-          <h1 className={shared.h1}>Stop knowledge — Berlin</h1>
+          <h1 className={shared.h1}>{live ? 'Stop knowledge' : 'Stop knowledge — Berlin'}</h1>
           <p className={shared.lede}>
             {live
               ? lede
@@ -200,12 +198,6 @@ export function MapView() {
                       {lines.map((l) => l.id).join(' · ')} — driving order
                     </span>
                   </div>
-                </div>
-              )}
-              {offFrame > 0 && (
-                <div className={`${styles.legendRow} ${styles.legendNote}`}>
-                  <span>Outside the Berlin frame</span>
-                  <span className={styles.legendCount}>{offFrame}</span>
                 </div>
               )}
             </div>
