@@ -259,7 +259,21 @@
     backdrop-filter: blur(8px);
   }
   #card[hidden] { display: none; }
-  #card h3 { margin: 0 0 2px; font-size: 17px; }
+  /* the card's own × — the footer's Close link stays as the fallback a
+     card taller than the screen can still reach */
+  #card-x {
+    position: absolute;
+    top: 12px; right: 12px;
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    border: 1px solid rgba(140,165,200,.3);
+    background: transparent;
+    color: #cfe9f2;
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  #card h3 { margin: 0 0 2px; font-size: 17px; padding-right: 36px; }
   #card-addr { margin: 0; font-size: 13px; color: #94a1b2; }
   #card-dist {
     display: inline-block;
@@ -287,7 +301,28 @@
     margin-bottom: 4px;
   }
   #card-sc-name { display: block; font-size: 13.5px; }
-  #card-sc-steps { margin: 4px 0 0; font-size: 12.5px; color: #c9d2de; }
+  /* the brief's two faces: THE SITUATION is the one you put in front of
+     a customer — the story, set a notch bigger and brighter; HOW TO TEST
+     IT is the tester's crib. One tab strip, story first. */
+  #sc-tabs { display: flex; gap: 15px; margin-top: 8px; border-bottom: 1px solid rgba(255,217,94,.22); }
+  #sc-tabs[hidden] { display: none; }
+  .sc-tab {
+    border: none;
+    background: none;
+    padding: 0 1px 6px;
+    margin-bottom: -1px;
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 9.5px;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    color: rgba(255,217,94,.55);
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+  }
+  .sc-tab.on { color: #ffd95e; border-bottom-color: #ffd95e; }
+  #card-sc-story { margin: 8px 0 0; font-size: 13.5px; line-height: 1.55; color: #e8edf4; }
+  #card-sc-story[hidden] { display: none; }
+  #card-sc-steps { margin: 8px 0 0; font-size: 12.5px; line-height: 1.5; color: #c9d2de; }
   #card-sc-steps[hidden] { display: none; }
   .sc-track-row { display: flex; align-items: center; gap: 9px; margin-top: 9px; flex-wrap: wrap; }
   #card-sc-start {
@@ -522,12 +557,18 @@
   </div>
 
   <div id="card" hidden>
+    <button id="card-x" type="button" aria-label="Close">×</button>
     <h3 id="card-title"></h3>
     <p id="card-addr"></p>
     <span id="card-dist"></span>
     <div id="card-scenario" hidden>
-      <span class="sc-chip">TEST SCENARIO</span>
+      <span class="sc-chip">SCENARIO</span>
       <b id="card-sc-name"></b>
+      <div id="sc-tabs" hidden>
+        <button id="sc-tab-story" class="sc-tab" type="button" title="The scenario as you would tell it to a customer">The situation</button>
+        <button id="sc-tab-steps" class="sc-tab" type="button" title="What the tester acts out at the pin">How to test it</button>
+      </div>
+      <p id="card-sc-story"></p>
       <p id="card-sc-steps"></p>
       <div class="sc-track-row">
         <button id="card-sc-start" type="button">▶ Start test tracking</button>

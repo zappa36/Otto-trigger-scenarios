@@ -1398,6 +1398,13 @@ function closeOtto() {
 }
 
 /* ---------- destination card ---------- */
+function setScTab(t) {
+  el('sc-tab-story').classList.toggle('on', t === 'story');
+  el('sc-tab-steps').classList.toggle('on', t === 'steps');
+  el('card-sc-story').hidden = t !== 'story' || !el('card-sc-story').textContent;
+  el('card-sc-steps').hidden = t !== 'steps' || !el('card-sc-steps').textContent;
+}
+
 function openCard(d) {
   current = d;
   el('card-title').textContent = (d.stop != null ? 'Stop ' + d.stop + ' · ' : '') + scenarioNumPrefix(d) + d.title;
@@ -1413,9 +1420,14 @@ function openCard(d) {
   if (sc) {
     el('card-sc-name').textContent = scenarioNumPrefix(d) + sc.title
       + ((sc.version || 1) > 1 ? ' · v' + sc.version : '');
-    const steps = fillParams(sc.test_steps || sc.rule || '', sc.params);
-    el('card-sc-steps').textContent = steps;
-    el('card-sc-steps').hidden = !steps;
+    /* the situation (described — the row's story, the one you show a
+     * customer) leads; the tester's how-to sits behind the second tab.
+     * A row with only one of the two skips the strip and shows what it
+     * has, exactly the old single-paragraph card. */
+    el('card-sc-story').textContent = fillParams(sc.described || '', sc.params);
+    el('card-sc-steps').textContent = fillParams(sc.test_steps || sc.rule || '', sc.params);
+    el('sc-tabs').hidden = !(el('card-sc-story').textContent && el('card-sc-steps').textContent);
+    setScTab(el('card-sc-story').textContent ? 'story' : 'steps');
     updateCardTrack();
   }
   el('card-remove').hidden = !!sc;
@@ -1549,7 +1561,9 @@ el('build').onclick = async () => {
 el('gps').onclick = () => Geo.locate();
 el('zoom-in').onclick = () => { const g = map.map; if (g) g.setZoom(Math.min(20, (g.getZoom() || 17) + 1)); };
 el('zoom-out').onclick = () => { const g = map.map; if (g) g.setZoom(Math.max(3, (g.getZoom() || 17) - 1)); };
-el('card-close').onclick = () => { el('card').hidden = true; };
+el('card-close').onclick = el('card-x').onclick = () => { el('card').hidden = true; };
+el('sc-tab-story').onclick = () => setScTab('story');
+el('sc-tab-steps').onclick = () => setScTab('steps');
 el('card-otto').onclick = () => current && openOtto(current);
 el('card-remove').onclick = removeCurrent;
 el('otto-back').onclick = closeOtto;
