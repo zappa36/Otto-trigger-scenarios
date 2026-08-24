@@ -34,6 +34,17 @@ never blocks the recording. To bring the gate back it is one line in
 if (Geo.position && distM(Geo.position, d) > 75) { /* show "get closer" */ return; }
 ```
 
+## See it first — the driver demo video
+
+[**demo/otto-driver-demo.mp4**](demo/otto-driver-demo.mp4) shows the
+whole driver side in one take, screen-captured from the real app on a
+scripted GPS run: the pre-arrival briefing on the way in, two slow
+loops past Akazienstraße 15, the trigger firing, Otto's question, the
+driver's answer filed as an ACCESS tip, the verdict tap — and the next
+approach, where Otto reads that driver's tip to the next driver.
+[`demo/README.md`](demo/README.md) says exactly what is real, what is
+staged, and how to regenerate it (`node demo/record-driver-demo.mjs`).
+
 ## Try it
 
 ```sh

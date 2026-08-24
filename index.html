@@ -88,6 +88,9 @@
   }
   #ar, #route { pointer-events: auto; cursor: pointer; }
   #ar.off, #route.off { border-color: rgba(140,165,200,.22); color: #94a1b2; }
+  /* .chip's display rule outranks the UA [hidden] style — without this a
+     phone with no route loaded shows an empty ROUTE chip */
+  #route[hidden] { display: none; }
 
   /* Taps land on what you can SEE — the icon and its label chip —
    * never on a pin's invisible shell, whose label-wide box would steal
