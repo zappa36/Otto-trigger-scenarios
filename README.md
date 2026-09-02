@@ -438,9 +438,17 @@ small and soon beats big and late. The banner says `◆ ELEVENLABS`
 only when that clip is actually playing; function not deployed, clip
 late, backend off → the reading falls back in place to the same
 keyless browser speech as the sample trigger (the Android wrapper's
-own TTS when installed), honestly unlabelled. The mic self-test
-behind the version chip probes the function live and names which
-voice will read.
+own TTS when installed), honestly unlabelled. The fallback heals the
+way the translations do: a clip lost to a coverage dip or a slow
+moment costs that one reading and a minute of cooldown, then the next
+approach tries the real voice again — only a function that answers
+403/404/501 (origin not allowed / not deployed / no key) stays off
+for the session, since no amount of driving fixes a deployment. The
+phone also boots the function the moment it enters a reading ring, so
+the first clip of the day doesn't spend its time budget on the cold
+start. The mic self-test behind the version chip probes the function
+live, names which voice will read, and clears the latch when the
+probe succeeds.
 
 The banner is the visual record either way — tap it to open the card,
 ✕ to stop the reading mid-sentence. The destination card shows the

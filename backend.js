@@ -40,6 +40,12 @@ const Backend = (() => {
     return r.status === 204 ? null : r.json();
   }
 
+  /* AbortSignal.timeout is Chromium 103+ — on a WebView still short of
+   * it, building the signal throws BEFORE the fetch runs, and every
+   * time-boxed call here dies on the spot. No box then beats no call. */
+  const timeoutSignal = ms =>
+    (typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(ms) : undefined);
+
   /* Time-boxed: geocoding is a lookup, and a lookup that hangs is worse
    * than one that fails — the callers all have a fallback ready. (The
    * voice upload below is NOT boxed; a long clip legitimately takes a
@@ -49,7 +55,7 @@ const Backend = (() => {
       method: 'POST',
       headers: { apikey: key, Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs || 8000),
+      signal: timeoutSignal(timeoutMs || 8000),
     });
     if (!r.ok) throw new Error(`${name} ${r.status}`);
     return r.json();
@@ -88,7 +94,7 @@ const Backend = (() => {
         method: 'POST',
         headers: { apikey: key, Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
         body: JSON.stringify({ transcript, context: context || '' }),
-        signal: AbortSignal.timeout(20000),
+        signal: timeoutSignal(20000),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || `${voiceFn} ${r.status}`);
@@ -106,10 +112,18 @@ const Backend = (() => {
         method: 'POST',
         headers: { apikey: key, Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
-        signal: AbortSignal.timeout(12000),
+        signal: timeoutSignal(12000),
       });
       if (!r.ok) throw new Error('elevenlabs-tts ' + r.status);
       return r.blob();
+    },
+    /* Boot the reading function's isolate while the reading is still a
+     * ring away: OPTIONS runs no TTS and spends no key, but the first
+     * real clip of the session then skips the cold start — which was
+     * eating into the same 12 s box every clip gets. */
+    warmTts() {
+      fetch(`${url}/functions/v1/${window.ELEVENLABS_TTS_FN || 'elevenlabs-tts'}`, { method: 'OPTIONS' })
+        .catch(() => { /* a warm-up that failed changed nothing */ });
     },
 
     saveNote: row => rest(`/rest/v1/${table}`, {
