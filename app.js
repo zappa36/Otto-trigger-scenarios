@@ -667,7 +667,28 @@ function speakThen(text, done, lang) {
  * clip late, playback still locked, backend off — the reading falls
  * back to speakThen (the wrapper's TTS, then the browser's own voice)
  * and the banner is the record either way. */
-let elevenDown = false; // one failed fetch = the function is missing; stop asking this session
+/* Two failure classes, told apart by what a failure proves. A 403, 404
+ * or 501 from the function means not deployed, origin not allowed, or
+ * no key — nothing a moving vehicle heals, so stop asking for the rest
+ * of the session (the mic self-test still probes live and un-latches).
+ * Everything else — a timeout in a coverage dip, one dropped fetch, an
+ * upstream 5xx — is the road, not the deployment: back off for a
+ * minute and let the next reading try the real voice again. The old
+ * single latch turned one blip into a whole shift of device voice,
+ * while the agent (its own socket, its own retries) kept sounding like
+ * Otto — the one asymmetry testers actually hear. */
+let elevenDown = false;    // proven missing/forbidden — off for the session
+let elevenRetryAt = 0;     // transient trouble — closed until this time
+const ELEVEN_RETRY_MS = 60e3;
+const elevenReady = () => !elevenDown && Date.now() >= elevenRetryAt;
+/* the first clip of a session also pays the function's cold start —
+ * boot it (free, keyless) the moment a reading becomes likely */
+let ttsWarmed = false;
+function warmReadingVoice() {
+  if (ttsWarmed || !Backend.enabled || !elevenReady()) return;
+  ttsWarmed = true;
+  Backend.warmTts();
+}
 let ottoAudio = null;   // one element, unlocked by the first gesture (see boot)
 /* 10 ms of silence — played inside the first tap so a later
  * programmatic play() is allowed (autoplay rules want one gesture) */
@@ -702,9 +723,10 @@ async function speakOtto(text, done, onVoice, lang) {
     if (ottoAudio && ottoAudio.__finish === finish) ottoAudio.__finish = null;
     done();
   };
-  if (Backend.enabled && !elevenDown && text) {
+  if (Backend.enabled && elevenReady() && text) {
     try {
       const blob = await Backend.tts(String(text));
+      elevenRetryAt = 0; // the function answered — any earlier blip is history
       const a = ottoAudioEl();
       stopOttoAudio();
       a.src = URL.createObjectURL(blob);
@@ -720,12 +742,17 @@ async function speakOtto(text, done, onVoice, lang) {
       /* detach before falling back — speakThen stops the element, and a
        * still-registered finish would count the fallback as already done */
       if (ottoAudio) { ottoAudio.__finish = null; ottoAudio.onended = ottoAudio.onerror = null; }
-      /* a failed FETCH means the function is missing or broken — stop
-       * asking this session; a blocked play() is not the function's
-       * fault, so it gets to try again next time */
+      /* a blocked play() is not the function's fault — no penalty, it
+       * gets to try again next time */
       if (!(e && e.name === 'NotAllowedError')) {
-        elevenDown = true;
-        console.warn('elevenlabs-tts unavailable — falling back to the device voice:', e && e.message);
+        const status = +((/(\d{3})$/.exec(String((e && e.message) || '')) || [])[1]) || 0;
+        if (status === 403 || status === 404 || status === 501) {
+          elevenDown = true;
+          console.warn('elevenlabs-tts ' + status + ' — origin not allowed, not deployed, or no key; the device voice reads for the rest of the session');
+        } else {
+          elevenRetryAt = Date.now() + ELEVEN_RETRY_MS;
+          console.warn('elevenlabs-tts did not deliver (' + ((e && e.message) || e) + ') — device voice for this reading; the real voice gets another try in a minute');
+        }
       }
     }
   }
@@ -875,9 +902,11 @@ function checkApproach(pos) {
     const dist = distM(pos, d);
     const rings = notesRadiiOf(d);
     if (dist > rings.rearm) { notesRead.delete(d.id); continue; }
-    /* 🇮🇹: inside the rearm ring the reading is coming — translate the
-     * pin's notes NOW so the approach reads from the cache */
+    /* inside the rearm ring the reading is coming — translate the
+     * pin's notes NOW (🇮🇹) and boot the reading voice's function, so
+     * the approach reads from cache in a voice that is already warm */
     prefetchNotesIt(d);
+    warmReadingVoice();
     if (busy || dist > rings.approach || notesRead.get(d.id) === 'done') continue;
     if (!briefingLines(d).length) continue; // nothing on file — nothing to read
     /* on a dense route several stops arm at once — the nearest one is
@@ -1435,8 +1464,10 @@ function openCard(d) {
   /* what an approach would read out — consignee, floor, dispatch notes;
    * the driver debriefs listed below are the rest of the briefing */
   renderCardNotes(d);
-  /* 🇮🇹: the card's replay button reads the same lines — warm the cache */
+  /* the card's replay button reads the same lines — warm the
+   * translation cache (🇮🇹) and the reading voice for the tap to come */
   prefetchNotesIt(d);
+  warmReadingVoice();
 
   const list = messagesByDest[d.id] || [];
   const box = el('card-msgs');
@@ -1529,7 +1560,8 @@ el('build').onclick = async () => {
   if (Backend.enabled) {
     try {
       const clip = await Backend.tts('Ok.');
-      elevenDown = false; // it works — forget any earlier failure
+      elevenDown = false; // it works — forget any earlier failure,
+      elevenRetryAt = 0;  // latched or merely cooling off
       out.push(`notes reading voice: ELEVENLABS — OK (${Math.round(clip.size / 102.4) / 10} KB test clip)`);
     } catch (e) {
       out.push('notes reading voice: device TTS — elevenlabs-tts unreachable (' + (e.message || e) + ')');
