@@ -41,8 +41,9 @@ earns a real build on Vercel, delete the root copy and teach
 `scripts/vercel-build.sh` to run the two commands above instead.
 
 The deployed page shape also carries `<script src="config.js"></script>`, so the
-same deploy-time-injected Supabase values the phone and the trigger dashboard read
-reach this page too — that is the whole live hookup
+same Supabase values the phone and the trigger dashboard read (`config.js`'s
+defaults, or the deploy-time-injected ones) reach this page too — that is the
+whole live hookup
 ([details](#connected-to-the-real-app-map-and-notes)). Locally the placeholders
 leave it keyless and the store is the shared localStorage instead.
 

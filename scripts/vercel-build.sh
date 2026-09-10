@@ -7,7 +7,9 @@
 # ElevenLabs AGENT id by design) — injecting
 # them at build time just keeps them out of the git history of a
 # public repo. A variable that is not set leaves its placeholder,
-# and config.js's runtime guard turns that into demo mode.
+# and config.js's runtime guard turns that into its default: the
+# kit's own Supabase project for the SUPABASE_ pair, keyless / demo
+# mode for the rest.
 #
 # vercel.json's buildCommand runs this file; it moved out of the
 # inline command when the third injection outgrew Vercel's
@@ -24,7 +26,7 @@ sub() { # sub ENV_NAME PLACEHOLDER
     sed -i "s|$ph|$val|" config.js
     echo "injected $name"
   else
-    echo "$name not set — $ph stays (runtime falls back to demo mode)"
+    echo "$name not set — $ph stays (config.js's own default applies)"
   fi
 }
 

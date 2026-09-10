@@ -236,14 +236,14 @@ tuning loop on that record instead of another drive:
 
 ```sh
 # does the offline port agree with what the phone did? (run this first)
-python3 scripts/tune_triggers.py --url https://XYZ.supabase.co --key ANON_KEY
+python3 scripts/tune_triggers.py   # the kit's project; --url/--key read another
 
 # search the knob space against the field verdicts; smallest change wins
-python3 scripts/tune_triggers.py --url ... --key ... --search 3000 --out tuned.json
+python3 scripts/tune_triggers.py --search 3000 --out tuned.json
 
 # verdicts skipped or fat-fingered in the field? correct them in a CSV
-python3 scripts/tune_triggers.py --url ... --key ... --emit-labels labels.csv
-python3 scripts/tune_triggers.py --url ... --key ... --labels labels.csv --search 3000
+python3 scripts/tune_triggers.py --emit-labels labels.csv
+python3 scripts/tune_triggers.py --labels labels.csv --search 3000
 ```
 
 The search stays inside each scenario's slider ranges, reports
@@ -565,10 +565,10 @@ The connection follows the kit's storage philosophy: keyless, all
 three pages share the browser's localStorage and keep each other fresh
 through the storage event — load the Schöneberg route on the trigger
 dashboard and the dispatcher map goes live in the next tab over.
-Deployed with the Supabase env vars, the page reads the same
-`destinations` and `messages` tables as every phone (it loads
-`config.js` from its own origin, so the deploy-time injection reaches
-it unchanged). An empty store falls back to the dashboard's fictional
+Deployed, the page reads the same `destinations` and `messages` tables
+as every phone, from the kit's Supabase project (it loads `config.js`
+from its own origin, so its defaults — and any deploy-time injection —
+reach it unchanged). An empty store falls back to the dashboard's fictional
 Nordhaven sample, labelled as such.
 
 Its **Ask view is a conversation with Otto about the same store** —
@@ -678,16 +678,24 @@ if you need to test the live backend from one.
 Three things to provide — none of them edits a file:
 [`scripts/vercel-build.sh`](scripts/vercel-build.sh) injects every value
 into `config.js` at deploy time from Vercel env vars, so the public repo
-never carries them.
+never carries a secret (the two Supabase values it does carry are public
+by design).
 
-1. **Supabase project** — create a free project, run
-   [`supabase/schema.sql`](supabase/schema.sql) once in the SQL editor,
-   then add two Vercel env vars (Project Settings → Environment
+1. **Supabase project** — the kit's own is already the default in
+   `config.js`: `https://lgyycoxsqrnhawzlqxlq.supabase.co` with its
+   publishable key (the anon role — RLS is the protection, not
+   secrecy). Every deploy and every local clone talks to it, so
+   scenarios, pins and debriefs are shared: define on the dashboard,
+   every phone sees the same pins. A fresh project needs
+   [`supabase/schema.sql`](supabase/schema.sql) run once in its SQL
+   editor (safe to re-run). To point one deploy at a *different*
+   project, set two Vercel env vars (Project Settings → Environment
    Variables, Production): `SUPABASE_URL` and `SUPABASE_ANON_KEY`
-   (both under Project Settings → API in Supabase) — and redeploy.
-   Scenarios, pins and debriefs are then shared: define on the
-   dashboard, every phone sees the same pins. Without these the app
-   still runs, but each browser keeps its own localStorage copy.
+   (Project Settings → API Keys in Supabase) — they override the
+   defaults at build time. Moving the whole kit: see
+   [Moving to another Supabase project](#moving-to-another-supabase-project).
+   With both defaults blanked the app still runs, each browser keeping
+   its own localStorage copy.
 2. **The Edge Functions** — deploy
    [`voice-note`](supabase/functions/voice-note/index.ts) (Otto:
    transcription + structuring; needs the `OPENAI_API_KEY` secret),
@@ -708,7 +716,14 @@ never carries them.
    the [pre-arrival notes](#pre-arrival-notes--otto-reads-before-you-arrive)
    read in Otto's ElevenLabs voice (`ELEVENLABS_API_KEY` +
    optionally `ELEVENLABS_VOICE_ID`; keyless it falls back to the
-   browser's own speech). Set `ALLOWED_ORIGINS` on all of them. Optional
+   browser's own speech). Set `ALLOWED_ORIGINS` on all of them. Deploy
+   each one with `--no-verify-jwt` (or switch **Verify JWT** off in the
+   function's settings in the dashboard): the browser calls them with
+   the project's publishable `sb_publishable_…` key, which is not a
+   JWT, so the platform's JWT gate would answer every call with a 401.
+   Nothing is lost — that gate only ever checked a key that is public
+   by design; the functions' own origin check is what stands between
+   the internet and the metered keys. Optional
    persona tuning via `ASSISTANT_NAME`, `ASSISTANT_BRIEF`,
    `NOTE_CATEGORIES` — e.g.:
 
@@ -736,6 +751,35 @@ never carries them.
    served from the allowed domain). Without a key the grid backdrop
    carries the pins — Directions and Street View still open the real
    Google Maps app either way, keyless, via the Maps URLs API.
+
+### Moving to another Supabase project
+
+The kit's project is written in three places — the two defaults at the
+top of `config.js`, and the `DEFAULT_URL` / `DEFAULT_KEY` pair in
+[`scripts/tune_triggers.py`](scripts/tune_triggers.py) and
+[`scripts/migrate_supabase.py`](scripts/migrate_supabase.py). To move:
+
+1. **Schema** — paste [`supabase/schema.sql`](supabase/schema.sql) into
+   the new project's SQL editor and run it: tables, indexes, the open
+   pilot policies. Until this has run the app answers every read with a
+   404 and stays empty.
+2. **Functions** — deploy the six Edge Functions to the new project
+   (`supabase functions deploy <name> --no-verify-jwt --project-ref <ref>`)
+   and set their secrets again: they belong to the project, not the
+   code (`OPENAI_API_KEY`, `GMAPS_SERVER_KEY`, `ELEVENLABS_API_KEY`,
+   `ALLOWED_ORIGINS`, the persona tuning).
+3. **Point the app at it** — the three files above; on Vercel set
+   `SUPABASE_URL` / `SUPABASE_ANON_KEY` to the new values, or delete
+   them, and redeploy: env vars left on the old project win over the
+   defaults.
+4. **The rows** — [`scripts/migrate_supabase.py`](scripts/migrate_supabase.py)
+   copies destinations, scenarios, messages and runs across, ids and
+   timestamps intact (upsert on id, so it is safe to re-run):
+
+   ```sh
+   python3 scripts/migrate_supabase.py --from-url https://OLD.supabase.co --from-key OLD_ANON_KEY --dry-run
+   python3 scripts/migrate_supabase.py --from-url https://OLD.supabase.co --from-key OLD_ANON_KEY
+   ```
 
 ## How it composes
 
@@ -804,8 +848,9 @@ The composition happens entirely through the kits' public seams:
 | `route-schoeneberg.js` | The Schöneberg demo route: 100 stops in driving order, 87 real geocoded addresses, dispatch + driver notes on file at 40 of them |
 | `activity-rec.js` | Google-AR-style activity states from web signals; `inject()`/`feed()` seams for the real Android API |
 | `backend.js` | Merged Supabase client for both kits + this app's tables |
-| `config.js` | Keys — all optional; placeholders filled at deploy time |
-| `vercel.json`, `scripts/vercel-build.sh` | Deploy-time injection of `GMAPS_BROWSER_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY` |
+| `config.js` | Keys — the kit's Supabase project as the default, the rest optional; placeholders filled at deploy time |
+| `vercel.json`, `scripts/vercel-build.sh` | Deploy-time injection of `GMAPS_BROWSER_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY` (the last two only to override the default project) |
+| `scripts/migrate_supabase.py` | Moves the rows to another Supabase project, ids intact (`schema.sql` does the tables) |
 | `voice-note.js/.css` | from voice-notes-kit + hands-free pause-to-send |
 | `geolocate.js`, `field-map.js/.css` | verbatim from field-map-kit |
 | `supabase/schema.sql` | `destinations` (incl. pre-arrival notes: consignee / floor / notes, and route / stop) + `messages` (incl. the agent conversation) + `scenarios` (incl. params / versions / feedback), RLS |

@@ -33,12 +33,13 @@ Three things it does, in increasing order of ambition:
            sliders).
 
 Data comes straight from Supabase (the pilot policies let the anon key
-read) or from a JSON file:
+read) — the kit's own project by default, the one config.js points at;
+--url / --key read another — or from a JSON file:
 
+  python3 scripts/tune_triggers.py
+  python3 scripts/tune_triggers.py --emit-labels labels.csv
+  python3 scripts/tune_triggers.py --labels labels.csv --search 3000 --out tuned.json
   python3 scripts/tune_triggers.py --url https://XYZ.supabase.co --key ANON_KEY
-  python3 scripts/tune_triggers.py --url ... --key ... --emit-labels labels.csv
-  python3 scripts/tune_triggers.py --url ... --key ... --labels labels.csv \
-      --search 3000 --out tuned.json
 
   # or offline, from a one-object dump {"runs": [...], "scenarios": [...],
   # "destinations": [...]} (curl the three REST endpoints yourself):
@@ -56,6 +57,11 @@ import math
 import random
 import sys
 import urllib.request
+
+# The kit's Supabase project — the same pair config.js carries. The
+# publishable (anon) key is public by design; RLS is the protection.
+DEFAULT_URL = 'https://lgyycoxsqrnhawzlqxlq.supabase.co'
+DEFAULT_KEY = 'sb_publishable_UhActVk58ukgC6On1z9yuw_IbsMeWJf'
 
 # Mirrors TRIG in app.js, in the dashboard's units (seconds, metres).
 DEFAULTS = {
@@ -439,8 +445,10 @@ def search(triples, labels, iters, out_path):
 def main():
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--url', help='Supabase project URL')
-    ap.add_argument('--key', help='Supabase anon key')
+    ap.add_argument('--url', default=DEFAULT_URL,
+                    help="Supabase project URL (default: the kit's project, as in config.js)")
+    ap.add_argument('--key', default=DEFAULT_KEY,
+                    help="Supabase publishable / anon key (default: the kit's)")
     ap.add_argument('--input', help='offline dump: {"runs":[],"scenarios":[],"destinations":[]}')
     ap.add_argument('--emit-labels', metavar='CSV', help='write the labeling template and exit')
     ap.add_argument('--labels', metavar='CSV',

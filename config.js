@@ -12,7 +12,9 @@
  * deploy time from Vercel env vars by scripts/vercel-build.sh:
  *   1. SUPABASE_URL + SUPABASE_ANON_KEY — a Supabase project with
  *      schema.sql run once; scenarios, pins and debriefs are then
- *      shared between the dashboard and every phone,
+ *      shared between the dashboard and every phone. The kit's own
+ *      project is the default below, so this pair only needs
+ *      setting to point a deploy at a different project,
  *   2. GMAPS_BROWSER_KEY — live Google map tiles + house-number
  *      address search,
  *   3. an OpenAI key — as the voice-note Edge Function's secret,
@@ -21,13 +23,18 @@
  *      your own ElevenLabs agent instead of one clip at a time.
  * (The anon key and the Maps key are public in the browser by
  * design — RLS and key restrictions are the protection. The
- * env-var path keeps them out of the git history.)
+ * env-var path keeps the Maps key out of the git history.)
  * ============================================================ */
 
+/* The shared store. A placeholder the deploy did not inject (a local
+ * clone, GitHub Pages, a Vercel project without the env vars) resolves
+ * to the kit's own Supabase project, so every checkout talks to the same
+ * database. The publishable (anon) key is public by design — RLS is the
+ * protection. Blank BOTH defaults for the on-device demo mode. */
 window.SUPABASE_URL = '__SUPABASE_URL__';
 window.SUPABASE_ANON_KEY = '__SUPABASE_ANON_KEY__';
-if (String(window.SUPABASE_URL).slice(0, 2) === '__') window.SUPABASE_URL = ''; /* placeholder -> local demo mode */
-if (String(window.SUPABASE_ANON_KEY).slice(0, 2) === '__') window.SUPABASE_ANON_KEY = '';
+if (String(window.SUPABASE_URL).slice(0, 2) === '__') window.SUPABASE_URL = 'https://lgyycoxsqrnhawzlqxlq.supabase.co';
+if (String(window.SUPABASE_ANON_KEY).slice(0, 2) === '__') window.SUPABASE_ANON_KEY = 'sb_publishable_UhActVk58ukgC6On1z9yuw_IbsMeWJf';
 
 /* Edge Function names (as deployed in Supabase). */
 window.GEOCODE_FN = 'geocode';
