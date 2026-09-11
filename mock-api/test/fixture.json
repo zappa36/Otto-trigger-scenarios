@@ -1,0 +1,1169 @@
+{
+ "destinations": [
+  {
+   "id": "01eb1ee3-2e16-406c-8d0e-468cd6c845d0",
+   "title": "Courtyard access",
+   "addr": "Kollwitzstraße 64, 10435 Berlin-Bezirk Pankow, Germany",
+   "lat": 52.5358925,
+   "lng": 13.4181497,
+   "consignee": null,
+   "floor": null,
+   "notes": null,
+   "route": null,
+   "stop": null,
+   "created_at": "2026-09-11T10:06:13.214867+00:00"
+  },
+  {
+   "id": "f5a5537e-c0fe-4ccb-91ab-ec28cb85e40c",
+   "title": "Kollwitzstraße 48",
+   "addr": "Kollwitzstraße 48, 10405 Berlin",
+   "lat": 52.53441,
+   "lng": 13.41622,
+   "consignee": "F. Brandt",
+   "floor": "3",
+   "notes": [
+    {
+     "at": "2026-09-11T10:06:24.215931Z",
+     "by": "dispatch",
+     "id": "n1a09025b057lij9",
+     "text": "The bell panel is inside the gateway, not on the street — Brandt is the top button."
+    }
+   ],
+   "route": "kollwitz-01",
+   "stop": 1,
+   "created_at": "2026-09-11T11:06:24.720818+00:00"
+  },
+  {
+   "id": "a681056e-658f-4cd7-b132-01f99ff77039",
+   "title": "Kolmarer Straße 3",
+   "addr": "Kolmarer Straße 3, 10405 Berlin",
+   "lat": 52.53292,
+   "lng": 13.41844,
+   "consignee": "Café Kolmar",
+   "floor": "EG",
+   "notes": [
+    {
+     "at": "2026-09-11T10:06:24.215931Z",
+     "by": "dispatch",
+     "id": "n1a09025b058qeop",
+     "text": "Hand it over at the counter — they sign for the whole house."
+    }
+   ],
+   "route": "kollwitz-01",
+   "stop": 2,
+   "created_at": "2026-09-11T11:06:24.720818+00:00"
+  },
+  {
+   "id": "054eed43-f4e3-41d6-88d6-7e28c2c8bb29",
+   "title": "Knaackstraße 22",
+   "addr": "Knaackstraße 22, 10405 Berlin",
+   "lat": 52.53485,
+   "lng": 13.41874,
+   "consignee": "L. Okafor",
+   "floor": "2",
+   "notes": [],
+   "route": "kollwitz-01",
+   "stop": 3,
+   "created_at": "2026-09-11T11:06:24.720818+00:00"
+  },
+  {
+   "id": "e853c616-72b3-4a25-8476-469f0c0971c0",
+   "title": "Rykestraße 13",
+   "addr": "Rykestraße 13, 10405 Berlin",
+   "lat": 52.5365,
+   "lng": 13.42095,
+   "consignee": "Praxis Dr. Ehlers",
+   "floor": "1",
+   "notes": [
+    {
+     "at": "2026-09-11T10:06:24.215931Z",
+     "by": "driver",
+     "id": "n1a09025b058arzw",
+     "text": "The front door is locked before 09:00 — the practice opens the courtyard door on the right."
+    }
+   ],
+   "route": "kollwitz-01",
+   "stop": 4,
+   "created_at": "2026-09-11T11:06:24.720818+00:00"
+  },
+  {
+   "id": "70877ad2-4e6c-4eab-95db-0d15725b09ba",
+   "title": "Sredzkistraße 44",
+   "addr": "Sredzkistraße 44, 10435 Berlin",
+   "lat": 52.53814,
+   "lng": 13.41902,
+   "consignee": "J. Petrova",
+   "floor": "4",
+   "notes": [
+    {
+     "at": "2026-09-11T10:06:24.215931Z",
+     "by": "dispatch",
+     "id": "n1a09025b058zxfe",
+     "text": "Customer is hard of hearing — ring twice and give it a minute."
+    }
+   ],
+   "route": "kollwitz-01",
+   "stop": 5,
+   "created_at": "2026-09-11T11:06:24.720818+00:00"
+  },
+  {
+   "id": "f752e7ad-ddab-47f9-bb07-e8e9a5df45dd",
+   "title": "Husemannstraße 14",
+   "addr": "Husemannstraße 14, 10435 Berlin",
+   "lat": 52.5379,
+   "lng": 13.41772,
+   "consignee": "M. Aydın",
+   "floor": "2",
+   "notes": [],
+   "route": "kollwitz-01",
+   "stop": 6,
+   "created_at": "2026-09-11T11:06:24.720818+00:00"
+  },
+  {
+   "id": "ceccf38d-e339-4009-b564-a5e4ea65fbfb",
+   "title": "Sredzkistraße 20",
+   "addr": "Sredzkistraße 20, 10435 Berlin",
+   "lat": 52.53833,
+   "lng": 13.41553,
+   "consignee": "Buchhandlung Sredzki",
+   "floor": "EG",
+   "notes": [
+    {
+     "at": "2026-09-11T10:06:24.215931Z",
+     "by": "driver",
+     "id": "n1a09025b05862uk",
+     "text": "No stopping on Sredzkistraße in the morning — the loading bay on Husemannstraße is 40 m away."
+    }
+   ],
+   "route": "kollwitz-01",
+   "stop": 7,
+   "created_at": "2026-09-11T11:06:24.720818+00:00"
+  },
+  {
+   "id": "664b5614-c332-4da4-8766-bda8c64a574e",
+   "title": "Kollwitzstraße 71",
+   "addr": "Kollwitzstraße 71, 10435 Berlin",
+   "lat": 52.53736,
+   "lng": 13.41817,
+   "consignee": "R. Fischer",
+   "floor": "5",
+   "notes": [
+    {
+     "at": "2026-09-11T10:06:24.215931Z",
+     "by": "dispatch",
+     "id": "n1a09025b058ljfj",
+     "text": "No lift — 5th floor. If nobody answers, neighbour Kern on the 4th takes it."
+    }
+   ],
+   "route": "kollwitz-01",
+   "stop": 8,
+   "created_at": "2026-09-11T11:06:24.720818+00:00"
+  },
+  {
+   "id": "bfabb05b-1057-46d6-9d23-14d25b190e43",
+   "title": "Husemannstraße 1",
+   "addr": "Husemannstraße 1, 10435 Berlin",
+   "lat": 52.53694,
+   "lng": 13.41701,
+   "consignee": "S. Haddad",
+   "floor": "1",
+   "notes": [],
+   "route": "kollwitz-01",
+   "stop": 9,
+   "created_at": "2026-09-11T11:06:24.720818+00:00"
+  },
+  {
+   "id": "34949e02-3c24-4921-a802-3b2c9e8b54dd",
+   "title": "Wörther Straße 38",
+   "addr": "Wörther Straße 38, 10435 Berlin",
+   "lat": 52.53674,
+   "lng": 13.41639,
+   "consignee": "A. Novak",
+   "floor": "3",
+   "notes": [
+    {
+     "at": "2026-09-11T10:06:24.215931Z",
+     "by": "driver",
+     "id": "n1a09025b058hyem",
+     "text": "The intercom is dead — knock on the ground-floor window on the left, they buzz you in."
+    }
+   ],
+   "route": "kollwitz-01",
+   "stop": 10,
+   "created_at": "2026-09-11T11:06:24.720818+00:00"
+  },
+  {
+   "id": "4cece8a1-ff87-431c-bf06-68829bc8582d",
+   "title": "Kollwitzstraße 64",
+   "addr": "Kollwitzstraße 64, 10435 Berlin",
+   "lat": 52.53598,
+   "lng": 13.41797,
+   "consignee": "E. Conti",
+   "floor": "2",
+   "notes": [
+    {
+     "at": "2026-09-11T10:06:24.215931Z",
+     "by": "dispatch",
+     "id": "n1a09025b0588ktt",
+     "text": "The courtyard door is temporarily closed — use the side entrance, there is a sign."
+    }
+   ],
+   "route": "kollwitz-01",
+   "stop": 11,
+   "created_at": "2026-09-11T11:06:24.720818+00:00"
+  },
+  {
+   "id": "b692cca9-61cb-4eff-94c4-19021671d699",
+   "title": "Kollwitzstraße 64",
+   "addr": "Kollwitzstraße 64, 10435 Berlin",
+   "lat": 52.53598,
+   "lng": 13.41797,
+   "consignee": "Studio Nordlicht",
+   "floor": "EG",
+   "notes": [],
+   "route": "kollwitz-01",
+   "stop": 12,
+   "created_at": "2026-09-11T11:06:24.720818+00:00"
+  }
+ ],
+ "messages": [
+  {
+   "id": "083fdf56-a380-422d-a4fd-71d5df65b01d",
+   "destination_id": "01eb1ee3-2e16-406c-8d0e-468cd6c845d0",
+   "context": "trigger scenario \"Courtyard access\" at Kollwitzstraße 64",
+   "transcript": "Use the side entrance — the courtyard door is closed, follow the sign.",
+   "title": "Access courtyard via specific door",
+   "category": "access",
+   "lat": 52.5357467,
+   "lng": 13.4186436,
+   "ar_summary": "STILL 5m",
+   "ar_trace": null,
+   "via": "elevenlabs",
+   "convo": null,
+   "created_at": "2026-09-11T10:07:53.026549+00:00"
+  }
+ ],
+ "scenarios": [
+  {
+   "id": "1b7af016-e59f-430a-bbcd-b284bd07a4f3",
+   "num": 2,
+   "title": "Park & walk — parked far out, walked the last stretch",
+   "rule": "Vehicle parks within {park_radius_max} m of the pin — the vehicle→walking flip marks the spot, a vehicle standing ≥{park_stop_s} s is the fallback — then the driver walks ≥{min_walk_m} m and arrives within {arrival_radius} m of the pin on foot.",
+   "ar_states": "IN_VEHICLE → WALKING (the flip is the parking spot) → STILL at the door",
+   "signals": "Parking position vs pin; walked path length; walk time",
+   "timing": "On arrival at the door, on foot — only then is the walk a measured fact",
+   "otto_says": "“You parked about {park_m} m out and walked {walk_m} m — was there nothing closer, or is that the smart spot for this address?”",
+   "learns": "parking — the parking spot that actually works for this address",
+   "test_steps": "Drive to a few hundred meters from the pin, park properly, walk the rest of the way. Otto speaks when you reach the door, quoting your measured distances.",
+   "described": "Parking at the door never works at this address. The driver knows it, gives up early, parks at the spot that always works and walks the rest — the distance is the tip.",
+   "params": [
+    {
+     "key": "park_radius_max",
+     "max": 800,
+     "min": 100,
+     "step": 25,
+     "unit": "m",
+     "label": "Parking counts within",
+     "value": 400
+    },
+    {
+     "key": "park_stop_s",
+     "max": 120,
+     "min": 10,
+     "step": 5,
+     "unit": "s",
+     "label": "Vehicle standstill = parked",
+     "value": 30
+    },
+    {
+     "key": "min_walk_m",
+     "max": 300,
+     "min": 20,
+     "step": 10,
+     "unit": "m",
+     "label": "Minimum walk",
+     "value": 50
+    },
+    {
+     "key": "arrival_radius",
+     "max": 60,
+     "min": 10,
+     "step": 5,
+     "unit": "m",
+     "label": "Arrived within",
+     "value": 25
+    }
+   ],
+   "version": 1,
+   "version_note": "from the starter sheet",
+   "version_at": "2026-09-11T09:26:59.396+00:00",
+   "history": null,
+   "feedback": null,
+   "destination_id": null,
+   "verdict": null,
+   "created_at": "2026-09-11T09:26:59.326617+00:00"
+  },
+  {
+   "id": "42b7eb79-3166-402a-9713-65105123b8d5",
+   "num": 4,
+   "title": "Entrance hunt — at the address, but where is the way in?",
+   "rule": "Vehicle stops within {stop_radius} m of the pin (≥{stop_dwell_s} s), then ON_FOOT for ≥{foot_search_s} s inside ~{radius} m of the pin without the debrief starting — the tester is hunting for the way in.",
+   "ar_states": "IN_VEHICLE → STILL (arrival) → ON_FOOT searching → STILL at the real entrance",
+   "signals": "On-foot GPS trace circling the building; time on foot with no arrival",
+   "timing": "Wait — ask when back at the vehicle, not mid-search",
+   "otto_says": "“Was the entrance easy to find? Where is it, exactly — and what should the next driver look for?”",
+   "learns": "access — where the real way in is",
+   "test_steps": "Park near the pin, walk to the wrong side of the building first, spend ~2 min searching, then return to the car and answer Otto.",
+   "described": "The pin is reached, the building found — and then the search starts: the front door is around the corner, in the courtyard, behind the shop.",
+   "params": [
+    {
+     "key": "stop_radius",
+     "max": 300,
+     "min": 30,
+     "step": 5,
+     "unit": "m",
+     "label": "Arrival stop radius",
+     "value": 120
+    },
+    {
+     "key": "stop_dwell_s",
+     "max": 120,
+     "min": 5,
+     "step": 5,
+     "unit": "s",
+     "label": "Arrival stop dwell",
+     "value": 20
+    },
+    {
+     "key": "foot_search_s",
+     "max": 300,
+     "min": 20,
+     "step": 10,
+     "unit": "s",
+     "label": "On-foot search time",
+     "value": 90
+    },
+    {
+     "key": "radius",
+     "max": 200,
+     "min": 20,
+     "step": 5,
+     "unit": "m",
+     "label": "Search radius",
+     "value": 80
+    },
+    {
+     "key": "passes_needed",
+     "max": 3,
+     "min": 0,
+     "step": 1,
+     "unit": "×",
+     "label": "Slow passes needed",
+     "value": 0
+    }
+   ],
+   "version": 1,
+   "version_note": "from the starter sheet",
+   "version_at": "2026-09-11T09:26:59.396+00:00",
+   "history": null,
+   "feedback": null,
+   "destination_id": null,
+   "verdict": null,
+   "created_at": "2026-09-11T09:26:59.326617+00:00"
+  },
+  {
+   "id": "122e4b54-d676-4077-871f-394accf15ce6",
+   "num": 6,
+   "title": "Nobody home — rang, waited, bounced",
+   "rule": "Normal arrival (stop within {stop_radius} m, ≥{stop_dwell_s} s standing), total time at the door under {door_dwell_max_s} s, then moving off again — a delivery attempt that bounced.",
+   "ar_states": "IN_VEHICLE → STILL / brief ON_FOOT at the door → IN_VEHICLE away",
+   "signals": "Short door dwell; time of day vs typical delivery windows",
+   "timing": "On driving off — the attempt is over, the lesson is not",
+   "otto_says": "“No luck at the door? When is somebody actually there — or is there a neighbour or a shop that takes parcels?”",
+   "learns": "recipient — when this door answers, and who takes parcels when it doesn’t",
+   "test_steps": "Arrive normally, walk to the door, wait ~30 s as if ringing, walk back and drive off. Answer Otto once rolling.",
+   "described": "The drive, the park, the walk, the bell — and nobody answers. The parcel rides on, and the only thing learned is when this door actually opens. Unless Otto asks.",
+   "params": [
+    {
+     "key": "stop_radius",
+     "max": 300,
+     "min": 30,
+     "step": 5,
+     "unit": "m",
+     "label": "Arrival stop radius",
+     "value": 100
+    },
+    {
+     "key": "stop_dwell_s",
+     "max": 120,
+     "min": 10,
+     "step": 5,
+     "unit": "s",
+     "label": "Arrival stop dwell",
+     "value": 25
+    },
+    {
+     "key": "door_dwell_max_s",
+     "max": 600,
+     "min": 30,
+     "step": 10,
+     "unit": "s",
+     "label": "A bounce stays under",
+     "value": 120
+    },
+    {
+     "key": "passes_needed",
+     "max": 3,
+     "min": 0,
+     "step": 1,
+     "unit": "×",
+     "label": "Slow passes needed",
+     "value": 0
+    }
+   ],
+   "version": 1,
+   "version_note": "from the starter sheet",
+   "version_at": "2026-09-11T09:26:59.396+00:00",
+   "history": null,
+   "feedback": null,
+   "destination_id": null,
+   "verdict": null,
+   "created_at": "2026-09-11T09:26:59.326617+00:00"
+  },
+  {
+   "id": "962a7fbb-3629-4cc1-b26c-4eb38082eb54",
+   "num": 8,
+   "title": "Blocked street — got close, never arrived",
+   "rule": "Approach to within {radius} m of the pin below {pass_speed_max} m/s, then movement away again without any stop of ≥{stop_dwell_s} s inside {stop_radius} m — an approach that never became an arrival.",
+   "ar_states": "IN_VEHICLE approach → slow crawl / brief STILL at the blockage → IN_VEHICLE away, no arrival",
+   "signals": "GPS trace turning short of the pin; speed drop at the blockage",
+   "timing": "Soon after turning away, once driving smoothly",
+   "otto_says": "“Looks like you couldn’t get through — what’s blocking the street, and which way around works?”",
+   "learns": "hazard — the blockage and the detour that works",
+   "test_steps": "Drive toward the pin, slow as if blocked, turn around short of it and drive off. The demo detector fires only on a real stop, so expect a silent run — end tracking and judge it “✗ should have spoken”: that verdict is the data the production trigger is built from.",
+   "described": "Construction fence, a moving truck, police tape: the street is shut, the driver turns off short of the address and has to find another way. The map will keep sending everyone else the same way.",
+   "params": [
+    {
+     "key": "radius",
+     "max": 300,
+     "min": 30,
+     "step": 5,
+     "unit": "m",
+     "label": "Approach counts within",
+     "value": 100
+    },
+    {
+     "key": "pass_speed_max",
+     "max": 15,
+     "min": 2,
+     "step": 0.5,
+     "unit": "m/s",
+     "label": "Max approach speed",
+     "value": 8
+    },
+    {
+     "key": "stop_dwell_s",
+     "max": 120,
+     "min": 10,
+     "step": 5,
+     "unit": "s",
+     "label": "Real-stop threshold",
+     "value": 30
+    },
+    {
+     "key": "stop_radius",
+     "max": 500,
+     "min": 50,
+     "step": 10,
+     "unit": "m",
+     "label": "No stop inside",
+     "value": 250
+    },
+    {
+     "key": "passes_needed",
+     "max": 3,
+     "min": 0,
+     "step": 1,
+     "unit": "×",
+     "label": "Slow passes needed",
+     "value": 1
+    }
+   ],
+   "version": 1,
+   "version_note": "from the starter sheet",
+   "version_at": "2026-09-11T09:26:59.396+00:00",
+   "history": null,
+   "feedback": null,
+   "destination_id": null,
+   "verdict": null,
+   "created_at": "2026-09-11T09:26:59.326617+00:00"
+  },
+  {
+   "id": "efd17e81-ba69-464e-adb3-475a89bad03e",
+   "num": 10,
+   "title": "Clean run — the control: Otto stays quiet",
+   "rule": "A direct approach, one ordinary stop, departure — no repeated passes, no excessive dwell. The trigger under test must NOT fire: with {passes_needed} slow passes required and {stop_dwell_s} s dwell armed, any Otto question on this run is a false positive.",
+   "ar_states": "IN_VEHICLE → STILL at the door → brief ON_FOOT → IN_VEHICLE — nothing unusual",
+   "signals": "None — that is the point; the run log records what the detector saw anyway",
+   "timing": "Never — a fired trigger on this run is the finding",
+   "otto_says": "“If you are hearing this, the trigger fired on a normal delivery — tell me what you were doing when I spoke up.”",
+   "learns": "Nothing — a silent run is the pass; any debrief filed here documents a false positive",
+   "test_steps": "Do the most boring delivery you can: drive straight to the pin, park, walk in, walk out, drive off. End tracking and judge the silent run “✓ right call”. If Otto speaks, answer him — the debrief documents the false positive.",
+   "described": "A completely ordinary delivery: drive up, park at the door, hand over, drive on. Nothing to learn — so the pass is Otto saying nothing at all.",
+   "params": [
+    {
+     "key": "passes_needed",
+     "max": 5,
+     "min": 0,
+     "step": 1,
+     "unit": "×",
+     "label": "Slow passes needed",
+     "value": 2
+    },
+    {
+     "key": "stop_dwell_s",
+     "max": 180,
+     "min": 10,
+     "step": 5,
+     "unit": "s",
+     "label": "Stop dwell",
+     "value": 45
+    },
+    {
+     "key": "radius",
+     "max": 400,
+     "min": 40,
+     "step": 5,
+     "unit": "m",
+     "label": "Pass radius",
+     "value": 150
+    },
+    {
+     "key": "stop_radius",
+     "max": 500,
+     "min": 50,
+     "step": 10,
+     "unit": "m",
+     "label": "Stop radius",
+     "value": 250
+    }
+   ],
+   "version": 1,
+   "version_note": "from the starter sheet",
+   "version_at": "2026-09-11T09:26:59.396+00:00",
+   "history": null,
+   "feedback": null,
+   "destination_id": null,
+   "verdict": null,
+   "created_at": "2026-09-11T09:26:59.326617+00:00"
+  },
+  {
+   "id": "db8cc4fd-89ac-4fc5-9e8e-a810d7a1cd46",
+   "num": 1,
+   "title": "Parking loops — driver circles the block looking for parking",
+   "rule": "Vehicle passes within ~{radius} m of the stop {passes_needed}× below {pass_speed_max} m/s without stopping, then stands ≥{stop_dwell_s} s within {stop_radius} m. Deck says 3 slow loops; every number here is a slider.",
+   "ar_states": "IN_VEHICLE the whole time",
+   "signals": "GPS trace vs stop pin; speed",
+   "timing": "Wait — ask when back in the car after the stop",
+   "otto_says": "“Is it hard to park here at this time? Where did you find a spot?”",
+   "learns": "parking — the loading-zone tip",
+   "test_steps": "Simulate a delivery address, drive around the block twice, then stop",
+   "described": "The driver has a delivery but cannot find parking, so they circle the block a few times slowly before finally stopping.",
+   "params": [
+    {
+     "key": "radius",
+     "max": 400,
+     "min": 40,
+     "step": 5,
+     "unit": "m",
+     "label": "Pass radius",
+     "value": 150
+    },
+    {
+     "key": "passes_needed",
+     "max": 5,
+     "min": 0,
+     "step": 1,
+     "unit": "×",
+     "label": "Slow passes needed",
+     "value": 2
+    },
+    {
+     "key": "pass_speed_max",
+     "max": 15,
+     "min": 2,
+     "step": 0.5,
+     "unit": "m/s",
+     "label": "Max pass speed",
+     "value": 9
+    },
+    {
+     "key": "stop_dwell_s",
+     "max": 180,
+     "min": 10,
+     "step": 5,
+     "unit": "s",
+     "label": "Stop dwell",
+     "value": 45
+    },
+    {
+     "key": "stop_radius",
+     "max": 500,
+     "min": 50,
+     "step": 10,
+     "unit": "m",
+     "label": "Stop radius",
+     "value": 250
+    }
+   ],
+   "version": 1,
+   "version_note": "from the starter sheet",
+   "version_at": "2026-09-11T09:26:59.396+00:00",
+   "history": null,
+   "feedback": null,
+   "destination_id": null,
+   "verdict": null,
+   "created_at": "2026-09-11T09:26:59.326617+00:00"
+  },
+  {
+   "id": "da6e4c5b-3b3b-467e-b028-2d832cee740a",
+   "num": 3,
+   "title": "Sprint stop — hazards on, dash to the door",
+   "rule": "Vehicle stops within {stop_radius} m of the pin, stands ≥{stop_dwell_s} s, and is moving again within {max_stop_s} s of first standing — a dash, not a parked delivery. The short total stop is the signature; the debrief asks whether it works here.",
+   "ar_states": "IN_VEHICLE → STILL in the traffic lane → brief ON_FOOT possible → IN_VEHICLE again",
+   "signals": "Total standstill time; stop position in the street vs the pin",
+   "timing": "Straight after moving off, while the manoeuvre is fresh",
+   "otto_says": "“Quick one — did stopping in the street work here, or is there a loading zone the map doesn’t show?”",
+   "learns": "parking — whether a hazards-on stop is tolerated, and where the loading zone is",
+   "test_steps": "Stop briefly right at the pin as if double-parked, walk a parcel to the door, drive off within two minutes; answer Otto once rolling.",
+   "described": "No legal spot anywhere, so the driver stops in the street with the hazards on and sprints the parcel to the door. Whether the street tolerates that — and where the loading zone hides — is the tip.",
+   "params": [
+    {
+     "key": "stop_radius",
+     "max": 200,
+     "min": 20,
+     "step": 5,
+     "unit": "m",
+     "label": "Stop counts within",
+     "value": 60
+    },
+    {
+     "key": "stop_dwell_s",
+     "max": 90,
+     "min": 10,
+     "step": 5,
+     "unit": "s",
+     "label": "Minimum standstill",
+     "value": 20
+    },
+    {
+     "key": "max_stop_s",
+     "max": 300,
+     "min": 30,
+     "step": 10,
+     "unit": "s",
+     "label": "Still a dash below",
+     "value": 120
+    },
+    {
+     "key": "passes_needed",
+     "max": 3,
+     "min": 0,
+     "step": 1,
+     "unit": "×",
+     "label": "Slow passes needed",
+     "value": 0
+    },
+    {
+     "key": "resume_speed",
+     "max": 8,
+     "min": 1,
+     "step": 0.5,
+     "unit": "m/s",
+     "label": "Moving-again speed",
+     "value": 3
+    }
+   ],
+   "version": 1,
+   "version_note": "from the starter sheet",
+   "version_at": "2026-09-11T09:26:59.396+00:00",
+   "history": null,
+   "feedback": null,
+   "destination_id": null,
+   "verdict": null,
+   "created_at": "2026-09-11T09:26:59.326617+00:00"
+  },
+  {
+   "id": "4245022f-326c-4cbb-a492-d91bef7dce8b",
+   "num": 12,
+   "title": "Kollwitzkiez 01 route — walk the tour, Otto reads the notes",
+   "rule": "Come within {notes_radius} m of any stop with notes on file — Otto reads consignee, floor, dispatch and driver notes aloud, once per approach; walking back out past {notes_rearm} m re-arms the reading.",
+   "ar_states": "ON_FOOT between stops; STILL at the door",
+   "signals": "GPS vs the stop pins; notes on file (dispatch + driver)",
+   "timing": "On approach — before the driver is at the door",
+   "otto_says": "“Were the notes right — anything to correct for the next driver?”",
+   "learns": "access / other — corrections to the notes on file",
+   "test_steps": "Walk the route in stop order (stop 1: Kollwitzstraße 48). Otto reads ~{notes_radius} m ahead of each noted stop; ✕ on the banner stops a reading, and the phone's ROUTE chip hides the whole route for clean scenario tests. At each door tap ✓ Delivered or ✕ Not delivered on the stop card — that tap stands in for the scan.",
+   "described": null,
+   "params": [
+    {
+     "key": "notes_radius",
+     "max": 300,
+     "min": 10,
+     "step": 5,
+     "unit": "m",
+     "label": "Notes read distance",
+     "value": 40
+    },
+    {
+     "key": "notes_rearm",
+     "max": 600,
+     "min": 30,
+     "step": 10,
+     "unit": "m",
+     "label": "Re-arm distance",
+     "value": 120
+    }
+   ],
+   "version": 1,
+   "version_note": "created with the route",
+   "version_at": "2026-09-11T11:06:24.215931+00:00",
+   "history": null,
+   "feedback": null,
+   "destination_id": "f5a5537e-c0fe-4ccb-91ab-ec28cb85e40c",
+   "verdict": null,
+   "created_at": "2026-09-11T11:06:25.580446+00:00"
+  },
+  {
+   "id": "3787854b-7834-4744-85fd-9e2aac0fc9da",
+   "num": 5,
+   "title": "The wrong pin — the door is not where the map says",
+   "rule": "Arrival stop within {stop_radius} m of the pin (≥{stop_dwell_s} s), then the debrief is delivered ≥{pin_offset_m} m away from the pin — the tester is at the real door, the pin is not.",
+   "ar_states": "IN_VEHICLE → STILL → ON_FOOT to the real door → STILL there",
+   "signals": "Debrief position vs the pin — the filed report carries the reporter’s coordinates; walked trace",
+   "timing": "At the real door — say where you actually are while standing there",
+   "otto_says": "“The map pin seems off — where is the real door compared to where it sent you?”",
+   "learns": "address — a pin correction: where the door really is",
+   "test_steps": "Pin the scenario deliberately one block off. Drive to the pin, then walk to the “real” door you chose and debrief from there — the filed position is the correction.",
+   "described": "Navigation says arrived; the building says otherwise. The real door sits well away from where the map put the pin, and every driver after this one will hunt again unless the correction is filed.",
+   "params": [
+    {
+     "key": "stop_radius",
+     "max": 300,
+     "min": 30,
+     "step": 5,
+     "unit": "m",
+     "label": "Arrival stop radius",
+     "value": 120
+    },
+    {
+     "key": "stop_dwell_s",
+     "max": 120,
+     "min": 5,
+     "step": 5,
+     "unit": "s",
+     "label": "Arrival stop dwell",
+     "value": 20
+    },
+    {
+     "key": "pin_offset_m",
+     "max": 300,
+     "min": 25,
+     "step": 5,
+     "unit": "m",
+     "label": "Pin counts as wrong from",
+     "value": 75
+    },
+    {
+     "key": "passes_needed",
+     "max": 3,
+     "min": 0,
+     "step": 1,
+     "unit": "×",
+     "label": "Slow passes needed",
+     "value": 0
+    },
+    {
+     "key": "resume_speed",
+     "max": 8,
+     "min": 0.5,
+     "step": 0.5,
+     "unit": "m/s",
+     "label": "Moving-again speed",
+     "value": 1
+    }
+   ],
+   "version": 1,
+   "version_note": "from the starter sheet",
+   "version_at": "2026-09-11T09:26:59.396+00:00",
+   "history": null,
+   "feedback": null,
+   "destination_id": null,
+   "verdict": null,
+   "created_at": "2026-09-11T09:26:59.326617+00:00"
+  },
+  {
+   "id": "73a3312f-66b7-46d8-9142-de29dd6caf22",
+   "num": 7,
+   "title": "Long wait — the handover eats the schedule",
+   "rule": "A cumulative ≥{stop_dwell_s} s standing within {stop_radius} m of the pin — far longer than a normal handover. Shuffling forward in a queue (interruptions shorter than {still_grace_s} s) pauses the clock instead of resetting it.",
+   "ar_states": "ON_FOOT or STILL near the pin — the long STILL is the signal",
+   "signals": "Dwell time vs pin; opening hours; time of day",
+   "timing": "Wait — ask on leaving, when hands are free",
+   "otto_says": "“That took a while — how long did you actually wait, and is there a faster way in here?”",
+   "learns": "other — realistic waiting time and how to skip it",
+   "test_steps": "Go to the pin, stand in the waiting area ≥5 min (a few steps forward now and then are fine), then leave and answer Otto.",
+   "described": "Goods-in queues, reception hunts for a stamp, the one person with a key is at lunch. The dwell is the signal; the workaround is the tip.",
+   "params": [
+    {
+     "key": "stop_radius",
+     "max": 200,
+     "min": 15,
+     "step": 5,
+     "unit": "m",
+     "label": "Waiting radius",
+     "value": 60
+    },
+    {
+     "key": "stop_dwell_s",
+     "max": 1200,
+     "min": 60,
+     "step": 30,
+     "unit": "s",
+     "label": "Wait threshold",
+     "value": 300
+    },
+    {
+     "key": "still_grace_s",
+     "max": 180,
+     "min": 10,
+     "step": 5,
+     "unit": "s",
+     "label": "Queue-shuffle grace",
+     "value": 60
+    },
+    {
+     "key": "passes_needed",
+     "max": 3,
+     "min": 0,
+     "step": 1,
+     "unit": "×",
+     "label": "Slow passes needed",
+     "value": 0
+    }
+   ],
+   "version": 1,
+   "version_note": "from the starter sheet",
+   "version_at": "2026-09-11T09:26:59.396+00:00",
+   "history": null,
+   "feedback": null,
+   "destination_id": null,
+   "verdict": null,
+   "created_at": "2026-09-11T09:26:59.326617+00:00"
+  },
+  {
+   "id": "dfb4a17c-bb39-43b1-88fa-7be1327153a4",
+   "num": 9,
+   "title": "Crawl approach — the last street costs minutes",
+   "rule": "Inside {radius} m of the pin, ≥{crawl_s} s continuously below {pass_speed_max} m/s while still IN_VEHICLE, ending in the arrival stop (≥{stop_dwell_s} s within {stop_radius} m).",
+   "ar_states": "IN_VEHICLE at walking pace (the crawl) → STILL at arrival",
+   "signals": "Speed profile over the approach; time-in-segment vs what the street usually takes",
+   "timing": "Right after the arrival stop, as movement resumes — the crawl is still fresh",
+   "otto_says": "“That last stretch was slow — what makes it crawl, and is it always like this at this hour?”",
+   "learns": "hazard — what slows the approach, and when",
+   "test_steps": "Drive the last ~300 m to the pin at walking pace, stop as arrived, then step out. Otto asks as you move again; the speed trace shows the crawl.",
+   "described": "The last few hundred meters crawl: a narrow one-way, a school at opening time, cobblestones and parked trucks. Every future route past this address should know.",
+   "params": [
+    {
+     "key": "radius",
+     "max": 600,
+     "min": 100,
+     "step": 10,
+     "unit": "m",
+     "label": "Crawl counts within",
+     "value": 300
+    },
+    {
+     "key": "crawl_s",
+     "max": 300,
+     "min": 20,
+     "step": 10,
+     "unit": "s",
+     "label": "Crawl duration",
+     "value": 60
+    },
+    {
+     "key": "pass_speed_max",
+     "max": 8,
+     "min": 1,
+     "step": 0.5,
+     "unit": "m/s",
+     "label": "Crawl speed below",
+     "value": 4
+    },
+    {
+     "key": "stop_dwell_s",
+     "max": 120,
+     "min": 10,
+     "step": 5,
+     "unit": "s",
+     "label": "Arrival stop dwell",
+     "value": 30
+    },
+    {
+     "key": "stop_radius",
+     "max": 300,
+     "min": 30,
+     "step": 5,
+     "unit": "m",
+     "label": "Arrival stop radius",
+     "value": 100
+    },
+    {
+     "key": "passes_needed",
+     "max": 3,
+     "min": 0,
+     "step": 1,
+     "unit": "×",
+     "label": "Slow passes needed",
+     "value": 0
+    },
+    {
+     "key": "resume_speed",
+     "max": 8,
+     "min": 0.5,
+     "step": 0.5,
+     "unit": "m/s",
+     "label": "Moving-again speed",
+     "value": 1
+    }
+   ],
+   "version": 1,
+   "version_note": "from the starter sheet",
+   "version_at": "2026-09-11T09:26:59.396+00:00",
+   "history": null,
+   "feedback": null,
+   "destination_id": null,
+   "verdict": null,
+   "created_at": "2026-09-11T09:26:59.326617+00:00"
+  },
+  {
+   "id": "df6e9771-5294-407e-baf0-4a72a4e60428",
+   "num": 11,
+   "title": "Courtyard access — temporary door closed, new door not found",
+   "rule": "Tester is ON_FOOT within {search_radius} m of the pin for more than {search_time_s} s without finding the new entrance to the courtyard.",
+   "ar_states": "ON_FOOT (searching)",
+   "signals": "GPS trace on foot vs pin; time searching near the pin",
+   "timing": "After search time is exceeded and no entrance has been found",
+   "otto_says": "\"The courtyard entrance seems to be closed. Where should the driver enter now?\"",
+   "learns": "access — where the new entrance is when the courtyard door is closed",
+   "test_steps": "Walk near the courtyard entrance pin without finding the new entrance for ~2 minutes, then answer Otto.",
+   "described": "the door to courtyard is temporary closed, I don't find the the new door.",
+   "params": [
+    {
+     "key": "search_radius",
+     "max": 150,
+     "min": 10,
+     "step": 5,
+     "unit": "m",
+     "label": "Search radius",
+     "value": 50
+    },
+    {
+     "key": "search_time_s",
+     "max": 300,
+     "min": 30,
+     "step": 15,
+     "unit": "s",
+     "label": "Search time",
+     "value": 120
+    }
+   ],
+   "version": 1,
+   "version_note": null,
+   "version_at": "2026-09-11T10:06:13.208+00:00",
+   "history": null,
+   "feedback": null,
+   "destination_id": "01eb1ee3-2e16-406c-8d0e-468cd6c845d0",
+   "verdict": null,
+   "created_at": "2026-09-11T10:06:12.998687+00:00"
+  }
+ ],
+ "runs": [
+  {
+   "id": "00000000-0000-4000-8000-000000000101",
+   "scenario_id": "df6e9771-5294-407e-baf0-4a72a4e60428",
+   "scenario_version": 1,
+   "destination_id": "01eb1ee3-2e16-406c-8d0e-468cd6c845d0",
+   "started_at": "2026-09-10T09:40:00Z",
+   "ended_at": "2026-09-10T09:52:00Z",
+   "fired": true,
+   "fired_at": "2026-09-10T09:47:00Z",
+   "passes": 1,
+   "stop_seen": true,
+   "should_fire": true,
+   "verdict": "on_time",
+   "created_at": "2026-09-10T09:52:00Z"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000102",
+   "scenario_id": "df6e9771-5294-407e-baf0-4a72a4e60428",
+   "scenario_version": 1,
+   "destination_id": "01eb1ee3-2e16-406c-8d0e-468cd6c845d0",
+   "started_at": "2026-09-10T10:10:00Z",
+   "ended_at": "2026-09-10T10:20:00Z",
+   "fired": true,
+   "fired_at": "2026-09-10T10:15:00Z",
+   "passes": 0,
+   "stop_seen": true,
+   "should_fire": false,
+   "verdict": "false_alarm",
+   "created_at": "2026-09-10T10:20:00Z"
+  }
+ ],
+ "visits": [
+  {
+   "id": "00000000-0000-4000-8000-000000000010",
+   "destination_id": "f5a5537e-c0fe-4ccb-91ab-ec28cb85e40c",
+   "route": "kollwitz-01",
+   "stop": 1,
+   "outcome": "delivered",
+   "arrived_at": "2026-09-10T07:05:00.000Z",
+   "delivered_at": "2026-09-10T07:06:00.000Z",
+   "lat": 52.53441,
+   "lng": 13.41622,
+   "accuracy": 12,
+   "created_at": "2026-09-10T07:06:00.000Z"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000011",
+   "destination_id": "a681056e-658f-4cd7-b132-01f99ff77039",
+   "route": "kollwitz-01",
+   "stop": 2,
+   "outcome": "delivered",
+   "arrived_at": "2026-09-10T07:09:00.000Z",
+   "delivered_at": "2026-09-10T07:10:15.000Z",
+   "lat": 52.53292,
+   "lng": 13.41844,
+   "accuracy": 12,
+   "created_at": "2026-09-10T07:10:15.000Z"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000012",
+   "destination_id": "054eed43-f4e3-41d6-88d6-7e28c2c8bb29",
+   "route": "kollwitz-01",
+   "stop": 3,
+   "outcome": "delivered",
+   "arrived_at": "2026-09-10T07:13:15.000Z",
+   "delivered_at": "2026-09-10T07:14:45.000Z",
+   "lat": 52.53485,
+   "lng": 13.41874,
+   "accuracy": 12,
+   "created_at": "2026-09-10T07:14:45.000Z"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000013",
+   "destination_id": "e853c616-72b3-4a25-8476-469f0c0971c0",
+   "route": "kollwitz-01",
+   "stop": 4,
+   "outcome": "delivered",
+   "arrived_at": "2026-09-10T07:17:45.000Z",
+   "delivered_at": "2026-09-10T07:19:30.000Z",
+   "lat": 52.5365,
+   "lng": 13.42095,
+   "accuracy": 12,
+   "created_at": "2026-09-10T07:19:30.000Z"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000014",
+   "destination_id": "70877ad2-4e6c-4eab-95db-0d15725b09ba",
+   "route": "kollwitz-01",
+   "stop": 5,
+   "outcome": "delivered",
+   "arrived_at": "2026-09-10T07:22:30.000Z",
+   "delivered_at": "2026-09-10T07:24:30.000Z",
+   "lat": 52.53814,
+   "lng": 13.41902,
+   "accuracy": 12,
+   "created_at": "2026-09-10T07:24:30.000Z"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000015",
+   "destination_id": "f752e7ad-ddab-47f9-bb07-e8e9a5df45dd",
+   "route": "kollwitz-01",
+   "stop": 6,
+   "outcome": "failed",
+   "arrived_at": "2026-09-10T07:27:30.000Z",
+   "delivered_at": "2026-09-10T07:29:45.000Z",
+   "lat": 52.5379,
+   "lng": 13.41772,
+   "accuracy": 12,
+   "created_at": "2026-09-10T07:29:45.000Z"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000016",
+   "destination_id": "ceccf38d-e339-4009-b564-a5e4ea65fbfb",
+   "route": "kollwitz-01",
+   "stop": 7,
+   "outcome": "delivered",
+   "arrived_at": "2026-09-10T07:32:45.000Z",
+   "delivered_at": "2026-09-10T07:35:15.000Z",
+   "lat": 52.53833,
+   "lng": 13.41553,
+   "accuracy": 12,
+   "created_at": "2026-09-10T07:35:15.000Z"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000017",
+   "destination_id": "664b5614-c332-4da4-8766-bda8c64a574e",
+   "route": "kollwitz-01",
+   "stop": 8,
+   "outcome": "delivered",
+   "arrived_at": "2026-09-10T07:38:15.000Z",
+   "delivered_at": "2026-09-10T07:41:00.000Z",
+   "lat": 52.53736,
+   "lng": 13.41817,
+   "accuracy": 12,
+   "created_at": "2026-09-10T07:41:00.000Z"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000018",
+   "destination_id": "bfabb05b-1057-46d6-9d23-14d25b190e43",
+   "route": "kollwitz-01",
+   "stop": 9,
+   "outcome": "delivered",
+   "arrived_at": "2026-09-10T07:44:00.000Z",
+   "delivered_at": "2026-09-10T07:47:00.000Z",
+   "lat": 52.53694,
+   "lng": 13.41701,
+   "accuracy": 12,
+   "created_at": "2026-09-10T07:47:00.000Z"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000019",
+   "destination_id": "34949e02-3c24-4921-a802-3b2c9e8b54dd",
+   "route": "kollwitz-01",
+   "stop": 10,
+   "outcome": "delivered",
+   "arrived_at": "2026-09-10T07:50:00.000Z",
+   "delivered_at": "2026-09-10T07:53:15.000Z",
+   "lat": 52.53674,
+   "lng": 13.41639,
+   "accuracy": 12,
+   "created_at": "2026-09-10T07:53:15.000Z"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000020",
+   "destination_id": "4cece8a1-ff87-431c-bf06-68829bc8582d",
+   "route": "kollwitz-01",
+   "stop": 11,
+   "outcome": "delivered",
+   "arrived_at": "2026-09-10T07:56:15.000Z",
+   "delivered_at": "2026-09-10T07:59:45.000Z",
+   "lat": 52.53598,
+   "lng": 13.41797,
+   "accuracy": 12,
+   "created_at": "2026-09-10T07:59:45.000Z"
+  }
+ ]
+}

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { BerlinMap, type LiveScene } from '../components/BerlinMap';
 import { Composer } from '../components/Composer';
 import { OperatorBubble, OttoBubble, OttoThinking } from '../components/Chat';
-import { FindStop } from '../components/FindStop';
+import { FindStop, type HotspotRow } from '../components/FindStop';
 import { StopPanel } from '../components/StopPanel';
 import { VoiceCapture } from '../components/VoiceCapture';
 import { MAP_PARTIAL_TRANSCRIPT, MAP_THREAD } from '../data/chat';
@@ -15,7 +15,9 @@ import {
   type LngLat,
   type MapFilter,
 } from '../data/map';
-import { groupDoors, routeLines } from '../otto/doors';
+import { analyticsIsMock, type Bbox } from '../otto/analytics';
+import { attachAnalytics, groupDoors, routeLines } from '../otto/doors';
+import { usePlacesAnalytics } from '../otto/useAnalytics';
 import { useDepot } from '../otto/useDepot';
 import { useOttoThread } from '../hooks/useOttoThread';
 import { useVoiceCapture } from '../hooks/useVoiceCapture';
@@ -35,7 +37,7 @@ const article = (word: string) => (/^[aeiou]/i.test(word) ? 'an' : 'a');
 
 /* Live mode filters by what dispatch actually tracks — notes and debriefs
  * have no tip-type taxonomy in the real store. */
-const LIVE_FILTERS = ['All stops', 'With notes', 'Debriefed'] as const;
+const LIVE_FILTERS = ['All stops', 'With notes', 'Debriefed', 'With reports'] as const;
 type LiveFilter = (typeof LIVE_FILTERS)[number];
 
 interface MapViewProps {
@@ -65,10 +67,26 @@ export function MapView({ onAskOtto }: MapViewProps) {
    * Keyless, the sample stays until the shared store has something. */
   const live = depot.mode === 'supabase' || depot.stops.length > 0;
 
-  const doors = useMemo(() => groupDoors(depot.stops, depot.debriefs), [depot.stops, depot.debriefs]);
+  const storeDoors = useMemo(() => groupDoors(depot.stops, depot.debriefs), [depot.stops, depot.debriefs]);
   const lines = useMemo(() => routeLines(depot.stops), [depot.stops]);
+
+  /* The analytics API's view of the same doors — report counts and the hotspot
+   * ranking over its range — fetched for the doors' bounding box and matched
+   * to them by position. Off when no API is configured; the store alone then. */
+  const bbox = useMemo<Bbox | null>(() => {
+    if (!storeDoors.length) return null;
+    const lngs = storeDoors.map((d) => d.at[0]);
+    const lats = storeDoors.map((d) => d.at[1]);
+    return [Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)];
+  }, [storeDoors]);
+  const analytics = usePlacesAnalytics(bbox, live);
+  const doors = useMemo(
+    () => (analytics.status === 'ready' ? attachAnalytics(storeDoors, analytics.places, analytics.hotspots) : storeDoors),
+    [storeDoors, analytics.status, analytics.places, analytics.hotspots],
+  );
   const withNotes = doors.filter((d) => d.hasNotes).length;
   const debriefed = doors.filter((d) => d.debriefed).length;
+  const reported = doors.filter((d) => d.analytics && d.analytics.reports > 0).length;
 
   const shownDoors = useMemo(
     () =>
@@ -76,9 +94,16 @@ export function MapView({ onAskOtto }: MapViewProps) {
         ? doors.filter((d) => d.hasNotes)
         : liveFilter === 'Debriefed'
           ? doors.filter((d) => d.debriefed)
-          : doors,
+          : liveFilter === 'With reports'
+            ? doors.filter((d) => d.analytics && d.analytics.reports > 0)
+            : doors,
     [doors, liveFilter],
   );
+
+  /* The reports filter only means something while the API answers. */
+  useEffect(() => {
+    if (liveFilter === 'With reports' && analytics.status !== 'ready') setLiveFilter('All stops');
+  }, [liveFilter, analytics.status]);
 
   /* The open door leaves with its data (a route removed on the trigger
    * dashboard, for instance). */
@@ -97,6 +122,34 @@ export function MapView({ onAskOtto }: MapViewProps) {
     const door = doors.find((d) => d.key === key);
     if (door) setFocus((cur) => ({ at: door.at, seq: (cur?.seq ?? 0) + 1 }));
   };
+
+  /* The API's worst doors, matched to pins so a click opens the panel. */
+  const hotspotRows = useMemo<HotspotRow[] | undefined>(() => {
+    if (analytics.status === 'off') return undefined;
+    const rows: HotspotRow[] = [];
+    for (const h of analytics.hotspots) {
+      const door = doors.find((d) => d.analytics && d.analytics.placeId === h.place_id);
+      if (door) {
+        rows.push({
+          key: door.key,
+          label: h.label,
+          rank: rows.length + 1,
+          reportsPer100: h.reports_per_100_deliveries,
+          reports: h.report_count,
+          trend: h.trend,
+        });
+      }
+    }
+    return rows;
+  }, [analytics.status, analytics.hotspots, doors]);
+  const hotspotsNote =
+    analytics.status === 'error'
+      ? analytics.error
+      : analytics.status === 'loading'
+        ? 'Loading the analytics API…'
+        : analyticsIsMock
+          ? 'Your real reports plus invented history — mock API'
+          : null;
 
   const liveScene = useMemo<LiveScene | null>(
     () =>
@@ -128,6 +181,7 @@ export function MapView({ onAskOtto }: MapViewProps) {
         ? `Nothing on file yet — pin scenarios or load the demo route on the trigger-scenarios dashboard (${store})`
         : `${depot.stops.length} stops · ${doors.length} addresses on file — live from ${store} · ` +
           `click a stop to read and edit what Otto says on approach · drag or scroll to move the map` +
+          (analytics.status === 'ready' ? ` · report counts from the analytics ${analyticsIsMock ? 'mock' : 'API'}` : '') +
           (depot.offline ? ' · connection lost, retrying' : '');
 
   function send(text: string) {
@@ -157,7 +211,7 @@ export function MapView({ onAskOtto }: MapViewProps) {
         </div>
         {live ? (
           <div className={styles.filters} role="group" aria-label="Filter stops">
-            {LIVE_FILTERS.map((option) => (
+            {LIVE_FILTERS.filter((option) => option !== 'With reports' || analytics.status === 'ready').map((option) => (
               <button
                 key={option}
                 type="button"
@@ -206,6 +260,24 @@ export function MapView({ onAskOtto }: MapViewProps) {
                 <span>Stop on file</span>
                 <span className={styles.legendCount}>{doors.length}</span>
               </div>
+              {analytics.status !== 'off' && (
+                <div className={styles.legendRow}>
+                  <span className={styles.legendHalo} />
+                  <span>Reports at this door, last 90 days — bigger halo, more reports</span>
+                  <span className={styles.legendCount}>{reported}</span>
+                </div>
+              )}
+              {analytics.status === 'loading' && (
+                <div className={`${styles.legendRow} ${styles.legendNote}`}>Loading the analytics API…</div>
+              )}
+              {analytics.status === 'error' && (
+                <div className={`${styles.legendRow} ${styles.legendNote}`}>{analytics.error}</div>
+              )}
+              {analytics.status === 'ready' && analyticsIsMock && (
+                <div className={`${styles.legendRow} ${styles.legendNote}`}>
+                  Halos from the mock API: your real reports plus invented history
+                </div>
+              )}
               {lines.length > 0 && (
                 <div className={styles.legendSplit}>
                   <div className={styles.legendRow}>
@@ -245,6 +317,7 @@ export function MapView({ onAskOtto }: MapViewProps) {
               door={selectedDoor}
               debriefs={depot.debriefs}
               onClose={() => setSelectedKey(null)}
+              analyticsRange={analytics.status === 'off' ? null : analytics.range}
             />
           )}
         </div>
@@ -259,6 +332,8 @@ export function MapView({ onAskOtto }: MapViewProps) {
               total={depot.stops.length}
               onOpen={openDoor}
               onAskOtto={onAskOtto}
+              hotspots={hotspotRows}
+              hotspotsNote={hotspotsNote}
             />
           ) : (
             <>

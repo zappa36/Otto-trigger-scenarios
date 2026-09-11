@@ -1,0 +1,15 @@
+{
+  "_comment": "Hand-editable settings for the mock. Real rows come from the shared store; everything below shapes the invented history on top (see README).",
+  "real_driver": { "name": "Otto tester" },
+  "invented": true,
+  "history_days": 90,
+  "seed": "parcelvox-2026",
+  "invented_drivers": ["M. Yilmaz", "K. Novak", "A. Okafor", "L. Fischer", "P. Lindqvist"],
+  "routes": {
+    "kollwitz-01": { "name": "Kollwitzkiez 01", "walking": true },
+    "schoeneberg-01": { "name": "Schöneberg 01", "walking": false }
+  },
+  "api_keys": ["pvx_dev_analytics_read"],
+  "latency_ms": "200-800",
+  "refresh_seconds": 60
+}

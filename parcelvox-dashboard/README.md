@@ -97,6 +97,38 @@ to see everything at once, and the zoom-out floor always reaches that far.
 An empty store is not an error: the map falls back to the fictional sample below, labelled as
 such. The artifact build ships no `config.js` and stays on the sample by design.
 
+## Connected to the analytics API: report counts, hotspots, per-door numbers
+
+The Map view also reads the **Parcelvox Analytics API** — the CTO's read
+contract — through `src/otto/analytics.ts`, decided once at load like the
+store: `window.ANALYTICS_URL` / `window.ANALYTICS_KEY` from `config.js`
+(deploy-time injection), `VITE_ANALYTICS_URL` / `VITE_ANALYTICS_KEY` in dev,
+or `?api=…&apikey=…` on the page URL for a quick test. Nothing configured
+→ the map shows the store alone.
+
+Until the real API exists, [`mock-api/`](../mock-api/) in the repo root
+serves the same contract from the shared store's real rows plus invented
+history. Run it on the laptop and open the deployed page with
+`?api=http://localhost:8787/v1/analytics&apikey=pvx_dev_analytics_read`.
+
+What the API adds on the map, all over the last 90 days (`/places` for the
+doors' bounding box, `/metrics/hotspots`, and `/places/{id}` +
+`/places/{id}/reports` when a stop panel opens):
+
+- **Halos** on the doors: the area grows with the report count; the ranked
+  hotspots get the darker ring. A **With reports** filter chip appears.
+- **Hotspots** in the side pane: the API's worst doors by reports per 100
+  deliveries, with the trend word; a click opens the door.
+- **The stop panel's numbers**: reports, deliveries, median dwell, reports
+  per 100 deliveries, the reported problem types, the cross-carrier bucket
+  (a word, never a number — the contract's rule), active guidance, and the
+  latest reports, each marked real or invented history.
+
+API places are matched to the store's doors by position (within 30 m): the
+contract links places to stops only through tours and reports, so position
+is the honest join for a map. The rest of the page keeps reading the store;
+notes are still written there, the API is read-only.
+
 ## Ask Otto — the conversation over the store
 
 In live mode the **Ask** view is a real conversation about the stops on file — "what do we know
@@ -148,7 +180,8 @@ src/
   components/          BerlinMap, StopPanel (the live stop sheet), Chat bubbles, Composer, VoiceCapture, OttoOrb, Icons, EtaTrendChart
   views/               one file per view, each with its CSS module
   data/                sample content — routes, stops, queue, drivers, analytics, map geometry, chat script
-  otto/                the wire to the real app: depot.ts (shared store, Supabase / localStorage), doors.ts (door + route grouping), useDepot
+  otto/                the wire to the real app: depot.ts (shared store, Supabase / localStorage), doors.ts (door + route grouping, API places matched in), useDepot;
+                       analytics.ts (the analytics API contract: envelope, cursors, errors) and useAnalytics (places + hotspots for the map, one place's numbers for the panel)
   hooks/               useOttoThread (scripted conversation), useVoiceCapture (timer + partial transcript)
   state/               useCurationQueue (review state behind the nav badge)
   styles/              tokens.css (palette, type, motion) and shared.module.css (cards, tables, chips, meters)

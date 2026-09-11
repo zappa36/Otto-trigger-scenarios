@@ -232,3 +232,13 @@
   color: var(--pv-muted-3);
   text-align: center;
 }
+
+/* the report halo from the analytics API — area grows with the count */
+.legendHalo {
+  width: 13px;
+  height: 13px;
+  border-radius: 99px;
+  background: rgba(242, 163, 60, 0.16);
+  border: 1.5px solid var(--pv-honey);
+  flex: none;
+}

@@ -11,6 +11,16 @@ import styles from './FindStop.module.css';
  * where the notes are read and edited.
  */
 
+/** A hotspot row from the analytics API, already matched to a door on the map. */
+export interface HotspotRow {
+  key: string;
+  label: string;
+  rank: number;
+  reportsPer100: number;
+  reports: number;
+  trend: string;
+}
+
 interface FindStopProps {
   doors: DepotDoor[];
   debriefs: Record<string, DepotDebrief[]>;
@@ -19,9 +29,19 @@ interface FindStopProps {
   onOpen: (key: string) => void;
   /** Jump to the Ask view — the conversation over the same store. */
   onAskOtto: () => void;
+  /** The API's worst doors by report density; absent when no API is configured. */
+  hotspots?: HotspotRow[];
+  hotspotsNote?: string | null;
 }
 
-export function FindStop({ doors, debriefs, total, onOpen, onAskOtto }: FindStopProps) {
+const TREND_WORD: Record<string, string> = {
+  improving: 'improving',
+  stable: 'stable',
+  worsening: 'worsening',
+  insufficient_data: 'too little data',
+};
+
+export function FindStop({ doors, debriefs, total, onOpen, onAskOtto, hotspots, hotspotsNote }: FindStopProps) {
   const [query, setQuery] = useState('');
 
   const indexed = useMemo(() => buildIndex(doors, debriefs), [doors, debriefs]);
@@ -61,6 +81,25 @@ export function FindStop({ doors, debriefs, total, onOpen, onAskOtto }: FindStop
       </div>
 
       <div className={styles.list}>
+        {!q && hotspots && (
+          <div className={styles.hotspots} aria-label="Hotspots from the analytics API">
+            <div className={styles.tag}>Hotspots · reports per 100 deliveries, last 90 days</div>
+            {hotspots.length === 0 && (
+              <p className={styles.empty}>{hotspotsNote || 'No door has enough deliveries to rank yet.'}</p>
+            )}
+            {hotspots.slice(0, 5).map((h) => (
+              <button key={h.key} type="button" className={styles.hotRow} onClick={() => onOpen(h.key)}>
+                <span className={styles.hotRank}>{h.rank}</span>
+                <span className={styles.hotLabel}>{h.label}</span>
+                <span className={styles.hotValue}>{h.reportsPer100.toFixed(1)}</span>
+                <span className={`${styles.hotTrend} ${h.trend === 'worsening' ? styles.hotWorse : ''}`}>
+                  {TREND_WORD[h.trend] || h.trend}
+                </span>
+              </button>
+            ))}
+            {hotspotsNote && hotspots.length > 0 && <p className={styles.empty}>{hotspotsNote}</p>}
+          </div>
+        )}
         {!q && results.length > 0 && <div className={styles.tag}>Latest notes on file</div>}
         {results.map((e) => (
           <button

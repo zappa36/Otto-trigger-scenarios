@@ -36,6 +36,20 @@ window.SUPABASE_ANON_KEY = '__SUPABASE_ANON_KEY__';
 if (String(window.SUPABASE_URL).slice(0, 2) === '__') window.SUPABASE_URL = 'https://lgyycoxsqrnhawzlqxlq.supabase.co';
 if (String(window.SUPABASE_ANON_KEY).slice(0, 2) === '__') window.SUPABASE_ANON_KEY = 'sb_publishable_UhActVk58ukgC6On1z9yuw_IbsMeWJf';
 
+/* The analytics API the dispatcher dashboard reads report counts, hotspots
+ * and per-door numbers from — the CTO's contract once it exists, the
+ * repo's own mock (mock-api/) meanwhile. Injected at deploy time from the
+ * ANALYTICS_URL / ANALYTICS_KEY env vars; both empty → the dashboard shows
+ * the store alone. Quick test without deploying, against a mock on the
+ * same laptop: open parcelvox-dashboard.html with
+ *   ?api=http://localhost:8787/v1/analytics&apikey=pvx_dev_analytics_read
+ * (A real analytics:read key reads a whole carrier and must NOT ship in a
+ * browser page — the deploy-time slot is for a proxy URL or a dev key.) */
+window.ANALYTICS_URL = '__ANALYTICS_URL__';
+window.ANALYTICS_KEY = '__ANALYTICS_KEY__';
+if (String(window.ANALYTICS_URL).slice(0, 2) === '__') window.ANALYTICS_URL = '';
+if (String(window.ANALYTICS_KEY).slice(0, 2) === '__') window.ANALYTICS_KEY = '';
+
 /* Edge Function names (as deployed in Supabase). */
 window.GEOCODE_FN = 'geocode';
 window.VOICE_FN = 'voice-note';

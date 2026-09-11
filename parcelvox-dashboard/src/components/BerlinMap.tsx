@@ -653,6 +653,28 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
                     </text>
                   ))}
 
+                  {/* Report halos from the analytics API: the area grows with the count
+                      (bigger = more reports at this door); a ranked hotspot gets the darker ring. */}
+                  {scene.live.doors
+                    .filter(({ door }) => door.analytics && door.analytics.reports > 0)
+                    .map(({ door, x, y }) => {
+                      const a = door.analytics!;
+                      return (
+                        <circle
+                          key={`halo-${door.key}`}
+                          cx={x}
+                          cy={y}
+                          r={9 + 4 * Math.sqrt(a.reports)}
+                          fill="var(--pv-honey)"
+                          fillOpacity={0.16}
+                          stroke={a.hotspotRank ? 'var(--pv-honey-text)' : 'var(--pv-honey)'}
+                          strokeOpacity={a.hotspotRank ? 0.9 : 0.55}
+                          strokeWidth={a.hotspotRank ? 1.8 : 1.2}
+                          pointerEvents="none"
+                        />
+                      );
+                    })}
+
                   {/* Doors without notes lie flat on the plane; a click stands them up. */}
                   {scene.live.doors
                     .filter(({ door }) => !door.hasNotes && door.key !== live?.selectedKey)
@@ -725,7 +747,12 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
                       role="button"
                       tabIndex={0}
                       aria-label={doorLabel(door)}
-                      title={door.hasNotes ? `${doorLabel(door)} — notes on file` : doorLabel(door)}
+                      title={
+                        (door.hasNotes ? `${doorLabel(door)} — notes on file` : doorLabel(door)) +
+                        (door.analytics && door.analytics.reports > 0
+                          ? ` — ${door.analytics.reports} report${door.analytics.reports === 1 ? '' : 's'} in 90 days`
+                          : '')
+                      }
                       onClick={() => selectDoor(door.key)}
                       onKeyDown={doorKeyDown(door.key)}
                     >

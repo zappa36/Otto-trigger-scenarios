@@ -35,9 +35,11 @@ interface SidebarProps {
   pendingCount: number;
   /** Map + notes are wired to the real app's store; the other views stay sample data. */
   live: boolean;
+  /** An analytics API (the contract, or its mock) feeds the map's report counts. */
+  analytics?: boolean;
 }
 
-export function Sidebar({ view, onNavigate, pendingCount, live }: SidebarProps) {
+export function Sidebar({ view, onNavigate, pendingCount, live, analytics }: SidebarProps) {
   return (
     <nav className={styles.nav} aria-label="Main">
       <div className={styles.brand}>
@@ -77,7 +79,11 @@ export function Sidebar({ view, onNavigate, pendingCount, live }: SidebarProps) 
         <div className={styles.depot}>Nordhaven depot</div>
         <div className={styles.operator}>Maren Kolb · dispatch</div>
         <div className={styles.demoChip}>
-          {live ? 'Live: map + notes · rest is sample' : 'Demo — all stops fictional'}
+          {live
+            ? analytics
+              ? 'Live: map + notes + analytics API · rest is sample'
+              : 'Live: map + notes · rest is sample'
+            : 'Demo — all stops fictional'}
         </div>
       </div>
     </nav>
