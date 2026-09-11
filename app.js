@@ -1531,6 +1531,7 @@ function updateCardDistance() {
  * the arrival ring first, when that was: the door's dwell. */
 function renderCardVisit(d) {
   const box = el('card-visit');
+  if (!box) return; // an older index.html without the block — the card still works
   const isStop = !!(d && d.route);
   box.hidden = !isStop;
   if (!isStop) return;
@@ -1691,9 +1692,13 @@ el('sc-tab-story').onclick = () => setScTab('story');
 el('sc-tab-steps').onclick = () => setScTab('steps');
 el('card-otto').onclick = () => current && openOtto(current);
 el('card-remove').onclick = removeCurrent;
-el('card-deliver').onclick = () => markVisit('delivered');
-el('card-fail').onclick = () => markVisit('failed');
-el('card-visit-undo').onclick = undoVisit;
+/* A phone can hold yesterday's index.html next to today's app.js (a WebView
+ * that skipped revalidation): the block may not exist yet. Never let that
+ * stop the script — boot() still has to run below. */
+for (const [id, fn] of [['card-deliver', () => markVisit('delivered')], ['card-fail', () => markVisit('failed')], ['card-visit-undo', undoVisit]]) {
+  const node = el(id);
+  if (node) node.onclick = fn;
+}
 el('otto-back').onclick = closeOtto;
 
 /* ↻ — pull fresh scenarios, pins and debriefs without reloading the
