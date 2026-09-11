@@ -356,3 +356,6 @@ window.DEMO_ROUTE = {
       ] },
   ],
 };
+/* Every demo route registers here; the dashboard offers each one
+ * (route-kollwitz.js adds the walking route the same way). */
+window.DEMO_ROUTES = (window.DEMO_ROUTES || []).concat([window.DEMO_ROUTE]);

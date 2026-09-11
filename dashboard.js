@@ -490,10 +490,10 @@ function renderStats() {
   if (verdicts.length) parts.push(verdicts.join(' / '));
   const fs = scenarios.filter(fromSheet).length;
   if (fs && fs < scenarios.length) parts.push(`${fs} from the starter sheet`);
-  const rt = routeStops();
-  if (rt.length) {
+  for (const r of loadedRoutes()) {
+    const rt = routeStops(r);
     const noted = rt.filter(d => dispatchNotesOf(d).length).length;
-    parts.push(`route “${ROUTE.name}” · ${rt.length} stops on the phone`
+    parts.push(`route “${r.name}” · ${rt.length} stops on the phone`
       + (noted ? ` · ${noted} with notes (amber pins)` : ''));
   }
   parts.push('build ' + window.BUILD);
@@ -1025,7 +1025,7 @@ function render() {
           <button class="chip primary" type="button" data-empty="new">+ NEW SCENARIO</button>
           <button class="chip" type="button" data-empty="import">⎘ PASTE FROM EXCEL</button>
           ${SHEET ? `<button class="chip" type="button" data-empty="sheet">⇩ LOAD THE STARTER SHEET · ${SHEET.scenarios.length}</button>` : ''}
-          ${ROUTE && !routeStops().length ? '<button class="chip" type="button" data-empty="route">⇪ LOAD THE DEMO ROUTE</button>' : ''}
+          ${ROUTES.length && !routeStops().length ? '<button class="chip" type="button" data-empty="route">⇪ LOAD A DEMO ROUTE</button>' : ''}
         </div>
       </div>`;
     return;
@@ -2089,8 +2089,12 @@ async function loadSheet() {
  * and stop columns keep the grouping), so the phone shows the pins
  * and Otto reads the notes on approach — the pre-arrival loop at the
  * scale of a real tour instead of one hand-made pin. */
-const ROUTE = window.DEMO_ROUTE || null;
-const routeStops = () => (ROUTE ? destinations.filter(d => d.route === ROUTE.id) : []);
+const ROUTES = (window.DEMO_ROUTES || (window.DEMO_ROUTE ? [window.DEMO_ROUTE] : []))
+  .filter(r => r && r.id && Array.isArray(r.stops));
+/* the stops of one route — or of every loaded route when none is named */
+const routeStops = r => destinations.filter(d => (r ? d.route === r.id : !!d.route));
+const loadedRoutes = () => ROUTES.filter(r => routeStops(r).length);
+const routeById = id => ROUTES.find(r => r.id === id) || null;
 /* The header chip is an ON/OFF switch for this dashboard's map, like
  * the phone's ROUTE chip is for its own screen — hiding is a view
  * choice per browser, never a delete. Removing the route (data and
@@ -2104,26 +2108,39 @@ const shownRouteStops = () => (routeShown ? destinations.filter(d => d.route) : 
  * on/off switch for this dashboard's map — and the import-sheet link,
  * which is where the destructive remove lives. */
 function renderRouteToggle() {
-  const btn = el('route-toggle');
+  const box = el('route-toggles');
   const chip = el('route-chip');
-  if (!ROUTE) { btn.hidden = true; chip.hidden = true; return; }
+  if (!ROUTES.length) { box.innerHTML = ''; chip.hidden = true; return; }
+  /* one link per route in the import sheet — load it, or remove it */
+  box.innerHTML = ROUTES.map(r => {
+    const n = routeStops(r).length;
+    return n
+      ? `<button class="link-btn" type="button" data-route="${esc(r.id)}" data-route-act="unload">✕ remove the “${esc(r.name)}” route (${n} stops loaded)</button>`
+      : `<button class="link-btn" type="button" data-route="${esc(r.id)}" data-route-act="load">…or load the “${esc(r.name)}” route — ${r.stops.length} ${esc(r.area)} stops to ${r.walking ? 'walk' : 'drive'}, delivery + driver notes on file</button>`;
+  }).join('');
   const n = routeStops().length;
-  btn.hidden = false;
-  btn.textContent = n
-    ? `✕ remove the “${ROUTE.name}” demo route (${n} stops loaded)`
-    : `…or load the “${ROUTE.name}” demo route — ${ROUTE.stops.length} ${ROUTE.area} stops with delivery + driver notes`;
   chip.hidden = false;
   chip.classList.toggle('off', !!n && !routeShown);
   if (!n) {
     chip.textContent = '⇪ ROUTE';
-    chip.title = `Load the “${ROUTE.name}” demo route — ${ROUTE.stops.length} ${ROUTE.area} stops, delivery + driver notes on file`;
+    chip.title = ROUTES.length === 1
+      ? `Load the “${ROUTES[0].name}” demo route — ${ROUTES[0].stops.length} ${ROUTES[0].area} stops, delivery + driver notes on file`
+      : 'Load a demo route — ' + ROUTES.map(r => `${r.name} (${r.stops.length} stops, ${r.walking ? 'walk' : 'drive'})`).join(' or ');
   } else if (routeShown) {
     chip.textContent = `ROUTE · ${n}`;
-    chip.title = 'Hide the route on this dashboard — the phones keep it; removing it lives in the ⎘ PASTE FROM EXCEL sheet';
+    chip.title = 'Hide the route stops on this dashboard — the phones keep them; loading and removing routes lives in the ⎘ PASTE FROM EXCEL sheet';
   } else {
     chip.textContent = 'ROUTE OFF';
-    chip.title = `Show the “${ROUTE.name}” route's ${n} stops on the map again`;
+    chip.title = `Show the ${n} route stops on the map again`;
   }
+}
+
+/* nothing loaded yet: a single route on file loads straight away, more
+ * than one goes through the sheet, where each has its own link */
+function loadSomeRoute() {
+  if (routeStops().length) return;
+  if (ROUTES.length === 1) loadRoute(ROUTES[0]);
+  else openImport();
 }
 
 function toggleRouteShown() {
@@ -2134,13 +2151,13 @@ function toggleRouteShown() {
   if (routeShown) { centerOnScenarios(); map.center(); } // switching it on means "show me"
 }
 
-async function loadRoute() {
-  if (!ROUTE || routeStops().length) return;
+async function loadRoute(r) {
+  if (!r || routeStops(r).length) return;
   el('import-sheet').hidden = true;
   const now = Date.now();
-  const rows = ROUTE.stops.map(s => ({
+  const rows = r.stops.map(s => ({
     title: s.title, addr: s.addr, lat: s.lat, lng: s.lng,
-    route: ROUTE.id, stop: s.stop,
+    route: r.id, stop: s.stop,
     consignee: s.consignee || null, floor: s.floor || null,
     /* array order in the data file IS the reading order (newest first)
      * — the stamped times, a day apart, just say so */
@@ -2162,7 +2179,7 @@ async function loadRoute() {
   routeShown = true; // loading means "show me"
   try { localStorage.setItem(LS_ROUTE_SHOW, '1'); } catch { /* private mode */ }
   const first = added[0];
-  if (first) await createRouteScenario(first);
+  if (first) await createRouteScenario(r, first);
   persistLocal();
   render();
   map.refresh();
@@ -2174,18 +2191,24 @@ async function loadRoute() {
  * The phone applies those rings to EVERY stop of the route
  * (notesRadiiOf in app.js), so this row is where the route is tuned,
  * tested and judged — not a rider on someone else's row. */
-async function createRouteScenario(first) {
+async function createRouteScenario(r, first) {
+  /* on foot the rings shrink: 350 m would arm a whole block at once */
+  const walk = !!r.walking;
+  const go = walk ? 'Walk' : 'Drive';
   const sc = await saveScenarioRow({
     num: Math.max(0, ...scenarios.map(s => s.num || 0)) + 1,
-    title: `${ROUTE.name} route — drive the tour, Otto reads the notes`,
-    rule: 'Come within {notes_radius} m of any stop with notes on file — Otto reads consignee, floor, dispatch and driver notes aloud, once per approach; driving back out past {notes_rearm} m re-arms the reading.',
-    ar_states: 'IN_VEHICLE between stops; STILL / ON_FOOT at the door',
+    title: `${r.name} route — ${go.toLowerCase()} the tour, Otto reads the notes`,
+    rule: `Come within {notes_radius} m of any stop with notes on file — Otto reads consignee, floor, dispatch and driver notes aloud, once per approach; ${walk ? 'walking' : 'driving'} back out past {notes_rearm} m re-arms the reading.`,
+    ar_states: walk ? 'ON_FOOT between stops; STILL at the door' : 'IN_VEHICLE between stops; STILL / ON_FOOT at the door',
     signals: 'GPS vs the stop pins; notes on file (dispatch + driver)',
     timing: 'On approach — before the driver is at the door',
     otto_says: '“Were the notes right — anything to correct for the next driver?”',
     learns: 'access / other — corrections to the notes on file',
-    test_steps: `Drive the route in stop order (stop 1: ${first.title}). Otto reads ~{notes_radius} m ahead of each noted stop; ✕ on the banner stops a reading, and the phone's ROUTE chip hides the whole route for clean scenario tests.`,
-    params: [
+    test_steps: `${go} the route in stop order (stop 1: ${first.title}). Otto reads ~{notes_radius} m ahead of each noted stop; ✕ on the banner stops a reading, and the phone's ROUTE chip hides the whole route for clean scenario tests. At each door tap ✓ Delivered or ✕ Not delivered on the stop card — that tap stands in for the scan.`,
+    params: walk ? [
+      { key: 'notes_radius', label: 'Notes read distance', value: 40, min: 10, max: 300, step: 5, unit: 'm' },
+      { key: 'notes_rearm', label: 'Re-arm distance', value: 120, min: 30, max: 600, step: 10, unit: 'm' },
+    ] : [
       { key: 'notes_radius', label: 'Notes read distance', value: 350, min: 50, max: 1000, step: 10, unit: 'm' },
       { key: 'notes_rearm', label: 'Re-arm distance', value: 700, min: 100, max: 2000, step: 25, unit: 'm' },
     ],
@@ -2204,19 +2227,22 @@ async function createRouteScenario(first) {
  * on file but no scenario pinned at any of them → cut the row now.
  * Idempotent — the guard is the row's own existence. */
 async function ensureRouteScenario() {
-  const mine = routeStops();
-  if (!mine.length) return;
-  const ids = new Set(mine.map(d => d.id));
-  if (scenarios.some(sc => sc.destination_id && ids.has(sc.destination_id))) return;
-  const first = mine.reduce((a, b) => ((a.stop == null ? 1e9 : a.stop) <= (b.stop == null ? 1e9 : b.stop) ? a : b));
-  await createRouteScenario(first);
-  persistLocal();
+  let cut = false;
+  for (const r of loadedRoutes()) {
+    const mine = routeStops(r);
+    const ids = new Set(mine.map(d => d.id));
+    if (scenarios.some(sc => sc.destination_id && ids.has(sc.destination_id))) continue;
+    const first = mine.reduce((a, b) => ((a.stop == null ? 1e9 : a.stop) <= (b.stop == null ? 1e9 : b.stop) ? a : b));
+    await createRouteScenario(r, first);
+    cut = true;
+  }
+  if (cut) persistLocal();
 }
 
-async function unloadRoute() {
-  const mine = routeStops();
+async function unloadRoute(r) {
+  const mine = r ? routeStops(r) : [];
   if (!mine.length) return;
-  if (!confirm(`Remove the “${ROUTE.name}” demo route — all ${mine.length} stops, their notes and debriefs, and the route's scenario row?`)) return;
+  if (!confirm(`Remove the “${r.name}” demo route — all ${mine.length} stops, their notes and debriefs, and the route's scenario row?`)) return;
   el('import-sheet').hidden = true;
   const ids = new Set(mine.map(d => d.id));
   /* the route's own scenario (the loader pins it at a stop — nothing
@@ -2225,7 +2251,7 @@ async function unloadRoute() {
   if (Backend.enabled) {
     try {
       for (const sc of routeScs) await Backend.deleteScenario(sc.id);
-      await Backend.deleteDestinationsByRoute(ROUTE.id);
+      await Backend.deleteDestinationsByRoute(r.id);
     } catch (e) { warn(e); return; }
   }
   scenarios = scenarios.filter(sc => !routeScs.includes(sc));
@@ -2298,7 +2324,7 @@ el('list').addEventListener('click', e => {
     if (act === 'new') openForm(null);
     else if (act === 'import') openImport();
     else if (act === 'sheet') loadSheet();
-    else if (act === 'route') loadRoute();
+    else if (act === 'route') loadSomeRoute();
     return;
   }
   const tab = e.target.closest('[data-tab]');
@@ -2444,8 +2470,13 @@ el('import-open').onclick = openImport;
 el('import-cancel').onclick = () => { el('import-sheet').hidden = true; };
 el('import-go').onclick = runImport;
 el('sheet-load').onclick = loadSheet;
-el('route-toggle').onclick = () => (routeStops().length ? unloadRoute() : loadRoute());
-el('route-chip').onclick = () => (routeStops().length ? toggleRouteShown() : loadRoute());
+el('route-toggles').onclick = e => {
+  const b = e.target.closest('[data-route]');
+  const r = b && routeById(b.dataset.route);
+  if (!r) return;
+  if (b.dataset.routeAct === 'unload') unloadRoute(r); else loadRoute(r);
+};
+el('route-chip').onclick = () => (routeStops().length ? toggleRouteShown() : loadSomeRoute());
 el('stop-close').onclick = () => { el('stop-sheet').hidden = true; stopFor = null; };
 /* add / delete notes straight from the stop sheet — the map's amber
  * marking and the "with notes" count follow the edit live */

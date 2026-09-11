@@ -436,6 +436,27 @@
     background: linear-gradient(180deg, rgba(124,140,255,.25), rgba(68,88,216,.25));
     color: #dbe2ff;
   }
+  /* the Delivered tap on a route stop — the scan moment */
+  #card-visit { margin-top: 12px; }
+  .visit-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+  .visit-btn {
+    flex: 1;
+    padding: 10px 8px;
+    border-radius: 11px;
+    border: 1px solid rgba(140,165,200,.25);
+    background: transparent;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  .visit-btn.ok { border-color: rgba(70,211,154,.5); background: rgba(70,211,154,.12); color: #7ce0b8; }
+  .visit-btn.bad { border-color: rgba(255,217,94,.45); background: rgba(255,217,94,.1); color: #ffd95e; }
+  #card-visit-text {
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 10.5px;
+    letter-spacing: .08em;
+    color: #7ce0b8;
+  }
+  #card-visit-text.failed { color: #ffd95e; }
   .card-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
   .card-link { background: none; border: none; padding: 0; font-size: 11.5px; color: #8b97a8; cursor: pointer; }
 
@@ -583,6 +604,17 @@
       <span class="cn-chip">PRE-ARRIVAL NOTES — OTTO READS THESE ON APPROACH</span>
       <div id="card-notes-body"></div>
       <button id="card-notes-play" type="button">🔊 Hear the briefing</button>
+    </div>
+    <div id="card-visit" hidden>
+      <span class="cn-chip">DELIVERY — THIS TAP STANDS IN FOR THE SCAN</span>
+      <div id="card-visit-btns" class="visit-row">
+        <button id="card-deliver" class="visit-btn ok" type="button">✓ Delivered</button>
+        <button id="card-fail" class="visit-btn bad" type="button">✕ Not delivered</button>
+      </div>
+      <div id="card-visit-done" class="visit-row" hidden>
+        <span id="card-visit-text"></span>
+        <button id="card-visit-undo" class="card-link" type="button">undo</button>
+      </div>
     </div>
     <div class="card-msgs" id="card-msgs"></div>
     <p id="card-empty" hidden>No messages yet — go have a look, then tell Otto what you found.</p>

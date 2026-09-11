@@ -490,13 +490,24 @@ floor in the dark"). The addresses and coordinates are real, geocoded
 building by building via OpenStreetMap Nominatim; every consignee,
 business and note is invented.
 
-Load it from the dashboard — the **⇪ ROUTE chip in the header**.
-Once loaded, that chip is an **on/off switch for this dashboard's
-map** ("ROUTE · 100" ↔ "ROUTE OFF"), exactly like the phone's ROUTE
-chip is for its screen: hiding is a per-browser view choice, never a
-delete. Removing the route — stops, notes and debriefs — lives
-behind the link in the ⎘ PASTE FROM EXCEL sheet (the empty state
-offers loading too). Loading also cuts **the route's own scenario
+[`route-kollwitz.js`](route-kollwitz.js) ships a second, smaller tour
+for testing **on foot**: **Kollwitzkiez 01** — 12 stops in walking
+order across 11 real addresses around Kollwitzplatz in Prenzlauer
+Berg, a ~1.6 km loop with two parcels behind one door and notes on
+file at 8 stops. It exists for the dispatcher-dashboard work: a tour
+one tester can walk in twenty minutes, so tours, completion times and
+debriefs come from real walks instead of being invented. Its reading
+rings default to 40 m / 120 m — on foot, 350 m would arm the whole
+block at once.
+
+Load a route from the dashboard — the **⇪ ROUTE chip in the header**
+(with two routes on file it opens the ⎘ PASTE FROM EXCEL sheet, where
+each route has its own load / remove link). Once something is loaded,
+that chip is an **on/off switch for this dashboard's map** ("ROUTE ·
+100" ↔ "ROUTE OFF"), exactly like the phone's ROUTE chip is for its
+screen: hiding is a per-browser view choice, never a delete. Removing
+a route — stops, notes and debriefs — lives behind its link in the
+⎘ PASTE FROM EXCEL sheet (the empty state offers loading too). Loading also cuts **the route's own scenario
 row** — "Schöneberg 01 route", pinned at stop 1 — so the route has a
 proper place in the list: Show on map jumps to it, testers get the
 how-to on the stop-1 card, and its TUNABLE VALUES carry the reading
@@ -541,10 +552,20 @@ choice sticks per device (localStorage), so the demo phone stays the
 demo phone and the test phone stays clean. The dashboard keeps
 reporting what is actually loaded either way.
 
+Every route stop's card on the phone also carries the courier's scan
+moment: **✓ Delivered** or **✕ Not delivered** (undo removes it). Each
+tap is one row in the `visits` table — the stop, the outcome, the
+time, where the phone stood, and the first fix inside the 30 m
+arrival ring when the phone had one, so a door's dwell can be read
+off the row. The pin turns ✓ green or ✕ amber, and a tap on stacked
+same-address pins skips the stops already done. A walk in stop order
+is then one tour on file — which is exactly what the dispatcher
+dashboard's analytics are rebuilt from.
+
 Keyless, the route lands in localStorage like everything else; live,
 it is one bulk insert — re-run
 [`supabase/schema.sql`](supabase/schema.sql) once first for the two
-route columns (`route`, `stop`).
+route columns (`route`, `stop`) and the `visits` table.
 
 ## The dispatcher dashboard — map and notes, live
 
@@ -844,13 +865,14 @@ The composition happens entirely through the kits' public seams:
 | File | Purpose |
 |---|---|
 | `index.html` | Phone shell: map, HUD, card, Otto screen (pins come from the dashboard) |
-| `app.js` | Destinations, messages, the card, Otto wiring |
+| `app.js` | Destinations, messages, the card (incl. the Delivered tap on route stops), Otto wiring |
 | `otto-agent.js` | Otto as a live ElevenLabs agent conversation — the kit's mount seams over a WebSocket, with the scenario as its context |
 | `dashboard.html` | Desktop shell: scenario list, map, form / address / import sheets |
 | `dashboard.js` | Trigger scenarios: CRUD, describe→draft, tunable-value sliders, voice feedback → proposed versions, history, spec export, Excel paste-import, address pinning, compare + verdict — and loading the starter sheet / demo route |
 | `trigger-scenarios.js` | The starter sheet: ten finished "Otto triggers" rows — the deck's worked example, eight more situations, the clean-run control — loadable in one tap, idempotent by title |
 | `parcelvox-dashboard.html`, `parcelvox-dashboard/` | The ParcelVox dispatcher dashboard — map and pre-arrival notes wired to the same shared store (localStorage or Supabase); the rest labelled sample data |
 | `route-schoeneberg.js` | The Schöneberg demo route: 100 stops in driving order, 87 real geocoded addresses, dispatch + driver notes on file at 40 of them |
+| `route-kollwitz.js` | The Kollwitzkiez walking route: 12 stops on foot around Kollwitzplatz, 11 real geocoded addresses, notes on file at 8 — the tour a tester walks so the dispatcher dashboard gets real tours |
 | `activity-rec.js` | Google-AR-style activity states from web signals; `inject()`/`feed()` seams for the real Android API |
 | `backend.js` | Merged Supabase client for both kits + this app's tables |
 | `config.js` | Keys — the kit's Supabase project as the default, the rest optional; placeholders filled at deploy time |
@@ -858,5 +880,5 @@ The composition happens entirely through the kits' public seams:
 | `scripts/migrate_supabase.py` | Moves the rows to another Supabase project, ids intact (`schema.sql` does the tables) |
 | `voice-note.js/.css` | from voice-notes-kit + hands-free pause-to-send |
 | `geolocate.js`, `field-map.js/.css` | verbatim from field-map-kit |
-| `supabase/schema.sql` | `destinations` (incl. pre-arrival notes: consignee / floor / notes, and route / stop) + `messages` (incl. the agent conversation) + `scenarios` (incl. params / versions / feedback), RLS |
+| `supabase/schema.sql` | `destinations` (incl. pre-arrival notes: consignee / floor / notes, and route / stop) + `messages` (incl. the agent conversation) + `scenarios` (incl. params / versions / feedback) + `runs` + `visits` (the Delivered tap), RLS |
 | `supabase/functions/` | `voice-note` (kit + trailing-"stop" strip + a text path for agent conversations) + `geocode` (verbatim) + `scenario-ai` (draft, revise & the 🇮🇹 question translation) + `elevenlabs-token` (signed URLs for a private agent) + `elevenlabs-tts` (the pre-arrival notes read in Otto's real voice) |
