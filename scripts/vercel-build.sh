@@ -49,3 +49,13 @@ if grep -q __BUILD__ config.js; then
   sed -i "s|__BUILD__|$b|" config.js
   echo "build stamp: $b"
 fi
+
+# Cache-busting: every local script and stylesheet URL in the pages carries
+# the build stamp, so a page that did refresh never pairs with yesterday's
+# script from a phone's cache (a WebView that skipped revalidation once left
+# an old index.html running a new app.js). External URLs are untouched.
+for page in index.html dashboard.html parcelvox-dashboard.html; do
+  [ -f "$page" ] || continue
+  sed -i -E "s#(<script src=\"[A-Za-z0-9_-]+\.js)\"#\1?v=$b\"#g; s#(<link rel=\"stylesheet\" href=\"[A-Za-z0-9_-]+\.css)\"#\1?v=$b\"#g" "$page"
+  echo "cache-busted $page: $(grep -c "?v=$b" "$page") urls"
+done
