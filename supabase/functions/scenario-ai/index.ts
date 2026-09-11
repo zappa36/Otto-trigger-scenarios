@@ -30,7 +30,7 @@ const csv = (k: string, fallback: string) =>
   env(k, fallback).split(',').map(s => s.trim()).filter(Boolean);
 
 const ALLOW_ORIGINS = csv('ALLOWED_ORIGINS', 'http://localhost:8000,http://localhost:4180');
-const CATEGORIES = csv('NOTE_CATEGORIES', 'ACCESS,CLOSURE,HAZARD,ENTRANCE,HOURS,INFO');
+const CATEGORIES = csv('NOTE_CATEGORIES', 'access,parking,gate_code,recipient,address,hazard,other');
 
 // Param keys the phone's live trigger detector consumes directly
 // (trigOf in app.js) — the prompt prefers them so a drafted scenario
@@ -59,7 +59,7 @@ const DRAFT_EXAMPLE =
   '"signals":"GPS trace on foot vs pin; time on foot near the pin",' +
   '"timing":"Wait — ask once they have stopped at the entrance they found",' +
   '"otto_says":"\\"Was the entrance easy to find? Where is it, exactly?\\"",' +
-  '"learns":"ENTRANCE — where the real way in is",' +
+  '"learns":"access — where the real way in is",' +
   '"test_steps":"Walk past the pin on the wrong side, circle the building for ~2 minutes, stop at ' +
   'the real door, then answer Otto."},' +
   '"params":[' +
@@ -92,7 +92,7 @@ const DRAFT_SYSTEM =
   'timing: when Otto may speak — never mid-task, drivers\' hands are full. ' +
   'otto_says: ONE short spoken question, in double quotes, about the described situation. ' +
   `learns: must contain exactly one category word of ${CATEGORIES.join(', ')} plus a short phrase, ` +
-  'e.g. "ENTRANCE — where the real way in is". ' +
+  'e.g. "access — where the real way in is". ' +
   'test_steps: concrete numbered steps one tester with one phone can act out safely and legally. ' +
   'address: ONLY if the description contains a concrete street address or named place, copy it ' +
   'verbatim; otherwise omit the key entirely. ' +

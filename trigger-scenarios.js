@@ -46,7 +46,7 @@ window.TRIGGER_SHEET = {
       signals: 'GPS trace vs stop pin; speed',
       timing: 'Wait — ask when back in the car after the stop',
       otto_says: '“Is it hard to park here at this time? Where did you find a spot?”',
-      learns: 'ACCESS — parking / loading-zone tip',
+      learns: 'parking — the loading-zone tip',
       test_steps: 'Simulate a delivery address, drive around the block twice, then stop',
       params: [
         { key: 'radius', label: 'Pass radius', value: 150, min: 40, max: 400, step: 5, unit: 'm' },
@@ -65,7 +65,7 @@ window.TRIGGER_SHEET = {
       signals: 'Parking position vs pin; walked path length; walk time',
       timing: 'On arrival at the door, on foot — only then is the walk a measured fact',
       otto_says: '“You parked about {park_m} m out and walked {walk_m} m — was there nothing closer, or is that the smart spot for this address?”',
-      learns: 'ACCESS — the parking spot that actually works for this address',
+      learns: 'parking — the parking spot that actually works for this address',
       test_steps: 'Drive to a few hundred meters from the pin, park properly, walk the rest of the way. Otto speaks when you reach the door, quoting your measured distances.',
       params: [
         { key: 'park_radius_max', label: 'Parking counts within', value: 400, min: 100, max: 800, step: 25, unit: 'm' },
@@ -83,7 +83,7 @@ window.TRIGGER_SHEET = {
       signals: 'Total standstill time; stop position in the street vs the pin',
       timing: 'Straight after moving off, while the manoeuvre is fresh',
       otto_says: '“Quick one — did stopping in the street work here, or is there a loading zone the map doesn’t show?”',
-      learns: 'PARKING — whether a hazards-on stop is tolerated, and where the loading zone is',
+      learns: 'parking — whether a hazards-on stop is tolerated, and where the loading zone is',
       test_steps: 'Stop briefly right at the pin as if double-parked, walk a parcel to the door, drive off within two minutes; answer Otto once rolling.',
       params: [
         { key: 'stop_radius', label: 'Stop counts within', value: 60, min: 20, max: 200, step: 5, unit: 'm' },
@@ -102,7 +102,7 @@ window.TRIGGER_SHEET = {
       signals: 'On-foot GPS trace circling the building; time on foot with no arrival',
       timing: 'Wait — ask when back at the vehicle, not mid-search',
       otto_says: '“Was the entrance easy to find? Where is it, exactly — and what should the next driver look for?”',
-      learns: 'ENTRANCE — where the real way in is',
+      learns: 'access — where the real way in is',
       test_steps: 'Park near the pin, walk to the wrong side of the building first, spend ~2 min searching, then return to the car and answer Otto.',
       params: [
         { key: 'stop_radius', label: 'Arrival stop radius', value: 120, min: 30, max: 300, step: 5, unit: 'm' },
@@ -121,7 +121,7 @@ window.TRIGGER_SHEET = {
       signals: 'Debrief position vs the pin — the filed report carries the reporter’s coordinates; walked trace',
       timing: 'At the real door — say where you actually are while standing there',
       otto_says: '“The map pin seems off — where is the real door compared to where it sent you?”',
-      learns: 'ACCESS — a pin correction: where the door really is',
+      learns: 'address — a pin correction: where the door really is',
       test_steps: 'Pin the scenario deliberately one block off. Drive to the pin, then walk to the “real” door you chose and debrief from there — the filed position is the correction.',
       params: [
         { key: 'stop_radius', label: 'Arrival stop radius', value: 120, min: 30, max: 300, step: 5, unit: 'm' },
@@ -140,7 +140,7 @@ window.TRIGGER_SHEET = {
       signals: 'Short door dwell; time of day vs typical delivery windows',
       timing: 'On driving off — the attempt is over, the lesson is not',
       otto_says: '“No luck at the door? When is somebody actually there — or is there a neighbour or a shop that takes parcels?”',
-      learns: 'HOURS — when this door answers, and who takes parcels when it doesn’t',
+      learns: 'recipient — when this door answers, and who takes parcels when it doesn’t',
       test_steps: 'Arrive normally, walk to the door, wait ~30 s as if ringing, walk back and drive off. Answer Otto once rolling.',
       params: [
         { key: 'stop_radius', label: 'Arrival stop radius', value: 100, min: 30, max: 300, step: 5, unit: 'm' },
@@ -158,7 +158,7 @@ window.TRIGGER_SHEET = {
       signals: 'Dwell time vs pin; opening hours; time of day',
       timing: 'Wait — ask on leaving, when hands are free',
       otto_says: '“That took a while — how long did you actually wait, and is there a faster way in here?”',
-      learns: 'INFO — realistic waiting time and how to skip it',
+      learns: 'other — realistic waiting time and how to skip it',
       test_steps: 'Go to the pin, stand in the waiting area ≥5 min (a few steps forward now and then are fine), then leave and answer Otto.',
       params: [
         { key: 'stop_radius', label: 'Waiting radius', value: 60, min: 15, max: 200, step: 5, unit: 'm' },
@@ -176,7 +176,7 @@ window.TRIGGER_SHEET = {
       signals: 'GPS trace turning short of the pin; speed drop at the blockage',
       timing: 'Soon after turning away, once driving smoothly',
       otto_says: '“Looks like you couldn’t get through — what’s blocking the street, and which way around works?”',
-      learns: 'CLOSURE — the blockage and the detour that works',
+      learns: 'hazard — the blockage and the detour that works',
       test_steps: 'Drive toward the pin, slow as if blocked, turn around short of it and drive off. The demo detector fires only on a real stop, so expect a silent run — end tracking and judge it “✗ should have spoken”: that verdict is the data the production trigger is built from.',
       params: [
         { key: 'radius', label: 'Approach counts within', value: 100, min: 30, max: 300, step: 5, unit: 'm' },
@@ -195,7 +195,7 @@ window.TRIGGER_SHEET = {
       signals: 'Speed profile over the approach; time-in-segment vs what the street usually takes',
       timing: 'Right after the arrival stop, as movement resumes — the crawl is still fresh',
       otto_says: '“That last stretch was slow — what makes it crawl, and is it always like this at this hour?”',
-      learns: 'HAZARD — what slows the approach, and when',
+      learns: 'hazard — what slows the approach, and when',
       test_steps: 'Drive the last ~300 m to the pin at walking pace, stop as arrived, then step out. Otto asks as you move again; the speed trace shows the crawl.',
       params: [
         { key: 'radius', label: 'Crawl counts within', value: 300, min: 100, max: 600, step: 10, unit: 'm' },

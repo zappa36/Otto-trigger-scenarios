@@ -657,7 +657,7 @@ const OttoAgent = (() => {
         console.warn('OttoAgent: could not save the debrief —', e.message);
       }
       state.saved = true;
-      chip(`DEBRIEF SAVED · ${note.category || 'INFO'}`);
+      chip(`DEBRIEF SAVED · ${note.category || 'other'}`);
       render({ from: 'ai', text: (lastReply && lastReply.text) || 'Saved — the dashboard has it.' }, 'done');
       if (opt.onSaved) {
         opt.onSaved({

@@ -1477,7 +1477,7 @@ function openCard(d) {
     row.className = 'msg';
     const cat = document.createElement('span');
     cat.className = 'msg-cat';
-    cat.textContent = (m.category || 'INFO') + (m.demo ? ' · DEMO' : '');
+    cat.textContent = (m.category || 'other') + (m.demo ? ' · DEMO' : '');
     const txt = document.createElement('span');
     txt.textContent = m.title || m.transcript;
     row.append(cat, txt);

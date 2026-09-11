@@ -530,7 +530,7 @@ function renderMessages(sc) {
     return `
       <div class="msg">
         <div class="msg-top">
-          <span class="msg-cat${match ? ' match' : ''}">${esc(m.category || 'INFO')}${match ? ' · = EXPECTED TYPE' : ''}</span>
+          <span class="msg-cat${match ? ' match' : ''}">${esc(m.category || 'other')}${match ? ' · = EXPECTED TYPE' : ''}</span>
           ${m.demo ? '<span class="msg-demo">DEMO</span>' : ''}
           ${m.via === 'elevenlabs' ? '<span class="msg-via" title="Debriefed by your ElevenLabs agent — a live conversation, not a recorded clip">◆ AGENT</span>' : ''}
           <span class="msg-time">${esc(fmtTime(m.created_at))}</span>
@@ -855,7 +855,7 @@ function renderDemoBody(sc, d) {
       <div class="demo-step heard">
         <span class="addr-tag">4 · WHAT CAME BACK — THE DRIVER'S ANSWER${answers.length > 1 ? 'S' : ''}</span>
         ${answers.map(m => sayLine('🎙', m.transcript || m.title,
-    (m.demo ? 'SIMULATED · ' : '') + (m.category || 'INFO') + ' · ' + fmtTime(m.created_at))).join('')}
+    (m.demo ? 'SIMULATED · ' : '') + (m.category || 'other') + ' · ' + fmtTime(m.created_at))).join('')}
       </div>` : ''}
       ${d ? `
       <div class="addr-actions">
@@ -1297,7 +1297,7 @@ const DRAFT_TEMPLATES = [
       signals: 'Parking position vs pin; walked path length; walk time',
       timing: 'On arrival at the destination, on foot — only then is the walking distance a fact',
       otto_says: '“You parked about {park_m} m away and walked {walk_m} m — was there nothing closer, or is that the smart spot for this address?”',
-      learns: 'ACCESS — the real parking spot for this address',
+      learns: 'parking — the real parking spot for this address',
       test_steps: 'Drive to a few hundred meters from the pin, park properly, walk the rest of the way. Otto speaks when you reach the destination, quoting your measured distances.',
     },
     params: [
@@ -1316,7 +1316,7 @@ const DRAFT_TEMPLATES = [
       signals: 'GPS trace vs pin; speed; pass count',
       timing: 'Wait — ask once moving again after the stop',
       otto_says: '“Is it hard to park here at this time? Where did you find a spot?”',
-      learns: 'ACCESS — parking / loading-zone tip',
+      learns: 'parking — the loading-zone tip',
       test_steps: 'Drive to the pin, circle the block twice slowly without stopping, then park and stand ≥1 min, then drive off. Answer Otto when he speaks up.',
     },
     params: [
@@ -1336,7 +1336,7 @@ const DRAFT_TEMPLATES = [
       signals: 'GPS trace on foot vs pin; time on foot; no arrival confirmation',
       timing: 'Wait — ask when back at the vehicle, not mid-search',
       otto_says: '“Was the entrance easy to find? Where is it, exactly?”',
-      learns: 'ENTRANCE — where the real way in is',
+      learns: 'access — where the real way in is',
       test_steps: 'Park near the pin, walk to the wrong side of the building first, spend ~2 min searching, then return to the car and answer Otto.',
     },
     params: [
@@ -1356,7 +1356,7 @@ const DRAFT_TEMPLATES = [
       signals: 'Dwell time vs pin; opening hours',
       timing: 'Wait — ask on leaving, when hands are free',
       otto_says: '“That took a while — how long did you wait, and is there a faster way here?”',
-      learns: 'INFO — realistic waiting time and how to skip it',
+      learns: 'other — realistic waiting time and how to skip it',
       test_steps: 'Go to the pin, stand in the waiting area ≥5 min, then leave and answer Otto.',
     },
     params: [
@@ -1374,7 +1374,7 @@ const DRAFT_TEMPLATES = [
       signals: 'GPS trace turning short of the pin; speed drop',
       timing: 'Soon after turning away, once driving smoothly',
       otto_says: '“Looks like you couldn’t get through — what’s blocking it, and is there a way around?”',
-      learns: 'CLOSURE — blocked route and the detour that works',
+      learns: 'hazard — blocked route and the detour that works',
       test_steps: 'Drive toward the pin, stop short as if blocked, turn around and drive off; answer Otto when he asks.',
     },
     params: [
@@ -1393,7 +1393,7 @@ const DRAFT_TEMPLATES = [
       signals: 'GPS trace vs pin; dwell time',
       timing: 'On departure',
       otto_says: '“What did you find here that the next driver should know?”',
-      learns: 'INFO — local knowledge for the next driver',
+      learns: 'other — local knowledge for the next driver',
       test_steps: 'Go to the pin, act out the described situation, then leave and answer Otto.',
     },
     params: [
@@ -2183,7 +2183,7 @@ async function createRouteScenario(first) {
     signals: 'GPS vs the stop pins; notes on file (dispatch + driver)',
     timing: 'On approach — before the driver is at the door',
     otto_says: '“Were the notes right — anything to correct for the next driver?”',
-    learns: 'ACCESS / INFO — corrections to the notes on file',
+    learns: 'access / other — corrections to the notes on file',
     test_steps: `Drive the route in stop order (stop 1: ${first.title}). Otto reads ~{notes_radius} m ahead of each noted stop; ✕ on the banner stops a reading, and the phone's ROUTE chip hides the whole route for clean scenario tests.`,
     params: [
       { key: 'notes_radius', label: 'Notes read distance', value: 350, min: 50, max: 1000, step: 10, unit: 'm' },

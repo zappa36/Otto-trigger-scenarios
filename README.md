@@ -137,15 +137,15 @@ park, the door, the handover — and end on a control:
 
 | # | Scenario | Otto learns | Phone detector |
 |---|---|---|---|
-| 1 | Parking loops — circles the block looking for parking | ACCESS | live — the deck's worked example |
-| 2 | Park & walk — parked far out, walked the last stretch | ACCESS | live — the park-and-walk shape, measured distances in Otto's question |
-| 3 | Sprint stop — hazards on, dash to the door | PARKING | stop + quick resume live; the dash cap (`max_stop_s`) is spec |
-| 4 | Entrance hunt — at the address, but where is the way in? | ENTRANCE | arrival live; the on-foot search time is spec |
-| 5 | The wrong pin — the door is not where the map says | ACCESS | arrival live; the offset is read off the filed debrief position |
-| 6 | Nobody home — rang, waited, bounced | HOURS | arrival live; the bounce cap is spec |
-| 7 | Long wait — the handover eats the schedule | INFO | live — cumulative dwell with queue-shuffle grace |
-| 8 | Blocked street — got close, never arrived | CLOSURE | cannot fire on a non-arrival — the judged silent run is the data |
-| 9 | Crawl approach — the last street costs minutes | HAZARD | arrival live; the crawl shows in the logged speed trace |
+| 1 | Parking loops — circles the block looking for parking | parking | live — the deck's worked example |
+| 2 | Park & walk — parked far out, walked the last stretch | parking | live — the park-and-walk shape, measured distances in Otto's question |
+| 3 | Sprint stop — hazards on, dash to the door | parking | stop + quick resume live; the dash cap (`max_stop_s`) is spec |
+| 4 | Entrance hunt — at the address, but where is the way in? | access | arrival live; the on-foot search time is spec |
+| 5 | The wrong pin — the door is not where the map says | address | arrival live; the offset is read off the filed debrief position |
+| 6 | Nobody home — rang, waited, bounced | recipient | arrival live; the bounce cap is spec |
+| 7 | Long wait — the handover eats the schedule | other | live — cumulative dwell with queue-shuffle grace |
+| 8 | Blocked street — got close, never arrived | hazard | cannot fire on a non-arrival — the judged silent run is the data |
+| 9 | Crawl approach — the last street costs minutes | hazard | arrival live; the crawl shows in the logged speed trace |
 | 10 | Clean run — the control: Otto stays quiet | nothing | live, armed like #1 — silence is the pass |
 
 Rows 8 and 10 are there on purpose: a trigger set is judged on its
@@ -263,11 +263,15 @@ the `scenarios` table, the tuning-loop columns, the pre-arrival
 notes columns and the route columns), and deploy
 [`scenario-ai`](supabase/functions/scenario-ai/index.ts) next to
 `voice-note` (same `OPENAI_API_KEY` and `ALLOWED_ORIGINS` secrets) for
-real drafts and revisions. Worth doing at the same time: set the voice
-function's `NOTE_CATEGORIES` secret to your tip types (e.g.
-`PARKING,ACCESS,HAZARD,HOURS,INFO`) so Otto's categories can line up
-with the "What Otto learns" column, and point `ASSISTANT_BRIEF` at
-trigger debriefs — `scenario-ai` reads `NOTE_CATEGORIES` too, so drafted
+real drafts and revisions. Otto files every debrief under one of the
+analytics API's report categories — `access,parking,gate_code,recipient,address,hazard,other`
+— the default of the `NOTE_CATEGORIES` secret on both functions, so what
+Otto records is already in the shape the dispatcher dashboard's API
+contract expects, and the "What Otto learns" column uses the same words.
+A `NOTE_CATEGORIES` secret left over from an older label set overrides
+that default: set it to the list above, or delete it. Change the list
+and `NOTE_CATEGORY_GUIDE` together (the guide tells the model what each
+label means) — `scenario-ai` reads `NOTE_CATEGORIES` too, so drafted
 scenarios expect tip types Otto can actually file.
 
 ## Otto as your ElevenLabs agent
@@ -725,7 +729,8 @@ by design).
    by design; the functions' own origin check is what stands between
    the internet and the metered keys. Optional
    persona tuning via `ASSISTANT_NAME`, `ASSISTANT_BRIEF`,
-   `NOTE_CATEGORIES` — e.g.:
+   `NOTE_CATEGORIES` (defaults to the analytics API's report
+   categories; the tuning-loop section above explains the list) — e.g.:
 
    ```sh
    supabase secrets set ASSISTANT_BRIEF="short observations about a destination they were sent to check (blocked entrances, construction, changed access, anything off)"

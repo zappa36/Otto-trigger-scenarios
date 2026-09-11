@@ -184,8 +184,8 @@ const VoiceNote = (() => {
           opt.onSaved({
             transcript: said,
             reply: opt.demoFinal,
-            note: { title: said.slice(0, 60), category: 'INFO' },
-            row: { context: contextLabel(), transcript: said, title: said.slice(0, 60), category: 'INFO' },
+            note: { title: said.slice(0, 60), category: 'other' },
+            row: { context: contextLabel(), transcript: said, title: said.slice(0, 60), category: 'other' },
             demo: true,
           });
         }
@@ -292,7 +292,7 @@ const VoiceNote = (() => {
         }
 
         state.saved++;
-        chip(`${state.saved} NOTE${state.saved > 1 ? 'S' : ''} SAVED · ${row.category || 'INFO'}`);
+        chip(`${state.saved} NOTE${state.saved > 1 ? 'S' : ''} SAVED · ${row.category || 'other'}`);
         if (opt.onSaved) opt.onSaved({ ...d, row: saved || row });
 
         setTimeout(() => {
