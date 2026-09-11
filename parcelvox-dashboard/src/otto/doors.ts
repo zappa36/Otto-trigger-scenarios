@@ -1,4 +1,5 @@
 import type { LngLat } from '../data/map';
+import type { ApiHotspot, ApiPlace } from './analytics';
 import { notesOf, type DepotDebrief, type DepotStop } from './depot';
 
 /*
@@ -23,6 +24,55 @@ export interface DepotDoor {
   hasNotes: boolean;
   /** A real (non-demo) Otto debrief is on file for at least one row. */
   debriefed: boolean;
+  /** What the analytics API knows about this door, when one is configured. */
+  analytics?: DoorAnalytics;
+}
+
+export interface DoorAnalytics {
+  placeId: string;
+  /** Reports at this door in the API's range — the tester's and the invented history's. */
+  reports: number;
+  /** Position in the hotspot ranking (reports per 100 deliveries), 1 = worst; null when unranked. */
+  hotspotRank: number | null;
+  reportsPer100: number | null;
+  topCategory: string | null;
+}
+
+/** Nearest API place within 30 m of a door — the contract links places to stops
+ *  only through tours and reports, so position is the honest join for a map. */
+const MATCH_M = 30;
+const distM = (a: LngLat, b: { lat: number; lng: number }) => {
+  const R = 6371000, toR = (x: number) => (x * Math.PI) / 180;
+  const dLat = toR(b.lat - a[1]), dLng = toR(b.lng - a[0]);
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(toR(a[1])) * Math.cos(toR(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+};
+
+export function attachAnalytics(doors: DepotDoor[], places: ApiPlace[], hotspots: ApiHotspot[]): DepotDoor[] {
+  const rank = new Map(hotspots.map((h, i) => [h.place_id, { rank: i + 1, per100: h.reports_per_100_deliveries }]));
+  return doors.map((door) => {
+    let best: ApiPlace | null = null;
+    let bestD = MATCH_M;
+    for (const p of places) {
+      const d = distM(door.at, p.location);
+      if (d <= bestD) {
+        best = p;
+        bestD = d;
+      }
+    }
+    if (!best) return door;
+    const hot = rank.get(best.place_id);
+    return {
+      ...door,
+      analytics: {
+        placeId: best.place_id,
+        reports: best.report_count,
+        hotspotRank: hot ? hot.rank : null,
+        reportsPer100: hot ? hot.per100 : null,
+        topCategory: best.top_categories[0] ? best.top_categories[0].category : null,
+      },
+    };
+  });
 }
 
 export interface DepotRouteLine {

@@ -22,7 +22,10 @@
 // Everything domain-specific is configurable through secrets, so this
 // file should not need editing:
 //   ALLOWED_ORIGINS   comma-separated; defaults to localhost only
-//   NOTE_CATEGORIES   comma-separated label set
+//   NOTE_CATEGORIES   comma-separated label set — defaults to the
+//                     analytics API's report categories
+//   NOTE_CATEGORY_GUIDE one line telling the model what each label
+//                     means; blank it when NOTE_CATEGORIES is changed
 //   ASSISTANT_NAME    the persona's name
 //   ASSISTANT_BRIEF   one line describing what people report about
 // ============================================================
@@ -32,9 +35,16 @@ const csv = (k: string, fallback: string) =>
   env(k, fallback).split(',').map(s => s.trim()).filter(Boolean);
 
 const ALLOW_ORIGINS = csv('ALLOWED_ORIGINS', 'http://localhost:8000,http://localhost:4180');
-const CATEGORIES = csv('NOTE_CATEGORIES', 'ACCESS,CLOSURE,HAZARD,ENTRANCE,HOURS,INFO');
+const CATEGORIES = csv('NOTE_CATEGORIES', 'access,parking,gate_code,recipient,address,hazard,other');
+// What each default label means, so the model can tell access from gate_code from address.
+// Replaced (or blanked) together with NOTE_CATEGORIES — a guide for another label set would mislead.
+const CATEGORY_GUIDE = env('NOTE_CATEGORY_GUIDE',
+  'access = how to get in (doors, intercom, lift, stairs); parking = where to stop the vehicle; '
+  + 'gate_code = a code or key that is needed; recipient = who takes the parcel and when they answer; '
+  + 'address = the pin or address is wrong; hazard = something blocking or slowing the way (closure, works, danger); '
+  + 'other = anything else.');
 const ASSISTANT = env('ASSISTANT_NAME', 'Otto');
-const BRIEF = env('ASSISTANT_BRIEF', 'short observations about a place (broken lift, closed road, moved entrance, opening hours)');
+const BRIEF = env('ASSISTANT_BRIEF', 'short observations about a delivery address (how to get in, where to park, gate codes, who takes parcels, wrong pins, hazards)');
 
 const MAX_CLIP_BYTES = 8_000_000; // ~60 seconds — a cost backstop, not a quality limit
 
@@ -115,7 +125,8 @@ Deno.serve(async (req) => {
               'Return ONLY JSON: {"reply": string, "note": {"title": string, "category": string}}. ' +
               'reply: one warm spoken-style sentence acknowledging what they said, plus at most one short follow-up question if something useful is missing. ' +
               'note.title: an actionable summary for the next person, max 60 characters, e.g. "Lift broken — take the stairs". ' +
-              `note.category: exactly one of ${CATEGORIES.join(', ')}.`,
+              `note.category: exactly one of ${CATEGORIES.join(', ')}.` +
+              (CATEGORY_GUIDE ? ` Meaning: ${CATEGORY_GUIDE}` : ''),
           },
           {
             role: 'user',

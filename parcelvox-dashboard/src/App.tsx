@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
+import { analyticsMode } from './otto/analytics';
 import { useDepot } from './otto/useDepot';
 import { useCurationQueue } from './state/useCurationQueue';
 import type { ViewId } from './types';
@@ -31,7 +32,13 @@ export function App() {
 
   return (
     <div className={styles.shell}>
-      <Sidebar view={view} onNavigate={setView} pendingCount={queue.pendingCount} live={live} />
+      <Sidebar
+        view={view}
+        onNavigate={setView}
+        pendingCount={queue.pendingCount}
+        live={live}
+        analytics={live && analyticsMode === 'live'}
+      />
       <main className={styles.canvas}>
         {view === 'map' && <MapView onAskOtto={() => setView('ask')} />}
         {view === 'routes' && <RoutesView onOpenRoute={() => setView('routeDetail')} />}

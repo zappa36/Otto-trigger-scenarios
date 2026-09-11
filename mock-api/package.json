@@ -1,0 +1,12 @@
+{
+  "name": "parcelvox-analytics-mock",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A mock of the Parcelvox Analytics API contract, fed by the Otto app's real rows plus invented history",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test"
+  },
+  "engines": { "node": ">=20" }
+}

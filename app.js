@@ -35,22 +35,30 @@ let destinations = [];
 const messagesByDest = {};
 const reportedIds = new Set();
 let current = null; // destination in the open card / Otto session
+/* the Delivered / Not delivered tap per route stop — the latest visit
+ * row by destination id; the scan stand-in a tour is rebuilt from */
+let visitsByDest = {};
+const LS_VISITS = 'od_visits';
+const VISIT = { arriveRadius: 30 }; // m — inside this ring the phone counts as "at the door"
+const nearSince = new Map(); // destination id -> first fix time inside the arrival ring
+const localId = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
 /* Trigger scenarios (defined on dashboard.html) — read-only here. A
  * destination that belongs to a scenario carries the test steps on its
  * card, and Otto opens the debrief with the scenario's own question. */
 let scenarios = [];
 let scenarioByDest = {};
-let routeScenario = null; // the route's own scenario (pinned at one stop by the loader)
+let routeScenarios = {}; // route id -> the route's own scenario (pinned at one of its stops by the loader)
 const rebuildScenarioIndex = () => {
   scenarioByDest = {};
   scenarios.forEach(s => { if (s.destination_id) scenarioByDest[s.destination_id] = s; });
   /* its reading-ring params (notes_radius / notes_rearm) drive EVERY
-   * stop of the route, not just the stop it happens to be pinned at */
-  routeScenario = scenarios.find(s => {
+   * stop of its route, not just the stop it happens to be pinned at */
+  routeScenarios = {};
+  scenarios.forEach(s => {
     const d = s.destination_id && destinations.find(x => x.id === s.destination_id);
-    return d && d.route;
-  }) || null;
+    if (d && d.route && !routeScenarios[d.route]) routeScenarios[d.route] = s;
+  });
 };
 const scenarioOf = d => (d && scenarioByDest[d.id]) || null;
 const stripQuotes = s => String(s || '').trim().replace(/^[“”"']+/, '').replace(/[“”"']+$/, '');
@@ -821,7 +829,7 @@ const NOTES = {
 function notesRadiiOf(d) {
   /* a route stop without its own scenario reads the route scenario's
    * rings — one slider on the dashboard retunes the whole tour */
-  const sc = scenarioOf(d) || (d.route ? routeScenario : null);
+  const sc = scenarioOf(d) || (d.route ? routeScenarios[d.route] : null);
   const val = k => {
     const p = sc && Array.isArray(sc.params) ? sc.params.find(x => x && x.key === k) : null;
     const v = p && parseFloat(p.value);
@@ -900,6 +908,13 @@ function checkApproach(pos) {
   let next = null;
   for (const d of visibleDestinations()) {
     const dist = distM(pos, d);
+    /* the arrival ring, for the Delivered tap's dwell: the first fix
+     * inside it is "arrived"; well outside again forgets it (a walk-by
+     * is not an arrival) */
+    if (d.route) {
+      if (dist <= VISIT.arriveRadius) { if (!nearSince.has(d.id)) nearSince.set(d.id, now); }
+      else if (dist > VISIT.arriveRadius * 3) nearSince.delete(d.id);
+    }
     const rings = notesRadiiOf(d);
     if (dist > rings.rearm) { notesRead.delete(d.id); continue; }
     /* inside the rearm ring the reading is coming — translate the
@@ -1104,12 +1119,19 @@ const persistLocal = () => {
   try {
     localStorage.setItem(LS_DEST, JSON.stringify(destinations));
     localStorage.setItem(LS_MSGS, JSON.stringify([].concat(...Object.values(messagesByDest))));
+    localStorage.setItem(LS_VISITS, JSON.stringify(Object.values(visitsByDest)));
   } catch { /* private mode */ }
 };
 
 const recordMessage = (destId, row) => {
   (messagesByDest[destId] = messagesByDest[destId] || []).unshift(row);
   reportedIds.add(destId);
+};
+/* one visit per stop: the newest tap wins (a re-tap after undo replaces) */
+const recordVisit = v => {
+  if (!v || !v.destination_id) return;
+  const had = visitsByDest[v.destination_id];
+  if (!had || String(v.created_at || '') >= String(had.created_at || '')) visitsByDest[v.destination_id] = v;
 };
 
 /* ---------- geometry & keyless Google Maps links ---------- */
@@ -1165,16 +1187,22 @@ const map = FieldMap.mount({
   geo: LiveGeo, // Geo, plus ActivityRec's continuous fixes while tracking
   markers: () => {
     const list = visibleDestinations().map(d => {
-      const done = reportedIds.has(d.id);
+      /* a route stop is done once it was delivered (or failed at the
+       * door); any pin also counts as done once it was debriefed */
+      const v = visitsByDest[d.id];
+      const failed = !!v && v.outcome === 'failed';
+      const done = !!v || reportedIds.has(d.id);
+      const mark = failed ? '✕' : '✓';
       return {
         id: d.id, lat: d.lat, lng: d.lng,
-        label: (done ? '✓ ' : '') + (d.stop != null ? d.stop + ' · ' : '') + scenarioNumPrefix(d)
+        label: (done ? mark + ' ' : '') + (d.stop != null ? d.stop + ' · ' : '') + scenarioNumPrefix(d)
           + String(d.title || 'Destination').toUpperCase().slice(0, 22),
-        color: done ? '70,211,154' : '255,107,107',
-        labelColor: done ? '#7ce0b8' : '#ff9b9b',
+        color: failed ? '255,217,94' : done ? '70,211,154' : '255,107,107',
+        labelColor: failed ? '#ffd95e' : done ? '#7ce0b8' : '#ff9b9b',
         /* ✎ = notes on file — Otto will speak on the way in; the mark
-         * yields to ✓ once the stop is debriefed */
-        icon: done ? '✓' : notesOnFile(d).length ? '✎' : '▲',
+         * yields to ✓ once the stop is delivered or debriefed, ✕ when
+         * the delivery failed */
+        icon: done ? mark : notesOnFile(d).length ? '✎' : '▲',
         size: 44,
         priority: done ? 2 : 1, // open spots outrank finished ones for label space
       };
@@ -1200,7 +1228,7 @@ const map = FieldMap.mount({
      * their pins stack exactly — a tap serves the first stop still open
      * there, the way a courier works through parcels at a single bell */
     const here = visibleDestinations().filter(x => x.lat === d.lat && x.lng === d.lng);
-    openCard(here.find(x => !reportedIds.has(x.id)) || d);
+    openCard(here.find(x => !reportedIds.has(x.id) && !visitsByDest[x.id]) || d);
   },
   onBackendChange(b) {
     el('backend').textContent = b.toUpperCase();
@@ -1464,6 +1492,7 @@ function openCard(d) {
   /* what an approach would read out — consignee, floor, dispatch notes;
    * the driver debriefs listed below are the rest of the briefing */
   renderCardNotes(d);
+  renderCardVisit(d);
   /* the card's replay button reads the same lines — warm the
    * translation cache (🇮🇹) and the reading voice for the tap to come */
   prefetchNotesIt(d);
@@ -1477,7 +1506,7 @@ function openCard(d) {
     row.className = 'msg';
     const cat = document.createElement('span');
     cat.className = 'msg-cat';
-    cat.textContent = (m.category || 'INFO') + (m.demo ? ' · DEMO' : '');
+    cat.textContent = (m.category || 'other') + (m.demo ? ' · DEMO' : '');
     const txt = document.createElement('span');
     txt.textContent = m.title || m.transcript;
     row.append(cat, txt);
@@ -1493,6 +1522,70 @@ function updateCardDistance() {
   el('card-dist').textContent = p
     ? '~' + fmtDist(distM(p, current)) + ' away' + (LiveGeo.stale ? ' (from last known position)' : '')
     : 'distance unknown — no GPS fix';
+}
+
+/* ---------- the Delivered tap ----------
+ * A route stop's card carries the courier's scan moment: ✓ Delivered or
+ * ✕ Not delivered — one row in `visits` per tap, undo deletes it. The
+ * tap stamps the phone's position and, when the phone saw itself inside
+ * the arrival ring first, when that was: the door's dwell. */
+function renderCardVisit(d) {
+  const box = el('card-visit');
+  const isStop = !!(d && d.route);
+  box.hidden = !isStop;
+  if (!isStop) return;
+  const v = visitsByDest[d.id];
+  el('card-visit-btns').hidden = !!v;
+  el('card-visit-done').hidden = !v;
+  if (!v) return;
+  const at = new Date(v.delivered_at || v.created_at);
+  const hhmm = isNaN(at) ? '' : ' · ' + at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  el('card-visit-text').textContent = (v.outcome === 'failed' ? '✕ Not delivered' : '✓ Delivered') + hhmm;
+  el('card-visit-text').classList.toggle('failed', v.outcome === 'failed');
+}
+
+async function markVisit(outcome) {
+  const d = current;
+  if (!d || !d.route || visitsByDest[d.id]) return;
+  const p = LiveGeo.stale ? null : LiveGeo.position;
+  const since = nearSince.get(d.id);
+  let row = {
+    destination_id: d.id, route: d.route, stop: d.stop == null ? null : d.stop,
+    outcome,
+    arrived_at: since ? new Date(since).toISOString() : null,
+    delivered_at: new Date().toISOString(),
+    lat: p ? p.lat : null,
+    lng: p ? p.lng : null,
+    accuracy: p && typeof p.acc === 'number' ? p.acc : null,
+  };
+  el('card-visit-btns').hidden = true; // no double taps while the save is out
+  if (Backend.enabled) {
+    try {
+      const saved = await Backend.insertVisit(row);
+      if (Array.isArray(saved) && saved[0]) row = saved[0];
+    } catch (e) {
+      console.warn('visit not saved — re-run schema.sql for the visits table?', e.message);
+      el('card-visit-btns').hidden = false;
+      return;
+    }
+  }
+  if (!row.id) row = { ...row, id: localId('v') };
+  if (!row.created_at) row.created_at = row.delivered_at;
+  recordVisit(row);
+  persistLocal();
+  if (current && current.id === d.id) renderCardVisit(current);
+  map.refresh();
+}
+
+async function undoVisit() {
+  const d = current;
+  const v = d && visitsByDest[d.id];
+  if (!v) return;
+  delete visitsByDest[d.id];
+  if (Backend.enabled && v.id) Backend.deleteVisit(v.id).catch(e => console.warn('undo failed', e.message));
+  persistLocal();
+  renderCardVisit(d);
+  map.refresh();
 }
 
 function removeCurrent() {
@@ -1598,6 +1691,9 @@ el('sc-tab-story').onclick = () => setScTab('story');
 el('sc-tab-steps').onclick = () => setScTab('steps');
 el('card-otto').onclick = () => current && openOtto(current);
 el('card-remove').onclick = removeCurrent;
+el('card-deliver').onclick = () => markVisit('delivered');
+el('card-fail').onclick = () => markVisit('failed');
+el('card-visit-undo').onclick = undoVisit;
 el('otto-back').onclick = closeOtto;
 
 /* ↻ — pull fresh scenarios, pins and debriefs without reloading the
@@ -1729,6 +1825,10 @@ async function boot() {
     try {
       scenarios = (await Backend.listScenarios()) || [];
     } catch (e) { console.warn('no scenarios — re-run schema.sql to add the table?', e.message); }
+    try {
+      visitsByDest = {};
+      ((await Backend.listVisits(1000)) || []).forEach(recordVisit);
+    } catch (e) { console.warn('no visits — re-run schema.sql to add the table?', e.message); }
   } else {
     try { destinations = JSON.parse(localStorage.getItem(LS_DEST) || '[]'); } catch { /* private mode */ }
     try {
@@ -1737,6 +1837,10 @@ async function boot() {
       });
     } catch { /* private mode */ }
     try { scenarios = JSON.parse(localStorage.getItem(LS_SCEN) || '[]'); } catch { /* private mode */ }
+    try {
+      visitsByDest = {};
+      (JSON.parse(localStorage.getItem(LS_VISITS) || '[]')).forEach(recordVisit);
+    } catch { /* private mode */ }
   }
   rebuildScenarioIndex();
   renderRouteChip();

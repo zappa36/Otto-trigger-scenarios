@@ -149,10 +149,35 @@ alter table public.runs add column if not exists verdict text;
 
 create index if not exists runs_scenario_idx on public.runs (scenario_id, created_at desc);
 
+-- The Delivered / Not delivered tap on a route stop (app.js) — the
+-- phone's stand-in for the courier's parcel scan. One row per tap, so
+-- a tour (one route on one day) can be rebuilt from the rows: which
+-- stops were done, in what order, when, and how long the door took
+-- (arrived_at is the first fix inside the arrival ring, when the phone
+-- had one). Route and stop are copied from the stop so the tour
+-- survives a re-pin; the destination link is for the door's notes.
+create table if not exists public.visits (
+  id uuid primary key default gen_random_uuid(),
+  destination_id uuid references public.destinations (id) on delete cascade,
+  route text,                       -- the stop's route id
+  stop integer,                     -- its position on that route
+  outcome text not null default 'delivered' check (outcome in ('delivered', 'failed')),
+  arrived_at timestamptz,           -- first fix inside the arrival ring, if any
+  delivered_at timestamptz not null default now(),  -- the tap itself
+  lat double precision,             -- where the phone stood at the tap
+  lng double precision,
+  accuracy double precision,        -- of that fix, in metres
+  created_at timestamptz not null default now()
+);
+
+create index if not exists visits_dest_idx on public.visits (destination_id, created_at desc);
+create index if not exists visits_route_idx on public.visits (route, delivered_at desc);
+
 alter table public.destinations enable row level security;
 alter table public.messages enable row level security;
 alter table public.scenarios enable row level security;
 alter table public.runs enable row level security;
+alter table public.visits enable row level security;
 
 -- ------------------------------------------------------------
 -- OPEN PILOT POLICIES (the default in this kit)
@@ -226,6 +251,19 @@ create policy "anyone adds runs" on public.runs
 drop policy if exists "anyone updates runs" on public.runs;
 create policy "anyone updates runs" on public.runs
   for update to anon, authenticated using (true) with check (true);
+
+drop policy if exists "anyone reads visits" on public.visits;
+create policy "anyone reads visits" on public.visits
+  for select to anon, authenticated using (true);
+
+drop policy if exists "anyone adds visits" on public.visits;
+create policy "anyone adds visits" on public.visits
+  for insert to anon, authenticated with check (true);
+
+-- the tap's undo on the phone
+drop policy if exists "anyone deletes visits" on public.visits;
+create policy "anyone deletes visits" on public.visits
+  for delete to anon, authenticated using (true);
 
 -- ------------------------------------------------------------
 -- SIGNED-IN POLICIES

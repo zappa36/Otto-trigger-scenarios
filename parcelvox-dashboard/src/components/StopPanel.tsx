@@ -8,6 +8,8 @@ import {
   type DepotStop,
 } from '../otto/depot';
 import { doorLabel, type DepotDoor } from '../otto/doors';
+import type { Range } from '../otto/analytics';
+import { PlaceAnalytics } from './PlaceAnalytics';
 import styles from './StopPanel.module.css';
 
 /*
@@ -128,9 +130,11 @@ interface StopPanelProps {
   door: DepotDoor;
   debriefs: Record<string, DepotDebrief[]>;
   onClose: () => void;
+  /** The analytics API's range, when one is configured — the numbers section fetches over it. */
+  analyticsRange?: Range | null;
 }
 
-export function StopPanel({ door, debriefs, onClose }: StopPanelProps) {
+export function StopPanel({ door, debriefs, onClose, analyticsRange }: StopPanelProps) {
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -164,6 +168,9 @@ export function StopPanel({ door, debriefs, onClose }: StopPanelProps) {
       </div>
 
       <div className={styles.body}>
+        {analyticsRange && (
+          <PlaceAnalytics placeId={door.analytics ? door.analytics.placeId : null} range={analyticsRange} />
+        )}
         {door.rows.map((row) => (
           <StopSection key={row.id} row={row} filed={debriefs[row.id] || []} />
         ))}

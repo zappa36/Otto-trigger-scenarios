@@ -36,6 +36,10 @@ sub SUPABASE_ANON_KEY __SUPABASE_ANON_KEY__
 # the ElevenLabs AGENT id — public like the others (the API key it may
 # need lives in the elevenlabs-token function's secrets, never here)
 sub ELEVENLABS_AGENT_ID __ELEVENLABS_AGENT_ID__
+# the dispatcher dashboard's analytics API — a proxy URL or a dev key only,
+# never a real analytics:read key (it reads a whole carrier)
+sub ANALYTICS_URL __ANALYTICS_URL__
+sub ANALYTICS_KEY __ANALYTICS_KEY__
 
 # deploy stamp: UTC date.time plus the commit, e.g. 250806.1432-c05ebe0
 b="$(date -u +'%y%m%d.%H%M')"

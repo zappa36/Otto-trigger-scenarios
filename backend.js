@@ -206,5 +206,17 @@ const Backend = (() => {
       body: JSON.stringify(patch),
     }),
     listRuns: limit => rest(`/rest/v1/runs?select=*&order=created_at.desc&limit=${limit || 300}`),
+
+    /* ---------- visits ----------
+     * The Delivered / Not delivered tap on a route stop (app.js) — the
+     * stand-in for a courier's parcel scan, and the row a tour is built
+     * from: which stops were done, when, and how long the door took. */
+    insertVisit: row => rest('/rest/v1/visits', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify([row]),
+    }),
+    deleteVisit: id => rest('/rest/v1/visits?id=eq.' + encodeURIComponent(id), { method: 'DELETE' }),
+    listVisits: limit => rest(`/rest/v1/visits?select=*&order=created_at.desc&limit=${limit || 1000}`),
   };
 })();
