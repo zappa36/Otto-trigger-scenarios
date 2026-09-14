@@ -65,7 +65,7 @@ loop reads and writes; the tests use it to stay out of this folder.
 | `SUPABASE_URL` / `SUPABASE_ANON_KEY` | where the debriefs and grades are; default: the kit's project, the same pair `scripts/tune_triggers.py` carries | optional |
 | `LOOP_DIR` | same as `--dir` | optional |
 | `LOOP_POLL_MS` | how often `run` polls the invocation; default `5000` (5 s) | optional |
-| `LOOP_TIMEOUT_MS` | when `run` gives up on it; default `1200000` (20 min). It then prints the invocation id to poll by hand and writes no results file — a big suite with a high `--repeat` may need more; the CI job inherits the default | optional |
+| `LOOP_TIMEOUT_MS` | when `run` gives up on it; default `1200000` (20 min). It then prints the invocation id to poll by hand and writes no results file — a big suite with a high `--repeat` may need more; the buttons set 80 minutes inside a 90-minute job | optional |
 | `LOOP_RETRY_MS`, `ELEVENLABS_BASE_URL`, `OPENAI_BASE_URL` | the retry back-off and the two API base URLs — test knobs, so the suite can point the loop at its in-process mock; the defaults are the real services | optional |
 
 The API key travels only in the `xi-api-key` header. The dry-run printer
@@ -102,6 +102,38 @@ points by default) *and* at least one previously failing test improves;
 anything else is **REJECT**, exit code 1. `promote` merges the branch
 into the agent's main branch and archives it, then tells you to pull the
 config into git with the note as the version description.
+
+## Without a terminal: the buttons
+
+The same runbook, pressed instead of typed. The repository's
+`agent-suite` workflow (`.github/workflows/agent-suite.yml`) has a *Run
+workflow* form under Actions → agent-suite with one dropdown; each
+button runs one stage on a GitHub runner and writes the table into the
+run's job summary (the run page, "Summary" at the top):
+
+| Button | Runs | Summary ends with |
+|---|---|---|
+| **configure** | `configure` | the next button |
+| **baseline** | `push-tests` → `run --label main` (`repeat`, `filter` from the form; Mondays 06:00 UTC too) | the suite's pass rates |
+| **field** | `pull --days N` → `score` → `cut` → `push-tests` | what was pulled, scored and cut |
+| **propose** | the field again → `propose` → `branch` → `run --branch … --label branch` → `compare` against the latest baseline | **ACCEPT** or **REJECT**, and the branch id |
+| **promote** | `promote --branch <branch_id from the form>` → `run --label main` | the new baseline |
+
+One-time setup, in the browser: Settings → Secrets and variables →
+Actions. Add `ELEVENLABS_API_KEY` as a **secret**, `ELEVENLABS_AGENT_ID`
+as a **variable** (the id the phone uses — the same value as the Vercel
+env var), and `OPENAI_API_KEY` as a secret for *propose*. A button
+pressed without the key fails with those instructions.
+
+State between presses: `tests.lock.json` and `test_configs/regressions/`
+are committed back to the branch the run started from by the workflow
+itself (as `github-actions[bot]`). `results/`, `field/` and `proposals/`
+are uploaded as the run's Artifacts — `loop-baseline` (baseline,
+promote), `loop-field`, `loop-proposal` — and *propose* downloads the
+latest `loop-baseline` to compare against (running the suite on the
+live agent first when there is none), *promote* the latest
+`loop-proposal` for the version note. Artifacts expire after ninety
+days. Two presses at once queue behind each other.
 
 ### What each command leaves behind
 

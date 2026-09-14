@@ -434,18 +434,37 @@ runs the node tests on every push or pull request that touches
 `elevenlabs/` or what the generator mirrors (`app.js`, `otto-agent.js`,
 `trigger-scenarios.js`, `route-kollwitz.js`), then re-generates the
 tests from the starter sheet and fails if the committed `test_configs/`
-drifted (fix: `cd elevenlabs && node generate-tests.mjs`, commit). The
-live suite runs on demand from the Actions tab (repeat count 2–20, an
-optional agent branch id, an optional name filter) and every Monday
-06:00 UTC — but only when the repository carries the
-`ELEVENLABS_API_KEY` secret and the `ELEVENLABS_AGENT_ID` variable
-(Settings → Secrets and variables → Actions); without the key the job
-skips green, so a fork is not nagged every Monday. The table lands in
-the run's job summary, and the per-test JSON plus `tests.lock.json` are
-downloadable from the run's Artifacts as `agent-suite-results`. The
-rates are the signal, not a red job: a simulated tester is not
-deterministic, so the loop exits 0 once the suite has run, whatever the
-rates, and the step fails only when the loop itself does.
+drifted (fix: `cd elevenlabs && node generate-tests.mjs`, commit).
+
+**The same workflow is the loop without a terminal.** Actions →
+agent-suite → Run workflow offers one dropdown — *configure*,
+*baseline*, *field*, *propose*, *promote* — and each press runs that
+stage and writes its table into the run's job summary:
+
+| Button | What runs | Then |
+|---|---|---|
+| **configure** | `analysis.json` onto the agent — the criteria, the data collection, the overrides | **baseline** |
+| **baseline** | `push-tests`, then the suite on the live agent (`repeat` runs per test, optional `filter`); also every Monday 06:00 UTC | testers drive; grade their debriefs |
+| **field** | `pull` the last `days` of conversations with their grades, `score`, `cut` the regressions, register them | **propose** |
+| **propose** | the field again, `propose` the prompt diff, `branch` it onto the agent, the suite on that branch, `compare` against the latest baseline — **ACCEPT** or **REJECT**, and the branch id | **promote** on ACCEPT |
+| **promote** | merge that branch into the agent (paste the id into `branch_id`), then a fresh baseline | testers drive on the new prompt |
+
+What the loop writes back to git — `tests.lock.json` and
+`test_configs/regressions/` — the workflow commits to the branch the run
+was started from, so the next press updates tests instead of
+duplicating them and a cut regression stays in the suite. Results, field
+pulls and proposals stay out of git (transcripts, the prompt) and travel
+as the run's Artifacts — `loop-baseline`, `loop-field`,
+`loop-proposal` — which is also how *propose* finds the baseline to
+compare against and *promote* the note for the version description
+(artifacts expire after ninety days; a fresh baseline is one press). The
+buttons need the `ELEVENLABS_API_KEY` secret and the `ELEVENLABS_AGENT_ID`
+variable (Settings → Secrets and variables → Actions), and *propose* the
+`OPENAI_API_KEY` secret too; a pressed button without the key fails with
+those instructions, while the Monday run skips green so a fork is not
+nagged every week. The rates are the signal, not a red job: a simulated
+tester is not deterministic, so the loop exits 0 once the suite has run,
+whatever the rates, and a step fails only when the loop itself does.
 
 ## Otto as your ElevenLabs agent
 
@@ -1075,7 +1094,7 @@ The composition happens entirely through the kits' public seams:
 | `trigger-scenarios.js` | The starter sheet: ten finished "Otto triggers" rows — the deck's worked example, eight more situations, the clean-run control — loadable in one tap, idempotent by title |
 | `parcelvox-dashboard.html`, `parcelvox-dashboard/` | The ParcelVox dispatcher dashboard — map and pre-arrival notes wired to the same shared store (localStorage or Supabase), report counts and hotspots from the analytics API; the rest labelled sample data |
 | `mock-api/` | A mock of the Parcelvox Analytics API contract: the store's real rows reshaped into places, reports, guidance, tours and outreach, plus invented history; no dependencies, `node server.mjs` |
-| `elevenlabs/` | The agent loop — the tuning loop for Otto's ElevenLabs prompt; Node >= 20, no dependencies, `npm test`; its own [`README.md`](elevenlabs/README.md), `personas.json`, `lib/` (the `agentVars()` mirror, the API client, the Supabase reader), `test/` (an in-process mock of the three services). Guarded by `.github/workflows/agent-suite.yml`: node tests + generator drift on every change, the live suite on demand and Mondays when the key secret exists |
+| `elevenlabs/` | The agent loop — the tuning loop for Otto's ElevenLabs prompt; Node >= 20, no dependencies, `npm test`; its own [`README.md`](elevenlabs/README.md), `personas.json`, `lib/` (the `agentVars()` mirror, the API client, the Supabase reader), `test/` (an in-process mock of the three services). Guarded and driven by `.github/workflows/agent-suite.yml`: node tests + generator drift on every change, and every stage of the loop as a button in the Actions tab (the baseline on Mondays too) once the key secret exists |
 | `elevenlabs/loop.mjs` | `configure` · `push-tests` · `run` · `pull` · `score` · `cut` · `propose` · `branch` · `compare` · `promote` — the REST API called directly, `--dry-run` prints every request and sends nothing; results, field pulls and proposals land in gitignored folders next to it |
 | `elevenlabs/generate-tests.mjs` | One ElevenLabs simulation test per sheet row and persona (`--sheet` the starter sheet, `--supabase` your rows), carrying the dynamic variables a phone would send, a simulated tester who knows what they found, and success conditions derived from the row; deterministic |
 | `elevenlabs/test_configs/` | The generated suite, committed (33 files: ten rows × three personas, plus Italian variants of row #1), one create-test request body each; `regressions/` holds the next-reply tests `cut` makes from debriefs graded bad; `tests.lock.json` next to it maps test names to ElevenLabs ids once pushed |

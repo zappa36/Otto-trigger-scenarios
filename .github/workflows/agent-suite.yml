@@ -1,7 +1,8 @@
 name: agent-suite
 
 # Keeps the agent loop under elevenlabs/ honest, the way android-apk keeps
-# the wrapper buildable. Two jobs:
+# the wrapper buildable — and makes every stage of the loop a button, so
+# nobody needs a terminal to run it. Two jobs:
 #
 #   unit        On every push and pull request that touches elevenlabs/
 #               or what it mirrors — the generator ports agentVars() from
@@ -13,26 +14,50 @@ name: agent-suite
 #               with the files it produces, otherwise the suite
 #               ElevenLabs runs is no longer what the phone sends.
 #
-#   live-suite  On demand (Actions → agent-suite → Run workflow: how many
-#               times to repeat each test, an agent branch to test instead
-#               of the live version, a name filter) and every Monday
-#               morning: pushes the test files to ElevenLabs and runs the
-#               whole suite with a repeat count so the table shows pass
-#               RATES, not one lucky roll. Every run costs real simulated
-#               conversations, so it only goes ahead when the repository
-#               carries the ELEVENLABS_API_KEY secret (plus the public
-#               ELEVENLABS_AGENT_ID as a repository variable). Without the
-#               key it skips cleanly — a fork's Monday run stays green
-#               instead of failing every week. The table lands in the
-#               run's job summary; the per-test JSON (elevenlabs/results/)
-#               and the tests.lock.json the push produced are in the run's
-#               Artifacts ("agent-suite-results").
+#   live-suite  The buttons. Actions → agent-suite → Run workflow, pick an
+#               action, press Run; the result lands in the run's job
+#               summary and the files it made in the run's Artifacts:
 #
-# Secrets cannot be read from an `if:`, so the first step of live-suite
-# copies the key into its own environment, tests it there and publishes a
-# yes/no output; every later step keys off that output. The key itself is
-# only ever handed to loop.mjs as an environment variable — never echoed,
-# never written to the summary (GitHub masks it in logs on top of that).
+#                 configure  the evaluation criteria, data collection and
+#                            overrides in analysis.json go onto the agent
+#                 baseline   push the test files, run the whole suite on
+#                            the live agent → results as "loop-baseline"
+#                            (also every Monday morning)
+#                 field      pull the field conversations with their
+#                            grades, score them next to the suite, cut
+#                            regression tests from the debriefs graded
+#                            bad, register them → "loop-field"
+#                 propose    the field again, then a proposed prompt diff,
+#                            an agent branch carrying it, the suite on
+#                            that branch, and the comparison against the
+#                            latest baseline — ACCEPT or REJECT, and the
+#                            branch id to promote → "loop-proposal"
+#                 promote    merge that branch into the agent's main
+#                            branch (branch_id below), then a fresh
+#                            baseline → "loop-baseline"
+#
+#               Every run costs real simulated conversations, so a button
+#               only goes ahead when the repository carries the
+#               ELEVENLABS_API_KEY secret (plus the public
+#               ELEVENLABS_AGENT_ID as a repository variable; propose adds
+#               the OPENAI_API_KEY secret). A pressed button without the
+#               key fails with the setup instructions; the Monday run
+#               skips green instead, so a fork is not nagged every week.
+#
+# What the loop writes back: tests.lock.json (test name → ElevenLabs id)
+# and test_configs/regressions/ are committed to the branch the run was
+# started from, so the next run updates tests instead of duplicating
+# them and the regressions stay in the suite. Results, field pulls and
+# proposals stay out of git (they carry transcripts and the prompt) and
+# travel as artifacts: propose fetches the latest "loop-baseline" to
+# compare against, promote the latest "loop-proposal" for the version
+# note. Artifacts expire after ninety days; a fresh baseline is one press.
+#
+# Secrets cannot be read from an `if:`, so the first step copies the key
+# into its own environment, tests it there and publishes a yes/no output;
+# every later step keys off that output. The key itself is only ever
+# handed to loop.mjs as an environment variable — never echoed, never
+# written to the summary (GitHub masks it in logs on top of that).
 on:
   push:
     paths:
@@ -53,20 +78,35 @@ on:
       - "route-kollwitz.js"
   workflow_dispatch:
     inputs:
+      action:
+        description: "Which stage of the loop to run"
+        type: choice
+        required: true
+        default: baseline
+        options:
+          - configure
+          - baseline
+          - field
+          - propose
+          - promote
       repeat:
-        description: "Runs per test (2–20); the pass rate is over these"
+        description: "Runs per test (2–20); the pass rate is over these (baseline, propose, promote)"
         type: number
         default: 3
-      branch_id:
-        description: "Agent branch id to run the suite against (empty = the live version)"
+      filter:
+        description: "Only tests whose name contains this (baseline, propose, promote; empty = the whole suite)"
         type: string
         default: ""
-      filter:
-        description: "Only tests whose name contains this (empty = the whole suite)"
+      days:
+        description: "How many days of field conversations to pull (field, propose)"
+        type: number
+        default: 14
+      branch_id:
+        description: "promote only: the agent branch id from the propose run's summary"
         type: string
         default: ""
   schedule:
-    # Monday 06:00 UTC — before the week's first field session
+    # Monday 06:00 UTC — a fresh baseline before the week's first field session
     - cron: "0 6 * * 1"
 
 permissions:
@@ -105,18 +145,38 @@ jobs:
   live-suite:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
-    # 80 of these minutes are the loop's poll budget — LOOP_TIMEOUT_MS on
-    # the "Run the suite" step below; move the two together.
+    # 80 of these minutes are the loop's poll budget — LOOP_TIMEOUT_MS in
+    # the job env below; move the two together. Left alone, the loop
+    # polls an invocation for 20 minutes and then exits 1 WITHOUT writing
+    # results/ — enough at a laptop for a filtered run, not for the whole
+    # suite × 3 (a hundred simulated conversations; more with a higher
+    # repeat), which would be abandoned after paying for it. A suite that
+    # outlasts even 80 minutes fails the same way, and the loop's message
+    # names the invocation to poll by hand.
     timeout-minutes: 90
-    # Two suites at once would double the ElevenLabs bill and race on the
-    # same test ids; queue instead.
+    # Two runs at once would double the ElevenLabs bill, race on the same
+    # test ids and on the commit back; queue instead.
     concurrency:
       group: agent-suite-live
       cancel-in-progress: false
+    permissions:
+      contents: write   # tests.lock.json and regressions/ go back to the branch
+      actions: read     # the previous runs' artifacts (baseline, proposal)
     defaults:
       run:
         shell: bash
         working-directory: elevenlabs
+    env:
+      ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+      ELEVENLABS_AGENT_ID: ${{ vars.ELEVENLABS_AGENT_ID || secrets.ELEVENLABS_AGENT_ID }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      LOOP_TIMEOUT_MS: 4800000
+      GH_TOKEN: ${{ github.token }}
+      ACTION: ${{ inputs.action || 'baseline' }}
+      REPEAT: ${{ inputs.repeat || 3 }}
+      FILTER: ${{ inputs.filter }}
+      DAYS: ${{ inputs.days || 14 }}
+      BRANCH_ID: ${{ inputs.branch_id }}
     steps:
       - uses: actions/checkout@v4
 
@@ -124,86 +184,208 @@ jobs:
         with:
           node-version: 22
 
-      - name: Is the API key configured?
-        id: key
-        env:
-          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+      # Which button, and is the key there. A pressed button without the
+      # key fails with the instructions; the Monday run skips green.
+      - name: Plan the run
+        id: plan
         run: |
-          if [ -n "$ELEVENLABS_API_KEY" ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "ELEVENLABS_API_KEY is not set on this repository, so the live suite is skipped. Add it under Settings → Secrets and variables → Actions (and ELEVENLABS_AGENT_ID as a variable) to run it." | tee -a "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Push the test files to ElevenLabs
-        if: steps.key.outputs.present == 'true'
-        env:
-          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
-          ELEVENLABS_AGENT_ID: ${{ vars.ELEVENLABS_AGENT_ID || secrets.ELEVENLABS_AGENT_ID }}
-        run: node loop.mjs push-tests
-
-      # The table goes to the log and to a file for the summary step. The
-      # loop exits 0 once the suite has run, whatever the pass rates — a
-      # simulated tester is not deterministic, so the rates in the
-      # summary are the signal, not a red job. The step fails only when
-      # the loop itself does (no key, an API error, the poll giving up):
-      # pipefail comes with `shell: bash`, so tee does not swallow that
-      # exit code. The steps after it run regardless so the table is
-      # kept.
-      #
-      # Left alone, the loop polls the invocation for 20 minutes and then
-      # exits 1 WITHOUT writing results/ — enough at a laptop for a
-      # filtered run, not for the whole suite × 3 (a hundred simulated
-      # conversations; more with a higher repeat), which would be
-      # abandoned after paying for it. LOOP_TIMEOUT_MS raises the budget
-      # to 80 minutes, inside the job's 90 with room for checkout,
-      # push-tests, the summary and the upload. A suite that outlasts
-      # even that fails the same way, and the loop's message names the
-      # invocation to poll by hand.
-      - name: Run the suite
-        if: steps.key.outputs.present == 'true'
-        env:
-          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
-          ELEVENLABS_AGENT_ID: ${{ vars.ELEVENLABS_AGENT_ID || secrets.ELEVENLABS_AGENT_ID }}
-          LOOP_TIMEOUT_MS: 4800000
-          REPEAT: ${{ inputs.repeat }}
-          BRANCH_ID: ${{ inputs.branch_id }}
-          FILTER: ${{ inputs.filter }}
-        run: |
-          REPEAT="${REPEAT:-3}"
+          echo "action=$ACTION" >> "$GITHUB_OUTPUT"
           if ! [ "$REPEAT" -ge 2 ] 2>/dev/null || ! [ "$REPEAT" -le 20 ] 2>/dev/null; then
-            echo "::error::repeat must be a whole number from 2 to 20, got '$REPEAT'"
-            exit 1
+            echo "::error::repeat must be a whole number from 2 to 20, got '$REPEAT'"; exit 1
           fi
-          args=(run --repeat "$REPEAT" --label ci)
-          if [ -n "$BRANCH_ID" ]; then args+=(--branch "$BRANCH_ID"); fi
+          if [ -z "$ELEVENLABS_API_KEY" ]; then
+            msg="ELEVENLABS_API_KEY is not set on this repository, so the loop cannot run. Add it under Settings → Secrets and variables → Actions → Secrets (and ELEVENLABS_AGENT_ID under Variables), then press Run again."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+            echo "$msg" | tee -a "$GITHUB_STEP_SUMMARY"
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then echo "::error::$msg"; exit 1; fi
+            exit 0
+          fi
+          if [ -z "$ELEVENLABS_AGENT_ID" ]; then
+            echo "::error::ELEVENLABS_AGENT_ID is not set — add it under Settings → Secrets and variables → Actions → Variables (the same id the phone uses)"; exit 1
+          fi
+          if [ "$ACTION" = "propose" ] && [ -z "$OPENAI_API_KEY" ]; then
+            echo "::error::propose needs the OPENAI_API_KEY secret (the model that drafts the prompt diff) — add it under Settings → Secrets and variables → Actions → Secrets"; exit 1
+          fi
+          if [ "$ACTION" = "promote" ] && [ -z "$BRANCH_ID" ]; then
+            echo "::error::promote needs branch_id — the agent branch id printed in the propose run's summary"; exit 1
+          fi
+          echo "go=true" >> "$GITHUB_OUTPUT"
+          echo "## agent-suite · $ACTION" >> "$GITHUB_STEP_SUMMARY"
+
+      # ---------- configure ----------
+      - name: Configure the agent
+        if: steps.plan.outputs.go == 'true' && steps.plan.outputs.action == 'configure'
+        run: |
+          node loop.mjs configure | tee "$RUNNER_TEMP/configure.txt"
+          { echo; echo '```'; cat "$RUNNER_TEMP/configure.txt"; echo '```'; echo
+            echo "Next button: **baseline** — push the test files and run the suite on the live agent."; } >> "$GITHUB_STEP_SUMMARY"
+
+      # ---------- baseline ----------
+      - name: Push the test files to ElevenLabs
+        if: steps.plan.outputs.go == 'true' && (steps.plan.outputs.action == 'baseline' || steps.plan.outputs.action == 'field' || steps.plan.outputs.action == 'propose')
+        run: node loop.mjs push-tests | tee "$RUNNER_TEMP/push-tests.txt"
+
+      # The loop exits 0 once the suite has run, whatever the pass rates —
+      # a simulated tester is not deterministic, so the rates in the
+      # summary are the signal, not a red job. The step fails only when
+      # the loop itself does (an API error, the poll giving up): pipefail
+      # comes with `shell: bash`, so tee does not swallow that exit code.
+      - name: Run the suite
+        if: steps.plan.outputs.go == 'true' && steps.plan.outputs.action == 'baseline'
+        run: |
+          args=(run --repeat "$REPEAT" --label main)
           if [ -n "$FILTER" ]; then args+=(--filter "$FILTER"); fi
           node loop.mjs "${args[@]}" | tee "$RUNNER_TEMP/suite.txt"
+          { echo; echo "### The suite on the live agent — ×$REPEAT${FILTER:+, filter \"$FILTER\"}"; echo; echo '```'; cat "$RUNNER_TEMP/suite.txt"; echo '```'; echo
+            echo "Next button: **field** once testers have run and you have graded their debriefs on the dashboard; **propose** to try a prompt change against this baseline."; } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Table into the job summary
-        if: ${{ !cancelled() && steps.key.outputs.present == 'true' }}
-        env:
-          REPEAT: ${{ inputs.repeat }}
-          BRANCH_ID: ${{ inputs.branch_id }}
-          FILTER: ${{ inputs.filter }}
+      # ---------- field (and the first half of propose) ----------
+      - name: Pull the field conversations, score them, cut regressions
+        if: steps.plan.outputs.go == 'true' && (steps.plan.outputs.action == 'field' || steps.plan.outputs.action == 'propose')
         run: |
-          heading="Agent suite — ×${REPEAT:-3}"
-          if [ -n "$BRANCH_ID" ]; then heading="$heading on branch $BRANCH_ID"; fi
-          if [ -n "$FILTER" ]; then heading="$heading, filter \"$FILTER\""; fi
-          {
-            echo "## $heading"
-            echo
-            echo '```'
-            if [ -s "$RUNNER_TEMP/suite.txt" ]; then cat "$RUNNER_TEMP/suite.txt"; else echo "(the suite produced no output — see the run log)"; fi
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          node loop.mjs pull --days "$DAYS" | tee "$RUNNER_TEMP/pull.txt"
+          node loop.mjs score | tee "$RUNNER_TEMP/score.txt" || true
+          node loop.mjs cut | tee "$RUNNER_TEMP/cut.txt"
+          # the regressions just cut join the suite
+          node loop.mjs push-tests | tee -a "$RUNNER_TEMP/push-tests.txt"
+          { echo; echo "### The field — the last $DAYS days"; echo; echo '```'; cat "$RUNNER_TEMP/pull.txt" "$RUNNER_TEMP/score.txt" "$RUNNER_TEMP/cut.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$ACTION" = "field" ]; then
+            echo "Next button: **propose** — a prompt diff from these failures, tried on an agent branch." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # ---------- propose ----------
+      # compare needs the suite's results on the live agent. The latest
+      # baseline run left them in its "loop-baseline" artifact; without
+      # one (a first run, or ninety days on) the suite is run here first.
+      - name: Fetch the latest baseline
+        id: baseline
+        if: steps.plan.outputs.go == 'true' && steps.plan.outputs.action == 'propose'
+        run: |
+          have=false
+          info="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=loop-baseline&per_page=1" --jq '.artifacts[0] | select(. != null) | [.workflow_run.id, .expired] | @tsv' 2>/dev/null || true)"
+          if [ -n "$info" ] && [ "$(cut -f2 <<<"$info")" != "true" ]; then
+            gh run download "$(cut -f1 <<<"$info")" -n loop-baseline -D "$RUNNER_TEMP/baseline" && have=true
+          fi
+          if [ "$have" = true ] && ls "$RUNNER_TEMP"/baseline/results/*-main.json >/dev/null 2>&1; then
+            mkdir -p results && cp "$RUNNER_TEMP"/baseline/results/*-main.json results/
+            echo "baseline: $(ls -1 results/*-main.json | sort | tail -1) (from run $(cut -f1 <<<"$info"))"
+            echo "have=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no baseline on file — the suite runs on the live agent first"
+            echo "have=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run the suite (no baseline on file)
+        if: steps.plan.outputs.go == 'true' && steps.plan.outputs.action == 'propose' && steps.baseline.outputs.have == 'false'
+        run: |
+          args=(run --repeat "$REPEAT" --label main)
+          if [ -n "$FILTER" ]; then args+=(--filter "$FILTER"); fi
+          node loop.mjs "${args[@]}" | tee "$RUNNER_TEMP/suite.txt"
+          { echo; echo "### The suite on the live agent — ×$REPEAT (no earlier baseline to compare against)"; echo; echo '```'; cat "$RUNNER_TEMP/suite.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Propose a prompt diff, try it on a branch, compare
+        id: propose
+        if: steps.plan.outputs.go == 'true' && steps.plan.outputs.action == 'propose'
+        run: |
+          before="$(ls -1 proposals/*.json 2>/dev/null | wc -l)"
+          node loop.mjs propose | tee "$RUNNER_TEMP/propose.txt"
+          prop="$(ls -1 proposals/*.json 2>/dev/null | sort | tail -1 || true)"
+          if [ -z "$prop" ] || [ "$(ls -1 proposals/*.json | wc -l)" -le "$before" ]; then
+            { echo; echo "### Nothing to propose"; echo; echo '```'; cat "$RUNNER_TEMP/propose.txt"; echo '```'; echo
+              echo "Every test passes and no debrief is graded bad — there is nothing for a prompt change to fix. Grade more debriefs on the dashboard, or add scenarios."; } >> "$GITHUB_STEP_SUMMARY"
+            echo "verdict=none" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          node loop.mjs branch --proposal "$prop" | tee "$RUNNER_TEMP/branch.txt"
+          bid="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).branch.branch_id)' "$prop")"
+          args=(run --branch "$bid" --repeat "$REPEAT" --label branch)
+          if [ -n "$FILTER" ]; then args+=(--filter "$FILTER"); fi
+          node loop.mjs "${args[@]}" | tee "$RUNNER_TEMP/suite-branch.txt"
+          base="$(ls -1 results/*-main.json | sort | tail -1)"
+          br="$(ls -1 results/*-branch.json | sort | tail -1)"
+          set +e
+          node loop.mjs compare --base "$base" --branch "$br" | tee "$RUNNER_TEMP/compare.txt"
+          verdict=${PIPESTATUS[0]}
+          set -e
+          if [ "$verdict" -eq 0 ]; then word=ACCEPT; else word=REJECT; fi
+          echo "verdict=$word" >> "$GITHUB_OUTPUT"
+          echo "branch_id=$bid" >> "$GITHUB_OUTPUT"
+          { echo; echo "### The proposal"; echo; echo '```'; cat "$RUNNER_TEMP/propose.txt" "$RUNNER_TEMP/branch.txt"; echo '```'
+            echo; echo "### The suite on the branch — ×$REPEAT${FILTER:+, filter \"$FILTER\"}"; echo; echo '```'; cat "$RUNNER_TEMP/suite-branch.txt"; echo '```'
+            echo; echo "### $word"; echo; echo '```'; cat "$RUNNER_TEMP/compare.txt"; echo '```'; echo
+            if [ "$word" = ACCEPT ]; then
+              echo "Next button: **promote** with branch_id \`$bid\` — merges this prompt into the agent and runs a fresh baseline. The branch stays as it is until then."
+            else
+              echo "Not promoted. The branch \`$bid\` stays on the agent for a look in the ElevenLabs dashboard; grade more debriefs or adjust the tests, then press **propose** again."
+            fi; } >> "$GITHUB_STEP_SUMMARY"
+
+      # ---------- promote ----------
+      - name: Merge the branch into the agent, then a fresh baseline
+        if: steps.plan.outputs.go == 'true' && steps.plan.outputs.action == 'promote'
+        run: |
+          # the proposal that made this branch carries the version note
+          prop=""
+          info="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=loop-proposal&per_page=1" --jq '.artifacts[0] | select(. != null) | [.workflow_run.id, .expired] | @tsv' 2>/dev/null || true)"
+          if [ -n "$info" ] && [ "$(cut -f2 <<<"$info")" != "true" ] && gh run download "$(cut -f1 <<<"$info")" -n loop-proposal -D "$RUNNER_TEMP/proposal"; then
+            prop="$(node -e '
+              const fs = require("fs"), path = require("path");
+              const dir = path.join(process.argv[1], "proposals");
+              for (const f of (fs.existsSync(dir) ? fs.readdirSync(dir) : []).sort().reverse()) {
+                try { const p = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")); if (p.branch && p.branch.branch_id === process.argv[2]) { console.log(path.join(dir, f)); break; } } catch {}
+              }' "$RUNNER_TEMP/proposal" "$BRANCH_ID")"
+          fi
+          args=(promote --branch "$BRANCH_ID")
+          if [ -n "$prop" ]; then args+=(--proposal "$prop"); fi
+          node loop.mjs "${args[@]}" | tee "$RUNNER_TEMP/promote.txt"
+          args=(run --repeat "$REPEAT" --label main)
+          if [ -n "$FILTER" ]; then args+=(--filter "$FILTER"); fi
+          node loop.mjs "${args[@]}" | tee "$RUNNER_TEMP/suite.txt"
+          { echo; echo "### Promoted"; echo; echo '```'; cat "$RUNNER_TEMP/promote.txt"; echo '```'
+            echo; echo "### The new baseline — ×$REPEAT${FILTER:+, filter \"$FILTER\"}"; echo; echo '```'; cat "$RUNNER_TEMP/suite.txt"; echo '```'; echo
+            echo "The prompt on the agent has changed. Next: testers drive; grade their debriefs; **field** or **propose** again."; } >> "$GITHUB_STEP_SUMMARY"
+
+      # ---------- what goes back to git ----------
+      # tests.lock.json and the regressions are meant to be committed:
+      # without the lock the next push-tests would create the whole suite
+      # again, and a regression not in git is a regression the next run
+      # forgets. A commit made with the workflow token starts no other
+      # workflow, so this cannot loop.
+      - name: Commit what the loop wrote back to the branch
+        if: ${{ !cancelled() && steps.plan.outputs.go == 'true' && steps.plan.outputs.action != 'configure' }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for p in tests.lock.json test_configs/regressions; do [ -e "$p" ] && git add "$p"; done
+          if git diff --cached --quiet; then echo "nothing the loop wrote needs committing"; exit 0; fi
+          git commit -q -m "agent-suite ($ACTION): what the loop wrote — tests.lock.json and the regressions on file"
+          git pull -q --rebase origin "$GITHUB_REF_NAME"
+          git push -q origin "HEAD:$GITHUB_REF_NAME"
+          echo "committed to $GITHUB_REF_NAME: $(git diff --stat HEAD~1 --name-only | tr '\n' ' ')"
 
       - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() && steps.key.outputs.present == 'true' }}
+        if: ${{ !cancelled() && steps.plan.outputs.go == 'true' && (steps.plan.outputs.action == 'baseline' || steps.plan.outputs.action == 'promote') }}
         with:
-          name: agent-suite-results
+          name: loop-baseline
           path: |
-            elevenlabs/results/
+            elevenlabs/results/*-main.json
             elevenlabs/tests.lock.json
+          if-no-files-found: warn
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() && steps.plan.outputs.go == 'true' && steps.plan.outputs.action == 'field' }}
+        with:
+          name: loop-field
+          path: |
+            elevenlabs/field/
+            elevenlabs/results/score-*.json
+          if-no-files-found: warn
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() && steps.plan.outputs.go == 'true' && steps.plan.outputs.action == 'propose' }}
+        with:
+          name: loop-proposal
+          path: |
+            elevenlabs/proposals/
+            elevenlabs/results/
+            elevenlabs/field/
           if-no-files-found: warn
