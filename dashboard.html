@@ -513,6 +513,60 @@
   }
   .msg-edit input:focus, .msg-edit textarea:focus { border-color: rgba(60,192,224,.55); }
   .msg-edit textarea { min-height: 52px; resize: vertical; }
+  /* the grade of an agent conversation — the agent loop's ground truth */
+  .msg-graded {
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(70,211,154,.45);
+    background: rgba(70,211,154,.1);
+    color: #7ce0b8;
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: .1em;
+  }
+  .msg-graded.bad { border-color: rgba(255,120,69,.6); background: rgba(255,120,69,.12); color: #ffab8a; }
+  .msg-grade { margin-top: 7px; }
+  .msg-grade > summary {
+    cursor: pointer;
+    font-family: ui-monospace, monospace;
+    font-size: 9.5px;
+    letter-spacing: .1em;
+    color: #8e9bb0;
+  }
+  .msg-grade > summary:hover { color: #7ce0b8; }
+  .msg-grade .cmp-k { display: block; margin: 6px 0 4px; }
+  .grade-row { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+  .grade-label { flex: 1; font-size: 12px; color: #aeb9c8; }
+  .g-btn {
+    flex: none;
+    width: 28px;
+    height: 24px;
+    border-radius: 999px;
+    border: 1px solid rgba(140,165,200,.28);
+    background: transparent;
+    color: #6d7a8c;
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .g-btn:hover { border-color: rgba(60,192,224,.5); color: #cfe9f2; }
+  .g-btn.on-yes { color: #7ce0b8; border-color: rgba(70,211,154,.6);  background: rgba(70,211,154,.12); }
+  .g-btn.on-no  { color: #ffab8a; border-color: rgba(255,120,69,.65); background: rgba(255,120,69,.13); }
+  .msg-grade textarea {
+    width: 100%;
+    margin-top: 7px;
+    min-height: 44px;
+    resize: vertical;
+    padding: 8px 10px;
+    border-radius: 9px;
+    border: 1px solid rgba(140,165,200,.25);
+    background: rgba(7,13,22,.7);
+    color: #eef2f7;
+    font-size: 12.5px;
+    font-family: inherit;
+    outline: none;
+  }
+  .msg-grade textarea:focus { border-color: rgba(60,192,224,.55); }
   .msg-tr { margin: 3px 0 0; color: #aeb9c8; font-size: 12.5px; }
   .msg-ar {
     margin-top: 6px;

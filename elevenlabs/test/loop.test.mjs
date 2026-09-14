@@ -1,0 +1,687 @@
+/*
+ * The loop end to end against the in-process mock: every command, the
+ * files it writes, the requests it sends — and the two things that must
+ * never happen: a request without a key, and a request on --dry-run.
+ * Each test works in its own temp copy of test/fixture, so nothing here
+ * touches the real test_configs/, results/, field/ or proposals/.
+ *
+ *   node --test            (from elevenlabs/)
+ */
+import { test, before, after, beforeEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, cpSync, readFileSync, existsSync, readdirSync, writeFileSync, mkdirSync, rmSync, statSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { startMock } from './mock-elevenlabs.mjs';
+import { main, aggregate, compareResults, scoreData, gradeSummary, fitEvidence } from '../loop.mjs';
+import { makeHttp, elevenLabs, ApiError } from '../lib/elevenlabs-api.mjs';
+import { unifiedDiff, table, reasonKey } from '../lib/report.mjs';
+
+const FIXTURE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixture');
+const T1 = 'Otto · #1 Parking loops · cooperative';
+const T8 = 'Otto · #8 Blocked route · terse';
+
+let mock;
+before(async () => { mock = await startMock(FIXTURE); });
+after(() => mock.close());
+beforeEach(() => mock.reset());
+
+/* a fresh working folder: the fixture's test_configs and analysis.json,
+ * nothing else — the loop writes everything else itself */
+function workdir() {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'otto-loop-'));
+  cpSync(path.join(FIXTURE, 'test_configs'), path.join(dir, 'test_configs'), { recursive: true });
+  cpSync(path.join(FIXTURE, 'analysis.json'), path.join(dir, 'analysis.json'));
+  return dir;
+}
+const readJson = f => JSON.parse(readFileSync(f, 'utf8'));
+const filesIn = d => (existsSync(d) ? readdirSync(d).sort() : []);
+
+const ENV = () => ({
+  ELEVENLABS_API_KEY: 'sk-eleven-test-key',
+  ELEVENLABS_AGENT_ID: 'agent_test1',
+  ELEVENLABS_BASE_URL: mock.url,
+  SUPABASE_URL: mock.url,
+  SUPABASE_ANON_KEY: 'anon-test',
+  OPENAI_API_KEY: 'sk-openai-test-key',
+  OPENAI_BASE_URL: mock.url + '/v1',
+  LOOP_MODEL: 'gpt-4o',
+  LOOP_POLL_MS: '5',
+  LOOP_RETRY_MS: '5',
+});
+
+/* run a command as the CLI would, capturing what it prints */
+async function loop(args, dir, envPatch = {}) {
+  const lines = [];
+  const env = { ...ENV(), ...envPatch };
+  for (const k of Object.keys(envPatch)) if (envPatch[k] === undefined) delete env[k];
+  const code = await main([...args, '--dir', dir], { env, log: s => lines.push(String(s)) });
+  return { code, out: lines.join('\n') };
+}
+const sent = (method, re) => mock.requests.filter(r => r.method === method && re.test(r.path));
+
+/* the whole day-one flow in one folder, in order — later tests reuse
+ * what the earlier commands wrote */
+const shared = { dir: null, results: null, branchResults: null, field: null, proposal: null };
+
+test('push-tests creates what is missing, finds the rest by name, and updates through the lock next time', async () => {
+  const dir = workdir();
+  shared.dir = dir;
+  let r = await loop(['push-tests'], dir);
+  assert.equal(r.code, 0, r.out);
+  const lock = readJson(path.join(dir, 'tests.lock.json'));
+  assert.deepEqual(lock, { [T1]: 'test_001', [T8]: 'test_pre8' });
+  assert.equal(sent('POST', /agent-testing\/create$/).length, 1, 'one create (#1 was missing)');
+  assert.equal(sent('GET', /agent-testing$/).length, 1, 'one search by name');
+  assert.equal(sent('PUT', /agent-testing\/test_pre8$/).length, 1, '#8 found by name and updated');
+  const created = sent('POST', /agent-testing\/create$/)[0].body;
+  assert.equal(created.name, T1);
+  assert.equal(created._otto, undefined, '_otto is stripped before posting');
+  assert.equal(created.type, 'simulation');
+  assert.ok(Array.isArray(created.success_conditions));
+  assert.ok(mock.requests.every(q => q.auth.xi), 'every ElevenLabs request carries xi-api-key');
+  assert.match(r.out, /created/);
+  assert.match(r.out, /found by name/);
+
+  mock.requests.length = 0;
+  r = await loop(['push-tests'], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(sent('POST', /create$/).length, 0, 'nothing created the second time');
+  assert.equal(sent('GET', /agent-testing$/).length, 0, 'no search when the lock has every id');
+  assert.equal(sent('PUT', /agent-testing\//).length, 2, 'both updated through the lock');
+  assert.deepEqual(readJson(path.join(dir, 'tests.lock.json')), lock);
+});
+
+test('run polls the invocation, aggregates per test worst-first, and writes the results file', async () => {
+  const dir = shared.dir;
+  const r = await loop(['run', '--repeat', '3', '--label', 'main'], dir);
+  assert.equal(r.code, 0, r.out);
+  const runReq = sent('POST', /run-tests$/)[0];
+  assert.deepEqual(runReq.body.tests, [{ test_id: 'test_001' }, { test_id: 'test_pre8' }]);
+  assert.equal(runReq.body.repeat_count, 3);
+  assert.equal(runReq.body.branch_id, undefined);
+  assert.equal(sent('GET', /test-invocations\/inv_1$/).length, 2, 'pending once, then complete');
+  const files = filesIn(path.join(dir, 'results'));
+  assert.equal(files.length, 1);
+  assert.match(files[0], /^\d{8}T\d{6}\.\d{3}Z-main\.json$/);
+  const res = readJson(path.join(dir, 'results', files[0]));
+  shared.results = path.join(dir, 'results', files[0]);
+  assert.equal(res.agent_id, 'agent_test1');
+  assert.equal(res.invocation_id, 'inv_1');
+  assert.equal(res.branch_id, null);
+  assert.equal(res.tests.length, 2);
+  assert.equal(res.tests[0].name, T1, 'the failing test comes first');
+  assert.equal(res.tests[0].runs, 3);
+  assert.equal(res.tests[0].passed, 2);
+  assert.ok(Math.abs(res.tests[0].pass_rate - 2 / 3) < 1e-9);
+  assert.deepEqual(res.tests[0].rationales, ['The agent asked four questions and never let the tester go. It opened correctly.']);
+  assert.equal(res.tests[0].scenario_num, 1, 'the _otto block rides along');
+  assert.equal(res.tests[0].persona, 'cooperative');
+  assert.equal(res.tests[1].pass_rate, 1);
+  assert.match(r.out, /2\/3/);
+  assert.match(r.out, /5\/6 runs passed/);
+});
+
+test('run --branch sends the branch id and the results carry it', async () => {
+  const dir = shared.dir;
+  const r = await loop(['run', '--branch', 'branch_loop1', '--repeat', '3', '--label', 'branch'], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(sent('POST', /run-tests$/)[0].body.branch_id, 'branch_loop1');
+  const file = filesIn(path.join(dir, 'results')).find(f => f.endsWith('-branch.json'));
+  const res = readJson(path.join(dir, 'results', file));
+  shared.branchResults = path.join(dir, 'results', file);
+  assert.equal(res.branch_id, 'branch_loop1');
+  assert.ok(res.tests.every(t => t.branch_id === 'branch_loop1'));
+});
+
+test('run --filter narrows by name, and an empty lock is a clear message', async () => {
+  const dir = shared.dir;
+  await loop(['run', '--filter', 'blocked', '--repeat', '2', '--label', 'blocked'], dir);
+  assert.deepEqual(sent('POST', /run-tests$/)[0].body.tests, [{ test_id: 'test_pre8' }]);
+  const empty = workdir();
+  const r = await loop(['run'], empty);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /push-tests first/);
+  assert.equal(mock.requests.filter(q => /run-tests/.test(q.path)).length, 1, 'nothing sent for the empty lock');
+});
+
+test('pull joins conversations to their dashboard grades by conversation_id and stamps the agent version', async () => {
+  const dir = shared.dir;
+  const r = await loop(['pull', '--days', '30000'], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(sent('GET', /\/v1\/convai\/conversations$/).length, 2, 'both pages of the list');
+  assert.equal(sent('GET', /\/v1\/convai\/conversations$/)[0].query.agent_id, 'agent_test1');
+  assert.ok(sent('GET', /\/v1\/convai\/conversations$/)[0].query.call_start_after_unix);
+  assert.equal(sent('GET', /\/v1\/convai\/conversations\/conv_/).length, 3);
+  assert.ok(sent('GET', /\/rest\/v1\/messages$/)[0].auth.apikey, 'Supabase reads carry the anon key');
+  const files = filesIn(path.join(dir, 'field'));
+  assert.equal(files.length, 1);
+  const field = readJson(path.join(dir, 'field', files[0]));
+  shared.field = path.join(dir, 'field', files[0]);
+  assert.deepEqual(field.counts, { conversations: 3, joined: 2, graded: 2, graded_bad: 1, stamped: 1 });
+  const a = field.conversations.find(c => c.conversation_id === 'conv_aaa');
+  assert.equal(a.message.id, 'm1');
+  assert.equal(a.message.category, 'parking');
+  assert.equal(a.scenario.num, 1, 'scenario via destination_id');
+  assert.equal(a.graded_bad, true);
+  assert.deepEqual(a.failed_checks, ['followup', 'tip']);
+  assert.equal(a.evaluation.otto_tip_elicited.result, 'failure');
+  assert.equal(a.data.tip_type, 'parking');
+  assert.equal(a.dynamic_variables.scenario_num, 1);
+  assert.equal(a.transcript.length, 5);
+  assert.equal(a.grade.agent_version, 'agtvrsn_v1', 'stamped from the conversation');
+  const patch = sent('PATCH', /\/rest\/v1\/messages$/);
+  assert.equal(patch.length, 1, 'only the grade without a version is stamped');
+  assert.equal(patch[0].query.id, 'eq.m1');
+  assert.equal(patch[0].body.grade.agent_version, 'agtvrsn_v1');
+  assert.equal(patch[0].body.grade.note, 'Never asked where the loading bay is', 'the rest of the grade is kept');
+  const c = field.conversations.find(x => x.conversation_id === 'conv_ccc');
+  assert.equal(c.message, null);
+  assert.equal(c.graded, false);
+  assert.match(r.out, /3 conversation\(s\), 2 joined to a debrief, 2 graded, 1 graded bad, 1 grade\(s\) stamped/);
+});
+
+test('score groups the suite and the field per scenario, and the failures by reason', async () => {
+  const dir = shared.dir;
+  const r = await loop(['score', '--results', shared.results, '--field', shared.field], dir);
+  assert.equal(r.code, 0, r.out);
+  const file = filesIn(path.join(dir, 'results')).find(f => f.startsWith('score-'));
+  assert.ok(file);
+  const s = readJson(path.join(dir, 'results', file));
+  const one = s.scenarios.find(x => x.key === '#1');
+  assert.equal(one.tests, 1);
+  assert.equal(one.runs, 3);
+  assert.equal(one.passed, 2);
+  assert.equal(one.conversations, 1);
+  assert.equal(one.graded, 1);
+  assert.equal(one.bad, 1);
+  assert.deepEqual(one.checks, { followup: 1, tip: 1 });
+  assert.equal(one.field_grade_rate, 0);
+  assert.ok(one.reasons.some(b => b.reason === 'the agent asked four questions and never let the tester go' && b.count === 1));
+  assert.ok(one.reasons.some(b => b.reason.startsWith('criteria otto_tip_elicited')));
+  const eight = s.scenarios.find(x => x.key === '#8');
+  assert.equal(eight.suite_pass_rate, 1);
+  assert.equal(eight.field_grade_rate, 1);
+  assert.equal(s.scenarios[0].key, '#1', 'worst first');
+  assert.match(r.out, /failures by reason/);
+  assert.match(r.out, /grade: followed up on what the tester actually found/);
+});
+
+test('cut writes a next-reply regression test from the debrief graded bad, without the last agent turn, and never twice', async () => {
+  const dir = shared.dir;
+  let r = await loop(['cut', '--field', shared.field], dir);
+  assert.equal(r.code, 0, r.out);
+  const file = path.join(dir, 'test_configs', 'regressions', 'conv_aaa.json');
+  assert.ok(existsSync(file));
+  assert.ok(!existsSync(path.join(dir, 'test_configs', 'regressions', 'conv_bbb.json')), 'a good grade cuts nothing');
+  const t = readJson(file);
+  assert.equal(t.name, 'Otto · regression · conv_aaa');
+  assert.equal(t.type, 'llm');
+  assert.deepEqual(t.chat_history.map(x => x.role), ['agent', 'user', 'agent', 'user'], 'everything before the last agent turn');
+  assert.equal(t.chat_history[3].message, 'Not really.');
+  assert.equal(t.chat_history[3].time_in_call_secs, 18);
+  assert.match(t.success_condition, /Followed up on what the tester actually found; Got the tip type the scenario expects/);
+  assert.match(t.success_condition, /Never asked where the loading bay is/);
+  assert.match(t.success_condition, /parking — where to stop at this address/);
+  assert.ok(!('success_examples' in t), 'an empty example list is not sent (the API wants a non-empty one or none)');
+  assert.deepEqual(t.failure_examples, [{ response: 'Thanks, safe travels.', type: 'failure' }], 'the reply that was graded bad is the failure example');
+  assert.equal(t.dynamic_variables.scenario_question, 'Is it hard to park here at this time? Where did you find a spot?');
+  assert.deepEqual(t.from_conversation_metadata, { conversation_id: 'conv_aaa', agent_id: 'agent_test1' });
+  assert.deepEqual(t._otto, { scenario_num: 1, scenario_title: 'Parking loops — two slow passes and a stop', persona: 'field', kind: 'regression', source_conversation_id: 'conv_aaa', language: 'en' });
+  assert.match(r.out, /1 regression test\(s\) written, 0 already there/);
+
+  const before = statSync(file).mtimeMs;
+  writeFileSync(file, readFileSync(file, 'utf8').replace('"llm"', '"llm"'));
+  r = await loop(['cut', '--field', shared.field], dir);
+  assert.match(r.out, /0 regression test\(s\) written, 1 already there/);
+  assert.equal(statSync(file).mtimeMs >= before, true);
+
+  /* push-tests finds it under regressions/ */
+  r = await loop(['push-tests'], dir);
+  assert.equal(r.code, 0, r.out);
+  const lock = readJson(path.join(dir, 'tests.lock.json'));
+  assert.equal(lock['Otto · regression · conv_aaa'], 'test_001', 'created on the fresh mock');
+  const posted = sent('POST', /create$/)[0].body;
+  assert.equal(posted._otto, undefined);
+  assert.equal(posted.type, 'llm');
+});
+
+test('propose hands the proposer the evidence, writes the diff, and refuses a prompt that grows by more than a quarter', async () => {
+  const dir = shared.dir;
+  let r = await loop(['propose', '--results', shared.results, '--field', shared.field], dir);
+  assert.equal(r.code, 0, r.out);
+  const req = sent('POST', /chat\/completions$/)[0];
+  assert.ok(req.auth.bearer);
+  assert.equal(req.body.model, 'gpt-4o');
+  assert.deepEqual(req.body.response_format, { type: 'json_object' });
+  const user = JSON.parse(req.body.messages[1].content);
+  assert.match(user.current_prompt, /^You are Otto/);
+  assert.equal(user.failing_tests.length, 1);
+  assert.equal(user.failing_tests[0].test, T1);
+  assert.equal(user.bad_debriefs.length, 1);
+  assert.equal(user.bad_debriefs[0].conversation_id, 'conv_aaa');
+  assert.deepEqual(user.bad_debriefs[0].failed_checks, ['Followed up on what the tester actually found', 'Got the tip type the scenario expects']);
+  assert.equal(user.criteria_results.otto_tip_elicited.failure, 1);
+  assert.equal(sent('GET', /\/v1\/convai\/agents\/agent_test1$/).length, 1, 'the prompt came from GET agent');
+  const files = filesIn(path.join(dir, 'proposals'));
+  assert.equal(files.length, 1);
+  assert.match(files[0], /^\d{8}T\d{6}\.\d{3}Z\.json$/);
+  const p = readJson(path.join(dir, 'proposals', files[0]));
+  shared.proposal = path.join(dir, 'proposals', files[0]);
+  assert.match(p.prompt, /Ask where they parked before anything else\.$/);
+  assert.equal(p.note, 'Ask where they parked first — two field debriefs never got the spot');
+  assert.match(p.diff, /^--- prompt \(current\)\n\+\+\+ prompt \(proposed\)\n@@ /);
+  assert.match(p.diff, /\n\+Ask where they parked before anything else\./);
+  assert.match(r.out, /\+Ask where they parked/);
+  assert.match(r.out, /next: node loop\.mjs branch --proposal/);
+
+  mock.state.openaiReply = () => ({ prompt: mock.state.agent.conversation_config.agent.prompt.prompt + '\n' + 'A new rule. '.repeat(60), note: 'much longer', rationale: 'x' });
+  r = await loop(['propose', '--results', shared.results, '--field', shared.field], dir);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /refused: the proposal grows the prompt by \d+% \(limit 25%\)/);
+  assert.equal(filesIn(path.join(dir, 'proposals')).length, 1, 'nothing written for a refused proposal');
+
+  mock.state.openaiReply = () => ({ prompt: mock.state.agent.conversation_config.agent.prompt.prompt, note: 'no change', rationale: 'thin' });
+  r = await loop(['propose', '--results', shared.results, '--field', shared.field], dir);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /refused: the model proposed no change/);
+
+  /* --prompt FILE: a plain text prompt, no GET agent */
+  mock.reset();
+  const pf = path.join(dir, 'prompt.txt');
+  writeFileSync(pf, 'You are Otto, debriefing a field tester after a trigger scenario fired.\nAsk one thing.\nThen let them get on with the route.\n');
+  mock.state.openaiReply = () => ({ prompt: 'You are Otto, debriefing a field tester after a trigger scenario fired.\nAsk one thing, then stop.\nThen let them get on with the route.', note: 'stop after one', rationale: 'brevity' });
+  r = await loop(['propose', '--results', shared.results, '--field', shared.field, '--prompt', pf], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(sent('GET', /\/v1\/convai\/agents\//).length, 0);
+  assert.match(r.out, /-Ask one thing\.\n\+Ask one thing, then stop\./);
+  assert.equal(filesIn(path.join(dir, 'proposals')).length, 2, 'a second proposal never overwrites the first');
+});
+
+test('propose has nothing to say when everything passes', async () => {
+  const dir = workdir();
+  const clean = path.join(dir, 'clean.json');
+  writeFileSync(clean, JSON.stringify({ tests: [{ name: T1, runs: 3, passed: 3, pass_rate: 1, rationales: [] }] }));
+  const r = await loop(['propose', '--results', clean], dir);
+  assert.equal(r.code, 0);
+  assert.match(r.out, /nothing to propose from/);
+  assert.equal(mock.requests.length, 0);
+});
+
+test('branch cuts an agent branch from the current version with the proposed prompt', async () => {
+  const dir = shared.dir;
+  const r = await loop(['branch', '--proposal', shared.proposal, '--name', 'loop-test'], dir);
+  assert.equal(r.code, 0, r.out);
+  const req = sent('POST', /\/branches$/)[0];
+  assert.equal(req.body.parent_version_id, 'agtvrsn_v1', 'version_id from GET agent');
+  assert.equal(req.body.name, 'loop-test');
+  assert.equal(req.body.description, 'Ask where they parked first — two field debriefs never got the spot');
+  assert.equal(req.body.conversation_config.agent.prompt.prompt, readJson(shared.proposal).prompt);
+  assert.match(r.out, /branch_loop1 \(version agtvrsn_b1/);
+  assert.match(r.out, /run --branch branch_loop1/);
+  assert.equal(readJson(shared.proposal).branch.branch_id, 'branch_loop1', 'the proposal remembers its branch');
+});
+
+test('compare accepts an improvement without drops and rejects a drop or a standstill', async () => {
+  const dir = shared.dir;
+  const base = { label: 'main', tests: [{ name: T1, pass_rate: 1 / 3, runs: 3, passed: 1, rationales: [] }, { name: T8, pass_rate: 1, runs: 3, passed: 3, rationales: [] }] };
+  const better = { label: 'branch', branch_id: 'branch_loop1', tests: [{ name: T1, pass_rate: 1, runs: 3, passed: 3, rationales: [] }, { name: T8, pass_rate: 1, runs: 3, passed: 3, rationales: [] }] };
+  const worse = { label: 'branch', tests: [{ name: T1, pass_rate: 1 / 3, runs: 3, passed: 1, rationales: [] }, { name: T8, pass_rate: 2 / 3, runs: 3, passed: 2, rationales: ['Forgot the sign-off.'] }] };
+  const same = { label: 'branch', tests: base.tests };
+  const w = (n, o) => { const f = path.join(dir, n); writeFileSync(f, JSON.stringify(o)); return f; };
+  let r = await loop(['compare', '--base', w('base.json', base), '--branch', w('better.json', better)], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /ACCEPT — 1 previously failing test\(s\) improved/);
+  assert.match(r.out, /promote --branch branch_loop1/);
+  r = await loop(['compare', '--base', w('base.json', base), '--branch', w('worse.json', worse)], dir);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /REJECT — 1 test\(s\) dropped by more than 10 points/);
+  assert.match(r.out, /✗ dropped/);
+  r = await loop(['compare', '--base', w('base.json', base), '--branch', w('same.json', same)], dir);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /REJECT — no previously failing test improved/);
+  r = await loop(['compare', '--base', w('base.json', base), '--branch', w('worse.json', worse), '--margin', '0.5'], dir);
+  assert.equal(r.code, 1, 'a wide margin forgives the drop but there is still no improvement');
+  assert.match(r.out, /no previously failing test improved/);
+  assert.equal(mock.requests.length, 0, 'compare is offline');
+  /* the real files from the runs above: the mock branch run is the same fixture, so nothing improved */
+  r = await loop(['compare', '--base', shared.results, '--branch', shared.branchResults], dir);
+  assert.equal(r.code, 1);
+});
+
+test('promote merges the branch into the main branch', async () => {
+  const dir = shared.dir;
+  const r = await loop(['promote', '--branch', 'branch_loop1', '--proposal', shared.proposal], dir);
+  assert.equal(r.code, 0, r.out);
+  const req = sent('POST', /\/branches\/branch_loop1\/merge$/)[0];
+  assert.ok(req, 'merge posted');
+  assert.equal(req.query.target_branch_id, 'branch_main', 'main_branch_id from GET agent');
+  assert.deepEqual(req.body, { archive_source_branch: true, force: false });
+  assert.match(r.out, /elevenlabs agents pull --agent agent_test1/);
+  assert.match(r.out, /Ask where they parked first/);
+});
+
+test('configure merges analysis.json over the agent\'s own settings and enables the overrides', async () => {
+  const dir = workdir();
+  const r = await loop(['configure'], dir);
+  assert.equal(r.code, 0, r.out);
+  const req = sent('PATCH', /\/v1\/convai\/agents\/agent_test1$/)[0];
+  const ps = req.body.platform_settings;
+  assert.deepEqual(ps.evaluation.criteria.map(c => c.id), ['their_crit', 'otto_tip_elicited'], 'theirs kept, ours added');
+  assert.equal(ps.data_collection.tip_type.type, 'string');
+  assert.deepEqual(ps.overrides.conversation_config_override, { agent: { first_message: true, language: true }, conversation: { text_only: true } });
+  assert.equal(req.body._otto, undefined);
+  assert.equal(req.body.platform_settings._otto, undefined);
+  assert.match(req.body.version_description, /analysis\.json/);
+  assert.match(r.out, /agent\.first_message\s+enabled in this PATCH/);
+  assert.match(r.out, /now carries 2 criteria and 1 data-collection fields/);
+  assert.equal(mock.state.agent.platform_settings.overrides.conversation_config_override.agent.first_message, true);
+  /* the rest of the agent's settings travel with the PATCH, so the
+   * agent comes out right whether ElevenLabs merges or replaces the
+   * object — the mock replaces, and the attached tests must survive it */
+  const theirs = mock.fixture.agent.platform_settings;
+  for (const k of ['auth', 'call_limits', 'privacy', 'widget', 'testing']) assert.deepEqual(ps[k], theirs[k], `${k} goes back unchanged`);
+  assert.equal(ps.safety, undefined, 'safety is response-only and is not echoed');
+  assert.deepEqual(ps.queueing_config, { enabled: false }, 'read-only hold_audio dropped, the rest of queueing_config kept');
+  assert.deepEqual(mock.state.agent.platform_settings.testing, { attached_tests: [{ test_id: 'test_pre8' }] }, 'attached tests survived a replacing PATCH');
+  assert.deepEqual(mock.state.agent.platform_settings.auth, theirs.auth, 'auth survived a replacing PATCH');
+  assert.match(r.out, /other platform settings go back as they are: auth, call_limits, privacy, widget, testing, queueing_config/);
+
+  rmSync(path.join(dir, 'analysis.json'));
+  mock.requests.length = 0;
+  const r2 = await loop(['configure'], dir);
+  assert.equal(r2.code, 1);
+  assert.match(r2.out, /analysis\.json is not there/);
+  assert.equal(mock.requests.length, 0);
+});
+
+test('--dry-run prints every request and sends nothing, with no key in the environment', async () => {
+  const dir = workdir();
+  writeFileSync(path.join(dir, 'tests.lock.json'), JSON.stringify({ [T1]: 'test_001' }));
+  mkdirSync(path.join(dir, 'proposals'));
+  const proposal = path.join(dir, 'proposals', 'p.json');
+  writeFileSync(proposal, JSON.stringify({ prompt: 'You are Otto. Ask once.', note: 'ask once' }));
+  const noKeys = { ELEVENLABS_API_KEY: undefined, OPENAI_API_KEY: undefined };
+  const commands = [
+    ['configure'], ['push-tests'], ['run', '--repeat', '2'], ['pull'],
+    ['cut', '--field', shared.field], ['propose', '--results', shared.results, '--field', shared.field],
+    ['branch', '--proposal', proposal], ['promote', '--branch', 'branch_x'],
+  ];
+  for (const cmd of commands) {
+    const r = await loop([...cmd, '--dry-run'], dir, noKeys);
+    assert.equal(r.code, 0, `${cmd[0]}: ${r.out}`);
+    assert.match(r.out, /DRY RUN/, cmd[0]);
+    /* cut talks to nobody — it only says what it would write */
+    if (cmd[0] === 'cut') assert.match(r.out, /would be written/);
+    else assert.match(r.out, /\(dry run\) (GET|POST|PUT|PATCH)/, cmd[0]);
+    assert.ok(!r.out.includes('sk-eleven') && !r.out.includes('sk-openai'), 'no key printed');
+  }
+  assert.equal(mock.requests.length, 0, 'the mock saw nothing');
+  assert.equal(filesIn(path.join(dir, 'results')).length, 0);
+  assert.equal(filesIn(path.join(dir, 'field')).length, 0);
+  assert.equal(filesIn(path.join(dir, 'proposals')).length, 1, 'no proposal written');
+  assert.ok(!existsSync(path.join(dir, 'test_configs', 'regressions')), 'no regression written');
+  assert.deepEqual(readJson(path.join(dir, 'tests.lock.json')), { [T1]: 'test_001' }, 'the lock is untouched');
+  const printed = (await loop(['push-tests', '--dry-run'], dir, noKeys)).out;
+  assert.match(printed, /\(dry run\) PUT .*\/v1\/convai\/agent-testing\/test_001/);
+  assert.match(printed, /\(dry run\) POST .*\/v1\/convai\/agent-testing\/create/);
+  assert.doesNotMatch(printed, /"_otto"/);
+
+  /* a fresh clone has no lock: the dry run still previews the request,
+   * with a placeholder where push-tests would have put the id */
+  const fresh = workdir();
+  const r = await loop(['run', '--repeat', '2', '--dry-run'], fresh, noKeys);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /\(dry run\) POST .*\/v1\/convai\/agents\/agent_test1\/run-tests/);
+  assert.match(r.out, /"test_id": "<id from tests\.lock\.json>"/);
+  assert.match(r.out, /"repeat_count": 2/);
+  assert.equal(mock.requests.length, 0, 'still nothing sent');
+  assert.ok(!existsSync(path.join(fresh, 'tests.lock.json')), 'no lock invented');
+});
+
+test('a live command refuses to run without its key and names the variable', async () => {
+  const dir = workdir();
+  let r = await loop(['push-tests'], dir, { ELEVENLABS_API_KEY: undefined });
+  assert.equal(r.code, 1);
+  assert.match(r.out, /ELEVENLABS_API_KEY is not set/);
+  r = await loop(['pull'], dir, { ELEVENLABS_AGENT_ID: undefined });
+  assert.equal(r.code, 1);
+  assert.match(r.out, /ELEVENLABS_AGENT_ID is not set/);
+  r = await loop(['propose', '--results', shared.results, '--prompt', path.join(FIXTURE, 'agent.json')], dir, { OPENAI_API_KEY: undefined });
+  assert.equal(r.code, 1);
+  assert.match(r.out, /OPENAI_API_KEY is not set/);
+  assert.equal(mock.requests.length, 0);
+  r = await loop(['nonsense'], dir);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /unknown command "nonsense"/);
+  r = await loop([], dir);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /usage: node loop\.mjs/);
+  r = await loop(['--help'], dir);
+  assert.equal(r.code, 0, 'asking for the usage is not an error');
+  assert.match(r.out, /usage: node loop\.mjs/);
+});
+
+test('the http wrapper retries once on a 5xx, never prints the key, and names a failure', async () => {
+  const lines = [];
+  const http = makeHttp({ log: s => lines.push(s), secrets: ['sk-secret'], retryDelayMs: 1 });
+  const api = elevenLabs({ apiKey: 'sk-secret', base: mock.url, http });
+  mock.state.failNext = 503;
+  const agent = await api.getAgent('agent_test1');
+  assert.equal(agent.agent_id, 'agent_test1');
+  assert.equal(mock.requests.length, 2, 'one retry');
+  mock.state.failNext = 400;
+  await assert.rejects(() => api.getAgent('agent_test1'), e => e instanceof ApiError && /^400 from GET \/v1\/convai\/agents\/agent_test1: /.test(e.message));
+  assert.equal(mock.requests.length, 3, 'no retry on a 4xx');
+  await assert.rejects(() => api.updateTest('nope', { name: 'x' }), e => e.status === 404);
+  const dry = makeHttp({ dryRun: true, log: s => lines.push(s), secrets: ['sk-secret'] });
+  await dry.send({ method: 'POST', base: mock.url, path: '/v1/x', body: { leaked: 'sk-secret in a body' } });
+  assert.match(lines.join('\n'), /\[redacted\] in a body/);
+  assert.ok(!lines.join('\n').includes('sk-secret'));
+});
+
+test('aggregate, compareResults, scoreData and gradeSummary as pure functions', () => {
+  const inv = { test_runs: [
+    { test_id: 'a', status: 'passed' }, { test_id: 'a', status: 'failed', condition_result: { result: 'failure', rationale: { messages: ['m1', 'm2'], summary: '' } } },
+    { test_id: 'b', status: 'failed', condition_result: { result: 'failure', rationale: { summary: 'Why.' } }, branch_id: 'br', version_id: 'v' },
+    { test_id: 'b', status: 'failed', condition_result: { result: 'failure', rationale: { summary: 'Why.' } } },
+  ] };
+  const t = aggregate(inv, { idToName: { a: 'A' } });
+  assert.deepEqual(t.map(x => [x.name, x.runs, x.passed, x.pass_rate, x.rationales, x.branch_id]), [
+    ['b', 2, 0, 0, ['Why.'], 'br'], ['A', 2, 1, 0.5, ['m1 m2'], null],
+  ]);
+  assert.equal(gradeSummary(null).graded, false);
+  assert.equal(gradeSummary({ checks: {}, note: 'a note' }).graded, true);
+  assert.equal(gradeSummary({ checks: { opener: true } }).bad, false);
+  assert.deepEqual(gradeSummary({ checks: { opener: true, tip: false } }).failed, ['tip']);
+  const c = compareResults({ tests: [{ name: 'x', pass_rate: 0.5 }] }, { tests: [{ name: 'x', pass_rate: 0.4 }] });
+  assert.equal(c.accept, false);
+  assert.equal(c.rows[0].dropped, false, 'a ten-point drop is within the margin');
+  const s = scoreData({ tests: [{ scenario_num: 3, scenario_title: 'T', runs: 2, passed: 1, rationales: ['Too long. Really.'] }] }, null);
+  assert.equal(s[0].key, '#3');
+  assert.equal(s[0].reasons[0].reason, 'too long');
+  assert.equal(reasonKey('  The AGENT asked   four questions! Then more.'), 'the agent asked four questions');
+});
+
+test('unifiedDiff and table', () => {
+  assert.equal(unifiedDiff('a\nb\nc', 'a\nb\nc'), '');
+  const d = unifiedDiff('one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten', 'one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine!\nten\neleven');
+  assert.match(d, /@@ -6,5 \+6,6 @@\n six\n seven\n eight\n-nine\n\+nine!\n ten\n\+eleven$/);
+  const two = unifiedDiff('a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\nl', 'A\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\nL');
+  assert.equal((two.match(/^@@ /gm) || []).length, 2, 'two hunks when the changes are far apart');
+  const t = table([{ a: 'a very long name indeed', b: 0.5 }], [{ key: 'a', label: 'name', width: 10 }, { key: 'b', label: 'n', width: 4, right: true }]);
+  assert.equal(t, 'name           n\na very lo…   0.5', 'a right-aligned column has a right-aligned header');
+});
+
+test('cut puts an opener failure at the first agent turn, and leaves the opener out of a test cut mid-conversation', async () => {
+  const dir = workdir();
+  const field = readJson(shared.field);
+  const aaa = field.conversations.find(c => c.conversation_id === 'conv_aaa');
+  const clone = (id, checks, extra = {}) => ({ ...JSON.parse(JSON.stringify(aaa)), conversation_id: id, grade: { checks, note: '', at: '2026-09-10T09:00:00Z', agent_version: null }, ...extra });
+  const openerOnly = clone('conv_op1', { opener: false, followup: null, tip: null, brevity: null, language: null });
+  const mixed = clone('conv_op2', { opener: false, followup: false, tip: null, brevity: null, language: null });
+  /* no phone convo, an ElevenLabs transcript with nothing but a wrong opener */
+  const bare = clone('conv_op3', { opener: false }, { message: null, transcript: [{ role: 'agent', message: 'Hi there! How was your day?', t: 0 }] });
+  const f = path.join(dir, 'field.json');
+  writeFileSync(f, JSON.stringify({ ...field, conversations: [openerOnly, mixed, bare] }));
+  const r = await loop(['cut', '--field', f], dir);
+  assert.equal(r.code, 0, r.out);
+  const t1 = readJson(path.join(dir, 'test_configs', 'regressions', 'conv_op1.json'));
+  assert.ok(!('chat_history' in t1), 'nothing before the first agent turn, so no history is sent');
+  assert.deepEqual(t1.failure_examples, [{ response: 'Is it hard to park here at this time? Where did you find a spot?', type: 'failure' }], 'the opener is the reply to do better than');
+  assert.match(t1.success_condition, /failing: Opened with the scenario's question\./);
+  assert.match(t1.success_condition, /opens with the scenario's own question \(“Is it hard to park here at this time\? Where did you find a spot\?”\)/);
+  assert.doesNotMatch(t1.success_condition, /follows up/);
+  assert.deepEqual(t1._otto, { scenario_num: 1, scenario_title: 'Parking loops — two slow passes and a stop', persona: 'field', kind: 'regression', source_conversation_id: 'conv_op1', language: 'en' });
+  const t2 = readJson(path.join(dir, 'test_configs', 'regressions', 'conv_op2.json'));
+  assert.deepEqual(t2.chat_history.map(x => x.role), ['agent', 'user', 'agent', 'user'], 'the other checks cut before the last agent turn');
+  assert.equal(t2.failure_examples[0].response, 'Thanks, safe travels.');
+  assert.match(t2.success_condition, /failing: Followed up on what the tester actually found\./);
+  assert.match(t2.success_condition, /follows up on what the tester actually said/);
+  assert.doesNotMatch(t2.success_condition, /opens with|Opened with/, 'a reply four turns in is never asked to open');
+  const t3 = readJson(path.join(dir, 'test_configs', 'regressions', 'conv_op3.json'));
+  assert.ok(!('chat_history' in t3));
+  assert.equal(t3.failure_examples[0].response, 'Hi there! How was your day?');
+  assert.match(r.out, /conv_op1 +written \(opener: first turn\)/);
+  assert.match(r.out, /conv_op2 +written \(opener left out\)/);
+  assert.match(r.out, /3 regression test\(s\) written/);
+  assert.match(r.out, /1 opener check\(s\) left out of a test cut mid-conversation/);
+  assert.match(r.out, /first_message override/);
+
+  /* the same field on a dry run: the cut point is announced, nothing written */
+  const dry = workdir();
+  const d = await loop(['cut', '--field', f, '--dry-run'], dry);
+  assert.equal(d.code, 0, d.out);
+  assert.match(d.out, /would be written \(opener: first turn\)/);
+  assert.ok(!existsSync(path.join(dry, 'test_configs', 'regressions')));
+
+  /* pushed, the first-turn test goes out without a chat_history key */
+  mock.requests.length = 0;
+  const pushed = await loop(['push-tests'], dir);
+  assert.equal(pushed.code, 0, pushed.out);
+  const posted = sent('POST', /create$/).map(q => q.body).find(b => b.name === 'Otto · regression · conv_op1');
+  assert.ok(posted);
+  assert.ok(!('chat_history' in posted));
+  assert.equal(posted.type, 'llm');
+});
+
+test('run gives up on an invocation that never completes, names the knobs, and writes nothing', async () => {
+  const dir = workdir();
+  writeFileSync(path.join(dir, 'tests.lock.json'), JSON.stringify({ [T1]: 'test_001' }));
+  mock.state.neverComplete = true;
+  const r = await loop(['run', '--repeat', '2'], dir, { LOOP_POLL_MS: '5', LOOP_TIMEOUT_MS: '40' });
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /run failed: invocation inv_1 still has 2 pending run\(s\) after 0 min — poll it yourself: GET \/v1\/convai\/test-invocations\/inv_1/);
+  assert.match(r.out, /LOOP_TIMEOUT_MS=40/);
+  assert.match(r.out, /LOOP_POLL_MS=5/);
+  assert.ok(sent('GET', /test-invocations\/inv_1$/).length >= 2, 'polled more than once before giving up');
+  assert.equal(filesIn(path.join(dir, 'results')).length, 0, 'no results file for a suite that did not finish');
+});
+
+test('a 5xx is not retried on the POSTs that start, create or merge something, a 429 is, and run says why', async () => {
+  const lines = [];
+  const http = makeHttp({ log: s => lines.push(s), secrets: ['sk-secret'], retryDelayMs: 1 });
+  const api = elevenLabs({ apiKey: 'sk-secret', base: mock.url, http });
+  mock.state.failNext = 502;
+  await assert.rejects(() => api.createTest({ name: 'Otto · x', type: 'llm' }), e => e instanceof ApiError && e.status === 502);
+  assert.equal(mock.requests.length, 1, 'one POST — a second would leave a duplicate test');
+  assert.equal(mock.state.tests.length, 1, 'only the pre-existing test in the workspace');
+  mock.state.failNext = 429;
+  const res = await api.createTest({ name: 'Otto · y', type: 'llm' });
+  assert.equal(res.id, 'test_001');
+  assert.equal(mock.requests.length, 3, 'a 429 was refused outright, so the POST went again');
+  mock.state.failNext = 503;
+  await assert.rejects(() => api.createBranch('agent_test1', { parent_version_id: 'v', name: 'b', description: 'd' }), e => e.status === 503);
+  assert.equal(mock.state.branches.length, 0);
+  mock.state.failNext = 504;
+  await assert.rejects(() => api.mergeBranch('agent_test1', 'b1', 'branch_main'), e => e.status === 504);
+  assert.equal(mock.state.merges.length, 0);
+  assert.equal(mock.requests.length, 5, 'neither was re-sent');
+
+  const dir = workdir();
+  writeFileSync(path.join(dir, 'tests.lock.json'), JSON.stringify({ [T1]: 'test_001' }));
+  mock.requests.length = 0;
+  mock.state.failNext = 502;
+  const r = await loop(['run', '--repeat', '2'], dir);
+  assert.equal(r.code, 1, r.out);
+  assert.equal(sent('POST', /run-tests$/).length, 1, 'one run-tests, never two');
+  assert.match(r.out, /run failed: 502 from POST \/v1\/convai\/agents\/agent_test1\/run-tests: /);
+  assert.match(r.out, /not retried: a second run-tests would start \(and bill\) a second suite/);
+  assert.match(r.out, /poll GET \/v1\/convai\/test-invocations\/<id>/);
+  assert.equal(filesIn(path.join(dir, 'results')).length, 0);
+});
+
+test('propose sizes the completion from the prompt, reports a reply cut by the token limit, and diffs the trimmed prompt', async () => {
+  const dir = workdir();
+  const pf = path.join(dir, 'prompt.txt');
+  const text = 'You are Otto, debriefing a field tester after a trigger scenario fired.\nAsk one thing.\nThen let them get on with the route.\n';
+  writeFileSync(pf, text);
+  mock.state.openaiReply = () => ({ prompt: text.trim().replace('Ask one thing.', 'Ask one thing, then stop.'), note: 'stop after one', rationale: 'brevity' });
+  let r = await loop(['propose', '--results', shared.results, '--field', shared.field, '--prompt', pf], dir);
+  assert.equal(r.code, 0, r.out);
+  const req = sent('POST', /chat\/completions$/)[0];
+  assert.equal(req.body.max_tokens, Math.min(16000, Math.ceil(text.trim().length / 3) + 1500));
+  assert.equal(JSON.parse(req.body.messages[1].content).current_prompt, text.trim(), 'the model gets the prompt without the file\'s trailing newline');
+  const p = readJson(path.join(dir, 'proposals', filesIn(path.join(dir, 'proposals'))[0]));
+  assert.equal(p.base_chars, text.trim().length);
+  assert.match(p.diff, /@@ -1,3 \+1,3 @@/, 'three lines against three, no phantom fourth');
+  assert.doesNotMatch(p.diff, /\n-\n|\n-$/, 'no removed blank line for the trailing newline');
+
+  const long = 'x'.repeat(30000);
+  writeFileSync(pf, long);
+  mock.state.openaiReply = () => ({ prompt: long + ' y', note: 'n', rationale: 'r' });
+  mock.requests.length = 0;
+  r = await loop(['propose', '--results', shared.results, '--field', shared.field, '--prompt', pf], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(sent('POST', /chat\/completions$/)[0].body.max_tokens, 11500, 'ceil(30000 / 3) + 1500');
+
+  mock.state.openaiFinish = 'length';
+  r = await loop(['propose', '--results', shared.results, '--field', shared.field, '--prompt', pf], dir);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /cut by the token limit \(max_tokens 11500\)/);
+  assert.doesNotMatch(r.out, /something other than JSON/);
+});
+
+test('propose trims the evidence to the budget instead of cutting the JSON, and says what was left out', async () => {
+  const many = n => Array.from({ length: n }, (_, i) => i);
+  const evidence = {
+    failing_tests: many(30).map(i => ({ test: `T${i}`, passed: '0/3', scenario: 's', persona: 'p', rationales: many(3).map(j => `rationale ${j} `.repeat(40).slice(0, 400)) })),
+    bad_debriefs: many(20).map(i => ({ conversation_id: `c${i}`, scenario: '#1', failed_checks: ['x'], note: '', criteria_failed: [], transcript: many(12).map(() => `user: ${'word '.repeat(70).slice(0, 300)}`) })),
+    criteria_results: {},
+  };
+  const raw = JSON.stringify({ current_prompt: 'p', ...evidence }).length;
+  assert.ok(raw > 80000, `the raw payload is ${raw} chars`);
+  const fit = fitEvidence('p', evidence);
+  assert.ok(fit.fits);
+  const payload = JSON.stringify({ current_prompt: 'p', ...fit.evidence });
+  assert.ok(payload.length <= 80000, `${payload.length} chars`);
+  JSON.parse(payload);
+  assert.ok(fit.shortened);
+  assert.equal(fit.evidence.failing_tests[0].test, 'T0', 'the worst test survives');
+  assert.equal(fit.evidence.bad_debriefs[0].conversation_id, 'c0', 'the latest debrief survives');
+  assert.ok(fit.evidence.bad_debriefs[0].transcript.length <= 6);
+  const tiny = fitEvidence('p'.repeat(100), evidence, 50);
+  assert.equal(tiny.fits, false, 'a prompt over the budget cannot fit');
+  assert.deepEqual(tiny.left_out, { failing_tests: 30, bad_debriefs: 20 });
+
+  /* through the command: a field file with far more debriefs than fit */
+  const dir = workdir();
+  const field = readJson(shared.field);
+  const aaa = field.conversations.find(c => c.conversation_id === 'conv_aaa');
+  const big = many(120).map(i => ({
+    ...JSON.parse(JSON.stringify(aaa)), conversation_id: `conv_big${i}`, message: null,
+    transcript: many(12).map(j => ({ role: j % 2 ? 'user' : 'agent', message: `turn ${j} ${'blah '.repeat(80)}`, t: j })),
+  }));
+  const f = path.join(dir, 'field.json');
+  writeFileSync(f, JSON.stringify({ ...field, conversations: big }));
+  const r = await loop(['propose', '--results', shared.results, '--field', f, '--prompt', path.join(FIXTURE, 'agent.json')], dir);
+  assert.equal(r.code, 0, r.out);
+  const content = sent('POST', /chat\/completions$/)[0].body.messages[1].content;
+  assert.ok(content.length <= 80000);
+  const user = JSON.parse(content);
+  assert.ok(user.bad_debriefs.length > 0 && user.bad_debriefs.length < 120, `${user.bad_debriefs.length} debriefs sent`);
+  assert.equal(user.bad_debriefs[0].conversation_id, 'conv_big0', 'the first in the field file — the newest — is kept');
+  assert.match(r.out, /evidence trimmed to fit 80000 chars: rationales and transcripts shortened, 0 of 1 failing test\(s\) and [1-9]\d* of 120 bad debrief\(s\) left out/);
+  assert.match(r.out, /pass a narrower --results \/ --field/);
+});

@@ -39,6 +39,17 @@ let fbRec = null;        // { id, text, via, state } — the open feedback recor
 let proposal = null;     // { id, changes, params, note, demo, fb_ids, none } — a proposed next version
 let proposalBusy = null; // scenario id while the revision round-trip runs
 let msgEdit = null;      // { destId, i, title, transcript } — a debrief being reworded
+/* Grades in progress — { gradeKey(row): { checks, note } }, one per
+ * agent debrief being judged. A map, not one slot: two debriefs
+ * half-graded side by side must not cost each other their typed note.
+ * Keyed by the ROW, not its position like msgEdit: a refresh that lands
+ * a newer debrief on the same pin, or a delete above it, moves the row
+ * down a slot and the half-typed grade must move with it — saved by
+ * slot it would go onto the wrong conversation, which is exactly the
+ * ground truth the agent loop must not be fed. Cleared by save, cancel,
+ * the row's own delete, and a reload that no longer carries the row. */
+let msgGrades = {};
+const gradeBusy = () => Object.keys(msgGrades).length > 0;
 
 const destById = id => destinations.find(d => d.id === id) || null;
 const localId = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -65,7 +76,7 @@ const notesEditing = () => {
  * live. The state itself is kept (it lives JS-side), so flipping back to
  * TESTING restores drags, drafts and proposals exactly as left. */
 const uiBusy = () => !!proposalBusy
-  || (cardView !== 'demo' && !!(tune || fbRec || proposal || msgEdit))
+  || (cardView !== 'demo' && !!(tune || fbRec || proposal || msgEdit || gradeBusy()))
   || !el('form-sheet').hidden || !el('stop-sheet').hidden || notesEditing();
 
 const persistLocal = () => {
@@ -271,6 +282,7 @@ function deleteMessage(sc, i) {
   if (!confirm('Delete this debrief?\n\n' + String(m.title || m.transcript || '').slice(0, 120))) return;
   messagesByDest[destId] = list.filter(x => x !== m);
   msgEdit = null; // positions shifted — an open editor would rewrite the wrong row
+  delete msgGrades[gradeKey(m)]; // grades follow their row — only the deleted one goes
   if (Backend.enabled && m.id != null) Backend.deleteMessage(m.id).then(msgPolicyHint).catch(warn);
   persistMessagesLocal();
   render();
@@ -291,6 +303,107 @@ function saveMessageEdit() {
   if (!m || (!patch.title && !patch.transcript)) { render(); return; }
   Object.assign(m, patch);
   if (Backend.enabled && m.id != null) Backend.updateMessage(m.id, patch).then(msgPolicyHint).catch(warn);
+  persistMessagesLocal();
+  render();
+}
+
+/* ---------- debrief grading ----------
+ * The scenario verdict says whether the TRIGGER got it; this says
+ * whether the CONVERSATION did — the ground truth the agent's tuning
+ * loop (elevenlabs/) scores the prompt against, on the five things a
+ * scenario debrief is for. Only agent debriefs get graded: a recorded
+ * clip asked nothing. The keys are fixed — the loop reads them by
+ * name, and a false on any of them is what a regression test is cut
+ * from. Stored on the row as
+ *   { checks: {opener, followup, tip, brevity, language: true|false|null},
+ *     note, at, agent_version }
+ * null = not judged; "graded" = anything judged, or a note left. */
+const GRADE_CHECKS = [
+  ['opener', 'Opened with the scenario\'s question'],
+  ['followup', 'Followed up on what the tester actually found'],
+  ['tip', 'Got the tip type the scenario expects'],
+  ['brevity', 'Kept it short — a couple of questions, then let them go'],
+  ['language', 'Right language throughout'],
+];
+/* jsonb object from Supabase, plain object from localStorage, string if hand-fed */
+const gradeOf = m => {
+  let g = m && m.grade;
+  if (typeof g === 'string') { try { g = JSON.parse(g); } catch { g = null; } }
+  return g && typeof g === 'object' ? g : null;
+};
+const gradeSummary = g => {
+  const checks = (g && g.checks) || {};
+  const judged = GRADE_CHECKS.filter(([k]) => checks[k] === true || checks[k] === false);
+  const failed = GRADE_CHECKS.filter(([k]) => checks[k] === false);
+  return {
+    graded: judged.length > 0 || !!String((g && g.note) || '').trim(),
+    bad: failed.length > 0,
+    judged: judged.length,
+    passed: judged.length - failed.length,
+    failed: failed.map(([, label]) => label),
+  };
+};
+/* a working copy seeded from the saved grade — anything not a boolean
+ * on the row (older shape, hand-fed) reads as not judged */
+const gradeDraft = saved => ({
+  checks: Object.fromEntries(GRADE_CHECKS.map(([k]) =>
+    [k, saved && saved.checks && typeof saved.checks[k] === 'boolean' ? saved.checks[k] : null])),
+  note: String((saved && saved.note) || ''),
+});
+/* A backend row is its id; a local-mode row may carry none and is told
+ * apart by when it was filed (the phone stamps every row it keeps). */
+const gradeKey = m => m ? (m.id != null ? 'id:' + m.id : 'at:' + (m.created_at || '') + ':' + (m.conversation_id || '')) : null;
+/* A reload can bring a list without a row that was mid-grade — deleted
+ * from another dashboard, or a pin cleared. Its draft must not linger:
+ * gradeBusy() would hold the poller off for good, over a row nobody
+ * can see. */
+function pruneGrades() {
+  const live = new Set([].concat(...Object.values(messagesByDest)).map(gradeKey));
+  Object.keys(msgGrades).forEach(k => { if (!live.has(k)) delete msgGrades[k]; });
+}
+function openGrade(sc, i) {
+  const m = msgsOf(sc)[i];
+  const k = gradeKey(m);
+  if (!k) return gradeDraft(null); // the row is gone from under the widget — a draft nobody can save
+  if (!msgGrades[k]) msgGrades[k] = gradeDraft(gradeOf(m));
+  return msgGrades[k];
+}
+function toggleGradeCheck(sc, i, key, value) {
+  const g = openGrade(sc, i);
+  /* a second tap on the lit button clears it — "not judged" must stay
+   * reachable, or every untouched row would count as a pass */
+  g.checks[key] = g.checks[key] === value ? null : value;
+  render();
+}
+/* A live backend without the grade column rejects the patch outright
+ * (the via/convo fallback in otto-agent.js is the same story from the
+ * phone's side) — name the column and what to run. */
+const gradeHint = e => {
+  warn(e);
+  if (Backend.enabled && /grade|column/i.test(String(e && e.message))) {
+    el('stats').textContent = 'The grade did not reach the messages table — it has no grade column yet. Re-run supabase/schema.sql, then ↻ REFRESH.';
+  }
+};
+function saveMessageGrade(sc, i) {
+  const m = msgsOf(sc)[i];
+  const k = gradeKey(m);
+  const g = msgGrades[k];
+  delete msgGrades[k];
+  if (!g || !m) { render(); return; }
+  const prev = gradeOf(m);
+  const grade = {
+    checks: { ...g.checks },
+    note: String(g.note || '').trim(),
+    at: new Date().toISOString(),
+    /* which agent version took the call is not known here — the loop
+     * stamps it when it joins the conversation; a re-grade keeps it */
+    agent_version: (prev && prev.agent_version) || null,
+  };
+  /* nothing judged and nothing said is not a grade — the row goes back
+   * to ungraded rather than carrying five nulls as if it were */
+  const patch = { grade: gradeSummary(grade).graded ? grade : null };
+  m.grade = patch.grade;
+  if (Backend.enabled && m.id != null) Backend.updateMessage(m.id, patch).then(msgPolicyHint).catch(gradeHint);
   persistMessagesLocal();
   render();
 }
@@ -430,6 +543,7 @@ async function loadAll() {
       (ms || []).forEach(m => {
         if (m.destination_id) (messagesByDest[m.destination_id] = messagesByDest[m.destination_id] || []).push(m);
       });
+      pruneGrades();
     } catch (e) { warn(e); }
     try {
       scenarios = (await Backend.listScenarios()) || [];
@@ -454,6 +568,7 @@ async function loadAll() {
         if (m.destination_id) (messagesByDest[m.destination_id] = messagesByDest[m.destination_id] || []).push(m);
       });
     } catch { /* private mode */ }
+    pruneGrades();
     runsByScenario = {};
     try {
       (JSON.parse(localStorage.getItem(LS_RUNS) || '[]')).forEach(r => {
@@ -483,6 +598,14 @@ function renderStats() {
   if (by.nopin) parts.push(`${by.nopin} need an address`);
   if (by.ready) parts.push(`${by.ready} awaiting test`);
   if (by.debriefed) parts.push(`${by.debriefed} debriefed`);
+  /* agent debriefs still waiting for a grade are the agent loop's backlog
+   * — counted over the scenarios' pins only, the ones a grade can be
+   * given on (a route stop's agent debrief has no card to grade it in) */
+  const agentMsgs = [...new Set([].concat(...scenarios.map(msgsOf)))].filter(m => m && m.via === 'elevenlabs');
+  if (agentMsgs.length) {
+    const graded = agentMsgs.filter(m => gradeSummary(gradeOf(m)).graded).length;
+    parts.push(`${graded}/${agentMsgs.length} agent debrief${agentMsgs.length === 1 ? '' : 's'} graded`);
+  }
   const verdicts = [];
   if (by.pass) verdicts.push(`${by.pass} pass`);
   if (by.partial) verdicts.push(`${by.partial} partial`);
@@ -527,12 +650,15 @@ function renderMessages(sc) {
     let convo = m.convo;
     if (typeof convo === 'string') { try { convo = JSON.parse(convo); } catch { convo = null; } }
     if (!Array.isArray(convo) || convo.length < 2) convo = null;
+    const grade = gradeOf(m);
+    const gs = gradeSummary(grade);
     return `
       <div class="msg">
         <div class="msg-top">
           <span class="msg-cat${match ? ' match' : ''}">${esc(m.category || 'other')}${match ? ' · = EXPECTED TYPE' : ''}</span>
           ${m.demo ? '<span class="msg-demo">DEMO</span>' : ''}
-          ${m.via === 'elevenlabs' ? '<span class="msg-via" title="Debriefed by your ElevenLabs agent — a live conversation, not a recorded clip">◆ AGENT</span>' : ''}
+          ${m.via === 'elevenlabs' ? `<span class="msg-via" title="${esc('Debriefed by your ElevenLabs agent — a live conversation, not a recorded clip' + (m.conversation_id ? ' · conversation ' + m.conversation_id : ''))}">◆ AGENT</span>` : ''}
+          ${gs.graded ? `<span class="msg-graded${gs.bad ? ' bad' : ''}" title="${esc(gs.bad ? 'Failed: ' + gs.failed.join(' · ') : (grade.note || 'Every judged check passed'))}">GRADED · ${gs.bad ? '✗' : gs.judged ? gs.passed + '/' + gs.judged : 'NOTE'}</span>` : ''}
           <span class="msg-time">${esc(fmtTime(m.created_at))}</span>
           ${editing ? '' : `<button class="row-link" type="button" data-msg-edit="${i}" title="Reword what Otto filed — the phone reads this to the next driver">edit</button>
           <button class="note-del" type="button" data-msg-del="${i}" title="Delete this debrief">×</button>`}
@@ -556,8 +682,39 @@ function renderMessages(sc) {
           <summary>THE CONVERSATION · ${convo.length} TURNS</summary>
           ${convo.map(t => `<div class="msg-turn ${t.from === 'me' ? 'me' : 'ai'}"><b>${t.from === 'me' ? 'TESTER' : 'OTTO'}</b>${esc(t.text || '')}</div>`).join('')}
         </details>` : ''}
+        ${m.via === 'elevenlabs' ? renderGrade(sc, i, grade, gs) : ''}
       </div>`;
   }).join('');
+}
+
+/* The grade widget under an agent debrief. Workshop chrome: it only
+ * ever renders through the TESTING body (the DEMO body retells the
+ * answers in its own lines and never calls renderMessages). Open while
+ * ungraded — the one thing on the card still waiting for the designer
+ * — and folded behind its chip once saved; a tap on the summary reopens
+ * it. Buttons re-render (like the verdict row); the note rides in
+ * msgGrades, so the repaint hands it straight back. */
+function renderGrade(sc, i, saved, gs) {
+  const work = msgGrades[gradeKey(msgsOf(sc)[i])];
+  const g = work || gradeDraft(saved);
+  const open = !!work || !gs.graded;
+  return `
+        <details class="msg-grade"${open ? ' open' : ''}>
+          <summary>${gs.graded && !work ? 'GRADED · ' + esc(fmtTime(saved && saved.at)) + ' · CHANGE' : 'GRADE THE CONVERSATION'}</summary>
+          <span class="cmp-k">Did Otto ask the right things? ✓ / ✗ per line — a second tap clears it; untouched = not judged.</span>
+          ${GRADE_CHECKS.map(([key, label]) => `
+          <div class="grade-row">
+            <span class="grade-label">${esc(label)}</span>
+            <button class="g-btn${g.checks[key] === true ? ' on-yes' : ''}" type="button" data-grade-check="${key}" data-grade-i="${i}" data-grade-val="1" title="Yes">✓</button>
+            <button class="g-btn${g.checks[key] === false ? ' on-no' : ''}" type="button" data-grade-check="${key}" data-grade-i="${i}" data-grade-val="0" title="No">✗</button>
+          </div>`).join('')}
+          <textarea data-grade-note="${i}" placeholder="One line on what Otto got wrong (or right) — the prompt gets tuned on this">${esc(g.note)}</textarea>
+          <div class="fb-rec-foot">
+            <button class="mini-btn accent" type="button" data-act="grade-save" data-grade-i="${i}">Save grade</button>
+            ${work ? `<button class="mini-btn" type="button" data-act="grade-cancel" data-grade-i="${i}">Cancel</button>` : ''}
+            ${saved && saved.agent_version ? `<span class="fb-hint">agent ${esc(saved.agent_version)}</span>` : ''}
+          </div>
+        </details>`;
 }
 
 /* Sliders drag against a working copy (tune) so nothing persists until
@@ -1718,6 +1875,11 @@ function specOf(sc) {
           if (typeof c === 'string') { try { c = JSON.parse(c); } catch { c = null; } }
           return Array.isArray(c) ? c : null;
         })(),
+        /* the ElevenLabs conversation this came out of, and the grade the
+         * designer gave that conversation — together one labelled example
+         * for the agent's tuning loop */
+        conversation_id: m.conversation_id || null,
+        grade: gradeOf(m),
         demo: !!m.demo,
       };
     }),
@@ -2359,6 +2521,8 @@ el('list').addEventListener('click', e => {
   }
   const md = e.target.closest('[data-msg-del]');
   if (md) { deleteMessage(sc, parseInt(md.dataset.msgDel, 10)); return; }
+  const gc = e.target.closest('[data-grade-check]');
+  if (gc) { toggleGradeCheck(sc, parseInt(gc.dataset.gradeI, 10), gc.dataset.gradeCheck, gc.dataset.gradeVal === '1'); return; }
 
   const act = e.target.closest('[data-act]');
   if (act) {
@@ -2385,6 +2549,8 @@ el('list').addEventListener('click', e => {
     else if (a === 'notes-radius') addNotesRadiusParam(sc);
     else if (a === 'msg-save') saveMessageEdit();
     else if (a === 'msg-cancel') { msgEdit = null; render(); }
+    else if (a === 'grade-save') saveMessageGrade(sc, parseInt(act.dataset.gradeI, 10));
+    else if (a === 'grade-cancel') { delete msgGrades[gradeKey(msgsOf(sc)[parseInt(act.dataset.gradeI, 10)])]; render(); }
     return;
   }
 
@@ -2407,6 +2573,8 @@ el('list').addEventListener('input', e => {
     const mf = e.target.getAttribute('data-msg-field');
     if (mf) { msgEdit[mf] = e.target.value; return; }
   }
+  const gn = e.target.getAttribute('data-grade-note');
+  if (gn != null) { openGrade(sc, parseInt(gn, 10)).note = e.target.value; return; }
   if (e.target.hasAttribute('data-fb-text')) {
     if (fbRec && fbRec.id === sc.id) fbRec.text = e.target.value;
     return;

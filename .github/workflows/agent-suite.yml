@@ -1,0 +1,209 @@
+name: agent-suite
+
+# Keeps the agent loop under elevenlabs/ honest, the way android-apk keeps
+# the wrapper buildable. Two jobs:
+#
+#   unit        On every push and pull request that touches elevenlabs/
+#               or what it mirrors — the generator ports agentVars() from
+#               app.js and reads the starter sheet and the fixture route,
+#               and its tests fail the moment those drift: the node
+#               tests, then the generator is re-run against the starter
+#               sheet and diffed against the committed test_configs/. A
+#               sheet edit or a generator change has to land together
+#               with the files it produces, otherwise the suite
+#               ElevenLabs runs is no longer what the phone sends.
+#
+#   live-suite  On demand (Actions → agent-suite → Run workflow: how many
+#               times to repeat each test, an agent branch to test instead
+#               of the live version, a name filter) and every Monday
+#               morning: pushes the test files to ElevenLabs and runs the
+#               whole suite with a repeat count so the table shows pass
+#               RATES, not one lucky roll. Every run costs real simulated
+#               conversations, so it only goes ahead when the repository
+#               carries the ELEVENLABS_API_KEY secret (plus the public
+#               ELEVENLABS_AGENT_ID as a repository variable). Without the
+#               key it skips cleanly — a fork's Monday run stays green
+#               instead of failing every week. The table lands in the
+#               run's job summary; the per-test JSON (elevenlabs/results/)
+#               and the tests.lock.json the push produced are in the run's
+#               Artifacts ("agent-suite-results").
+#
+# Secrets cannot be read from an `if:`, so the first step of live-suite
+# copies the key into its own environment, tests it there and publishes a
+# yes/no output; every later step keys off that output. The key itself is
+# only ever handed to loop.mjs as an environment variable — never echoed,
+# never written to the summary (GitHub masks it in logs on top of that).
+on:
+  push:
+    paths:
+      - "elevenlabs/**"
+      - ".github/workflows/agent-suite.yml"
+      # what the generator mirrors and reads (see the unit job above)
+      - "app.js"
+      - "otto-agent.js"
+      - "trigger-scenarios.js"
+      - "route-kollwitz.js"
+  pull_request:
+    paths:
+      - "elevenlabs/**"
+      - ".github/workflows/agent-suite.yml"
+      - "app.js"
+      - "otto-agent.js"
+      - "trigger-scenarios.js"
+      - "route-kollwitz.js"
+  workflow_dispatch:
+    inputs:
+      repeat:
+        description: "Runs per test (2–20); the pass rate is over these"
+        type: number
+        default: 3
+      branch_id:
+        description: "Agent branch id to run the suite against (empty = the live version)"
+        type: string
+        default: ""
+      filter:
+        description: "Only tests whose name contains this (empty = the whole suite)"
+        type: string
+        default: ""
+  schedule:
+    # Monday 06:00 UTC — before the week's first field session
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: elevenlabs
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Node tests
+        run: node --test
+
+      # The committed test files are the generator's output for the
+      # starter sheet; regenerate into a scratch directory and diff. The
+      # generator never touches regressions/ (those are cut from field
+      # debriefs by loop.mjs), so that folder is left out of the diff.
+      - name: Generated tests match the generator
+        run: |
+          node generate-tests.mjs --sheet --out "$RUNNER_TEMP/gen"
+          if ! diff -r --exclude=regressions "$RUNNER_TEMP/gen" test_configs; then
+            echo "::error::elevenlabs/test_configs/ no longer matches what generate-tests.mjs produces from the starter sheet — run 'node generate-tests.mjs' in elevenlabs/ and commit the result"
+            exit 1
+          fi
+
+  live-suite:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    # 80 of these minutes are the loop's poll budget — LOOP_TIMEOUT_MS on
+    # the "Run the suite" step below; move the two together.
+    timeout-minutes: 90
+    # Two suites at once would double the ElevenLabs bill and race on the
+    # same test ids; queue instead.
+    concurrency:
+      group: agent-suite-live
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: bash
+        working-directory: elevenlabs
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Is the API key configured?
+        id: key
+        env:
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+        run: |
+          if [ -n "$ELEVENLABS_API_KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "ELEVENLABS_API_KEY is not set on this repository, so the live suite is skipped. Add it under Settings → Secrets and variables → Actions (and ELEVENLABS_AGENT_ID as a variable) to run it." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Push the test files to ElevenLabs
+        if: steps.key.outputs.present == 'true'
+        env:
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          ELEVENLABS_AGENT_ID: ${{ vars.ELEVENLABS_AGENT_ID || secrets.ELEVENLABS_AGENT_ID }}
+        run: node loop.mjs push-tests
+
+      # The table goes to the log and to a file for the summary step. The
+      # loop exits 0 once the suite has run, whatever the pass rates — a
+      # simulated tester is not deterministic, so the rates in the
+      # summary are the signal, not a red job. The step fails only when
+      # the loop itself does (no key, an API error, the poll giving up):
+      # pipefail comes with `shell: bash`, so tee does not swallow that
+      # exit code. The steps after it run regardless so the table is
+      # kept.
+      #
+      # Left alone, the loop polls the invocation for 20 minutes and then
+      # exits 1 WITHOUT writing results/ — enough at a laptop for a
+      # filtered run, not for the whole suite × 3 (a hundred simulated
+      # conversations; more with a higher repeat), which would be
+      # abandoned after paying for it. LOOP_TIMEOUT_MS raises the budget
+      # to 80 minutes, inside the job's 90 with room for checkout,
+      # push-tests, the summary and the upload. A suite that outlasts
+      # even that fails the same way, and the loop's message names the
+      # invocation to poll by hand.
+      - name: Run the suite
+        if: steps.key.outputs.present == 'true'
+        env:
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          ELEVENLABS_AGENT_ID: ${{ vars.ELEVENLABS_AGENT_ID || secrets.ELEVENLABS_AGENT_ID }}
+          LOOP_TIMEOUT_MS: 4800000
+          REPEAT: ${{ inputs.repeat }}
+          BRANCH_ID: ${{ inputs.branch_id }}
+          FILTER: ${{ inputs.filter }}
+        run: |
+          REPEAT="${REPEAT:-3}"
+          if ! [ "$REPEAT" -ge 2 ] 2>/dev/null || ! [ "$REPEAT" -le 20 ] 2>/dev/null; then
+            echo "::error::repeat must be a whole number from 2 to 20, got '$REPEAT'"
+            exit 1
+          fi
+          args=(run --repeat "$REPEAT" --label ci)
+          if [ -n "$BRANCH_ID" ]; then args+=(--branch "$BRANCH_ID"); fi
+          if [ -n "$FILTER" ]; then args+=(--filter "$FILTER"); fi
+          node loop.mjs "${args[@]}" | tee "$RUNNER_TEMP/suite.txt"
+
+      - name: Table into the job summary
+        if: ${{ !cancelled() && steps.key.outputs.present == 'true' }}
+        env:
+          REPEAT: ${{ inputs.repeat }}
+          BRANCH_ID: ${{ inputs.branch_id }}
+          FILTER: ${{ inputs.filter }}
+        run: |
+          heading="Agent suite — ×${REPEAT:-3}"
+          if [ -n "$BRANCH_ID" ]; then heading="$heading on branch $BRANCH_ID"; fi
+          if [ -n "$FILTER" ]; then heading="$heading, filter \"$FILTER\""; fi
+          {
+            echo "## $heading"
+            echo
+            echo '```'
+            if [ -s "$RUNNER_TEMP/suite.txt" ]; then cat "$RUNNER_TEMP/suite.txt"; else echo "(the suite produced no output — see the run log)"; fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() && steps.key.outputs.present == 'true' }}
+        with:
+          name: agent-suite-results
+          path: |
+            elevenlabs/results/
+            elevenlabs/tests.lock.json
+          if-no-files-found: warn

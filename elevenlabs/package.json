@@ -1,0 +1,13 @@
+{
+  "name": "otto-agent-loop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The tuning loop for Otto's ElevenLabs agent prompt: scenario tests from the sheet, field conversations joined to their dashboard grades, proposed prompt diffs on a branch",
+  "scripts": {
+    "test": "node --test",
+    "generate": "node generate-tests.mjs",
+    "loop": "node loop.mjs"
+  },
+  "engines": { "node": ">=20" }
+}

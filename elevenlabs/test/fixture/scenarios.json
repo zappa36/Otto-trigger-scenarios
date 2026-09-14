@@ -1,0 +1,4 @@
+[
+  { "id": "s1", "num": 1, "title": "Parking loops — two slow passes and a stop", "learns": "parking — where to stop at this address", "version": 2, "destination_id": "dest_1" },
+  { "id": "s8", "num": 8, "title": "Blocked route — turned round short of the address", "learns": "hazard — what blocks the approach", "version": 1, "destination_id": "dest_8" }
+]

@@ -1,0 +1,20 @@
+{
+  "_comment": "The simulated TESTERS a scenario is run against, one test per persona. `style` is pasted into the persona's first-person brief; `max_turns` is the simulation's turn cap — the personas that need follow-ups get more room. Edit freely and re-run `npm run generate`; ids are part of the test names, so renaming one orphans its ElevenLabs test until the loop re-creates it.",
+  "personas": [
+    {
+      "id": "cooperative",
+      "max_turns": 8,
+      "style": "You answer fully and helpfully: each answer gives what was asked plus the one detail that makes it useful — a street name, a distance, a time of day. Friendly, businesslike, one to three sentences at a time"
+    },
+    {
+      "id": "terse",
+      "max_turns": 10,
+      "style": "You answer in three to six words at a time, never more, and you volunteer nothing — the useful detail (the place, the distance, the time) only comes out when Otto asks a follow-up that names it. Not rude, just busy and already thinking about the next stop"
+    },
+    {
+      "id": "sidetracked",
+      "max_turns": 10,
+      "style": "You open your first answer with something unrelated — a joke about the weather, or a question about how long your shift still runs — and only then answer what was asked. After that you answer normally, in one or two sentences. If Otto engages with the aside instead of the delivery, you happily keep chatting about the aside"
+    }
+  ]
+}

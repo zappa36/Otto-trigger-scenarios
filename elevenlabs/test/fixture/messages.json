@@ -1,0 +1,36 @@
+[
+  {
+    "id": "m1", "destination_id": "dest_1", "context": "Scenario #1 at Kollwitzstraße 52",
+    "transcript": "Yeah, two loops. Ended up in the loading bay round the corner. Not really.",
+    "title": "Loading bay round the corner", "category": "parking", "via": "elevenlabs",
+    "convo": [
+      { "from": "ai", "text": "Is it hard to park here at this time? Where did you find a spot?", "at": "2026-09-10T08:00:00Z" },
+      { "from": "me", "text": "Yeah, two loops. Ended up in the loading bay round the corner.", "at": "2026-09-10T08:00:06Z" },
+      { "from": "ai", "text": "Got it. Anything else worth knowing about this address?", "at": "2026-09-10T08:00:12Z" },
+      { "from": "me", "text": "Not really.", "at": "2026-09-10T08:00:18Z" },
+      { "from": "ai", "text": "Thanks, safe travels.", "at": "2026-09-10T08:00:21Z" }
+    ],
+    "conversation_id": "conv_aaa",
+    "grade": { "checks": { "opener": true, "followup": false, "tip": false, "brevity": true, "language": null }, "note": "Never asked where the loading bay is", "at": "2026-09-10T09:00:00Z", "agent_version": null },
+    "created_at": "2026-09-10T08:01:00Z"
+  },
+  {
+    "id": "m2", "destination_id": "dest_8", "context": "Scenario #8 at Wörther Straße 12",
+    "transcript": "A removal truck shut Wörther Straße at the Kollwitzstraße end. Coming in from Husemannstraße works. Cheers.",
+    "title": "Wörther Straße shut — come in from Husemannstraße", "category": "hazard", "via": "elevenlabs",
+    "convo": [
+      { "from": "ai", "text": "Was the road closed there? What blocked you?", "at": "2026-09-10T09:00:00Z" },
+      { "from": "me", "text": "A removal truck shut Wörther Straße at the Kollwitzstraße end. Coming in from Husemannstraße works.", "at": "2026-09-10T09:00:08Z" },
+      { "from": "ai", "text": "Noted — in from Husemannstraße. Thanks, and safe travels.", "at": "2026-09-10T09:00:14Z" },
+      { "from": "me", "text": "Cheers.", "at": "2026-09-10T09:00:16Z" }
+    ],
+    "conversation_id": "conv_bbb",
+    "grade": { "checks": { "opener": true, "followup": true, "tip": true, "brevity": true, "language": true }, "note": "", "at": "2026-09-10T10:00:00Z", "agent_version": "agtvrsn_v1" },
+    "created_at": "2026-09-10T09:01:00Z"
+  },
+  {
+    "id": "m3", "destination_id": "dest_1", "context": "Scenario #1 at Kollwitzstraße 52",
+    "transcript": "Parked on the corner, fine.", "title": "Corner parking fine", "category": "parking", "via": null,
+    "convo": null, "conversation_id": null, "grade": null, "created_at": "2026-09-09T08:01:00Z"
+  }
+]

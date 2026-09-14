@@ -1,0 +1,43 @@
+{
+  "id": "inv_1",
+  "test_runs": [
+    {
+      "test_run_id": "run_1", "test_invocation_id": "inv_1", "agent_id": "agent_test1", "status": "passed",
+      "test_id": "test_001", "test_name": "Otto · #1 Parking loops · cooperative",
+      "condition_result": { "result": "success", "rationale": { "messages": ["Opened with the question.", "Got a parking tip."], "summary": "" } },
+      "agent_responses": [{ "role": "agent", "time_in_call_secs": 0, "message": "Is it hard to park here at this time? Where did you find a spot?" }],
+      "last_updated_at_unix": 1789000100, "branch_id": null, "version_id": "agtvrsn_v1"
+    },
+    {
+      "test_run_id": "run_2", "test_invocation_id": "inv_1", "agent_id": "agent_test1", "status": "failed",
+      "test_id": "test_001", "test_name": "Otto · #1 Parking loops · cooperative",
+      "condition_result": { "result": "failure", "rationale": { "messages": ["Asked four questions.", "Did not let the tester go."], "summary": "The agent asked four questions and never let the tester go. It opened correctly." } },
+      "agent_responses": [{ "role": "agent", "time_in_call_secs": 0, "message": "Is it hard to park here at this time? Where did you find a spot?" }],
+      "last_updated_at_unix": 1789000101, "branch_id": null, "version_id": "agtvrsn_v1"
+    },
+    {
+      "test_run_id": "run_3", "test_invocation_id": "inv_1", "agent_id": "agent_test1", "status": "passed",
+      "test_id": "test_001", "test_name": "Otto · #1 Parking loops · cooperative",
+      "condition_result": { "result": "success", "rationale": { "messages": [], "summary": "" } },
+      "agent_responses": [], "last_updated_at_unix": 1789000102, "branch_id": null, "version_id": "agtvrsn_v1"
+    },
+    {
+      "test_run_id": "run_4", "test_invocation_id": "inv_1", "agent_id": "agent_test1", "status": "passed",
+      "test_id": "test_pre8", "test_name": "Otto · #8 Blocked route · terse",
+      "condition_result": { "result": "success", "rationale": { "messages": [], "summary": "" } },
+      "agent_responses": [], "last_updated_at_unix": 1789000103, "branch_id": null, "version_id": "agtvrsn_v1"
+    },
+    {
+      "test_run_id": "run_5", "test_invocation_id": "inv_1", "agent_id": "agent_test1", "status": "passed",
+      "test_id": "test_pre8", "test_name": "Otto · #8 Blocked route · terse",
+      "condition_result": { "result": "success", "rationale": { "messages": [], "summary": "" } },
+      "agent_responses": [], "last_updated_at_unix": 1789000104, "branch_id": null, "version_id": "agtvrsn_v1"
+    },
+    {
+      "test_run_id": "run_6", "test_invocation_id": "inv_1", "agent_id": "agent_test1", "status": "passed",
+      "test_id": "test_pre8", "test_name": "Otto · #8 Blocked route · terse",
+      "condition_result": { "result": "success", "rationale": { "messages": [], "summary": "" } },
+      "agent_responses": [], "last_updated_at_unix": 1789000105, "branch_id": null, "version_id": "agtvrsn_v1"
+    }
+  ]
+}
