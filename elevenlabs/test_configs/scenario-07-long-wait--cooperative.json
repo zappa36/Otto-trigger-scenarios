@@ -1,0 +1,55 @@
+{
+  "name": "Otto · #7 Long wait · cooperative",
+  "type": "simulation",
+  "dynamic_variables": {
+    "destination_title": "Sredzkistraße 44",
+    "destination_address": "Sredzkistraße 44, 10435 Berlin",
+    "destination_lat": 52.53814,
+    "destination_lng": 13.41902,
+    "destination_consignee": "J. Petrova",
+    "destination_floor": "4",
+    "destination_notes": "Customer is hard of hearing — ring twice and give it a minute.",
+    "scenario_num": 7,
+    "scenario_title": "Long wait — the handover eats the schedule",
+    "scenario_version": 1,
+    "scenario_question": "That took a while — how long did you actually wait, and is there a faster way in here?",
+    "debrief_language": "English",
+    "scenario_rule": "A cumulative ≥300 s standing within 60 m of the pin — far longer than a normal handover. Shuffling forward in a queue (interruptions shorter than 60 s) pauses the clock instead of resetting it.",
+    "scenario_ar_states": "ON_FOOT or STILL near the pin — the long STILL is the signal",
+    "scenario_signals": "Dwell time vs pin; opening hours; time of day",
+    "scenario_timing": "Wait — ask on leaving, when hands are free",
+    "scenario_test_steps": "Go to the pin, stand in the waiting area ≥5 min (a few steps forward now and then are fine), then leave and answer Otto.",
+    "expected_tip_type": "other — realistic waiting time and how to skip it",
+    "trigger_fired": "yes",
+    "trigger_passes": 0,
+    "trigger_stopped": "yes",
+    "activity_state": "ON_FOOT",
+    "activity_summary": "ON_FOOT 1m → STILL 6m → ON_FOOT 30s",
+    "distance_to_pin_m": 25
+  },
+  "chat_history": [
+    {
+      "role": "agent",
+      "time_in_call_secs": 0,
+      "message": "That took a while — how long did you actually wait, and is there a faster way in here?"
+    }
+  ],
+  "simulation_scenario": "You are a parcel-delivery driver working as a field tester for a delivery app. You have just acted out trigger scenario #7 \"Long wait — the handover eats the schedule\" at Sredzkistraße 44 (Sredzkistraße 44, 10435 Berlin), delivery for J. Petrova, floor 4. The situation being tested: Goods-in queues, reception hunts for a stamp, the one person with a key is at lunch. The dwell is the signal; the workaround is the tip. The steps you followed: Go to the pin, stand in the waiting area ≥5 min (a few steps forward now and then are fine), then leave and answer Otto. On this run the phone measured a stop; the trigger fired and Otto is calling you now. You are about 25 m from the map pin as you talk. What you actually found on the ground — the only facts you may reveal, and only when asked: You waited about six minutes: Petrova is hard of hearing and only opened after the third ring. Knocking on the window next to the door works faster than the bell. On the way in, Otto (the agent) read you the notes on file for this address: Customer is hard of hearing — ring twice and give it a minute. You may confirm or correct them if asked. How you talk: You answer fully and helpfully: each answer gives what was asked plus the one detail that makes it useful — a street name, a distance, a time of day. Friendly, businesslike, one to three sentences at a time. You speak English. Ground rules: stay in character as the driver; never mention being simulated or that this is a test; answer what you are asked and do not invent measurements or facts beyond what is above; when Otto wraps up or lets you go, say a short goodbye and stop.",
+  "simulation_max_turns": 8,
+  "success_conditions": [
+    "The agent opens the debrief by asking “That took a while — how long did you actually wait, and is there a faster way in here?” — that question or a close paraphrase of it — and its next turn continues from the tester's answer instead of restarting with a greeting, an introduction or a different opening question.",
+    "At least one agent follow-up refers to what actually happened on this run — the phone measured a stop — or to the specific situation this scenario is about (Goods-in queues, reception hunts for a stamp, the one person with a key is at lunch. The dwell is the signal; the workaround is the tip). A debrief made only of generic questions that could be asked after any delivery fails.",
+    "The agent elicits at least one concrete, actionable tip of type \"other\" (the sheet says: other — realistic waiting time and how to skip it) — something the next driver at Sredzkistraße 44 could act on, such as a place, a time or a way in — and the agent states no facts the tester did not say (no invented street names, times, distances or reasons).",
+    "Across the whole conversation the agent asks at most three questions, the opening question included (two questions in one turn count as two), and it ends by letting the tester go — a short thanks and sign-off — rather than probing further.",
+    "Every agent turn is in English. An agent turn in any other language fails.",
+    "The agent gets an actual waiting time in minutes from the tester and one way to shorten it next time."
+  ],
+  "_otto": {
+    "scenario_num": 7,
+    "scenario_title": "Long wait — the handover eats the schedule",
+    "persona": "cooperative",
+    "kind": "scenario",
+    "language": "en",
+    "briefing": "You are Otto, debriefing a field tester who has just acted out a trigger scenario at Sredzkistraße 44 (Sredzkistraße 44, 10435 Berlin). Scenario #7: Long wait — the handover eats the schedule (v1). The trigger rule under test: A cumulative ≥300 s standing within 60 m of the pin — far longer than a normal handover. Shuffling forward in a queue (interruptions shorter than 60 s) pauses the clock instead of resetting it. What this debrief should end up teaching us (tip type): other — realistic waiting time and how to skip it. Pre-arrival notes on file, read to them on the way in: the consignee is J. Petrova (4); notes on file: Customer is hard of hearing — ring twice and give it a minute. The trigger fired on this run: the phone measured a stop. Activity the phone observed: ON_FOOT 1m → STILL 6m → ON_FOOT 30s. Ask about what they actually found on the ground, keep it to a couple of short questions, and let them go."
+  }
+}

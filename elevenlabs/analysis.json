@@ -1,0 +1,80 @@
+{
+  "_otto": {
+    "note": "The agent-side half of the loop: what ElevenLabs itself grades and extracts on EVERY real call, so field conversations come back scored without anyone listening to them. This file is exactly one request body for PATCH /v1/convai/agents/{agent_id} once this `_otto` key is stripped (the loop's `configure` command does that, the way it strips `_otto` from test files). Field names and shapes were checked against https://elevenlabs.io/docs/api-reference/agents/update.md: platform_settings.evaluation.criteria[] {id, name, conversation_goal_prompt, type: 'prompt', scope}, platform_settings.data_collection {name: {type, description, enum}}, platform_settings.overrides.conversation_config_override.{agent.first_message, agent.language, conversation.text_only} (booleans that ALLOW the override the phone sends — the first message and the language — and text_only so a text client can talk to the agent without audio cost — a manual check from a terminal; the suite's simulation tests need no override). The evaluation criteria are generic on purpose: they must hold for every scenario, the per-scenario expectations live in the tests.",
+    "unverified": [
+      "Agents already migrated onto platform_settings.analysis_items (the docs' newer by-reference attachment of evaluation and data-collection items) may ignore these legacy evaluation/data_collection fields — the docs say reads fall back to the legacy fields only while analysis_items is unset. The loop should read the agent back after the PATCH and warn if the criteria are not there.",
+      "Whether a PATCH of platform_settings replaces or merges the object — the loop GETs first and PATCHes the agent's whole platform_settings with these keys merged in (minus the read-only safety and queueing_config.hold_audio), so its own criteria and the rest of its settings survive either way."
+    ]
+  },
+  "platform_settings": {
+    "evaluation": {
+      "criteria": [
+        {
+          "id": "otto_tip_elicited",
+          "name": "Elicited a concrete, actionable tip",
+          "type": "prompt",
+          "scope": "conversation",
+          "conversation_goal_prompt": "Did the agent get at least one concrete, actionable tip out of the tester — something the next driver at this address could act on, such as where to park, where the real entrance is, when somebody answers, who else takes parcels, or what blocks the approach? Vague acknowledgements ('it was hard') do not count. A conversation in which the tester says there was nothing unusual and the agent accepts that also counts as success: the tip is 'nothing to report'."
+        },
+        {
+          "id": "otto_three_questions",
+          "name": "At most three questions",
+          "type": "prompt",
+          "scope": "conversation",
+          "conversation_goal_prompt": "Count every question the agent put to the tester across the whole conversation, the opening question included; two questions in one turn count as two. Success if the total is three or fewer. Failure if it is four or more."
+        },
+        {
+          "id": "otto_one_language",
+          "name": "Stayed in one language",
+          "type": "prompt",
+          "scope": "conversation",
+          "conversation_goal_prompt": "Was every agent turn in the same language, and was it the language the tester used (or, when the debrief_language dynamic variable was set, that language)? A single agent turn in another language is a failure. Proper names and street names in another language do not count against it."
+        },
+        {
+          "id": "otto_no_invention",
+          "name": "Did not invent facts",
+          "type": "prompt",
+          "scope": "conversation",
+          "conversation_goal_prompt": "Did the agent state only things the tester said or that were in its briefing (the dynamic variables and notes on file)? Failure if the agent asserted a street name, a distance, a pass count, a time or a reason the tester never gave, or claimed to have measured or noticed something when the trigger did not fire. Asking about something is fine; asserting it is not."
+        },
+        {
+          "id": "otto_closed_politely",
+          "name": "Closed by letting the tester go",
+          "type": "prompt",
+          "scope": "conversation",
+          "conversation_goal_prompt": "Did the agent end the debrief itself with a short thanks and sign-off that let the tester get on with their route, rather than trailing off, probing further after the tip was in hand, or leaving the tester to end the call? Success only if the agent's last turn is a clear, polite close."
+        }
+      ]
+    },
+    "data_collection": {
+      "tip_text": {
+        "type": "string",
+        "description": "The tip the tester gave, in one or two sentences a dispatcher could read to the next driver at this address — the place, the time, the way in, the detour. Empty if the tester had nothing to report."
+      },
+      "tip_type": {
+        "type": "string",
+        "enum": ["access", "parking", "gate_code", "recipient", "address", "hazard", "other", "none"],
+        "description": "The category of the tip: access (how to get in), parking (where to stop), gate_code (codes and keys), recipient (who is there when, who else takes parcels), address (the pin or the door is somewhere else), hazard (what blocks or slows the approach), other, or none when the tester had nothing to report."
+      },
+      "question_count": {
+        "type": "integer",
+        "description": "How many questions the agent put to the tester over the whole conversation, the opening question included; two questions in one turn count as two."
+      },
+      "tester_language": {
+        "type": "string",
+        "description": "The language the tester spoke in, as a lowercase ISO 639-1 code such as en or it."
+      }
+    },
+    "overrides": {
+      "conversation_config_override": {
+        "agent": {
+          "first_message": true,
+          "language": true
+        },
+        "conversation": {
+          "text_only": true
+        }
+      }
+    }
+  }
+}

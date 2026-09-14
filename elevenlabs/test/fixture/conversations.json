@@ -1,0 +1,82 @@
+[
+  {
+    "list": { "agent_id": "agent_test1", "conversation_id": "conv_aaa", "start_time_unix_secs": 1789000000, "call_duration_secs": 95, "message_count": 5, "status": "done", "call_successful": "failure", "branch_id": "branch_main", "version_id": "agtvrsn_v1" },
+    "detail": {
+      "agent_id": "agent_test1", "conversation_id": "conv_aaa", "status": "done",
+      "metadata": { "start_time_unix_secs": 1789000000, "call_duration_secs": 95, "cost": 12 },
+      "transcript": [
+        { "role": "agent", "message": "Is it hard to park here at this time? Where did you find a spot?", "time_in_call_secs": 0 },
+        { "role": "user", "message": "Yeah, two loops. Ended up in the loading bay round the corner.", "time_in_call_secs": 6 },
+        { "role": "agent", "message": "Got it. Anything else worth knowing about this address?", "time_in_call_secs": 12 },
+        { "role": "user", "message": "Not really.", "time_in_call_secs": 18 },
+        { "role": "agent", "message": "Thanks, safe travels.", "time_in_call_secs": 21 }
+      ],
+      "analysis": {
+        "call_successful": "failure",
+        "transcript_summary": "The tester looped twice and parked in a loading bay; the agent did not ask where.",
+        "evaluation_criteria_results": {
+          "otto_tip_elicited": { "criteria_id": "otto_tip_elicited", "result": "failure", "rationale": "The agent never asked which loading bay or where it is." },
+          "otto_three_questions": { "criteria_id": "otto_three_questions", "result": "success", "rationale": "Two questions in total." }
+        },
+        "data_collection_results": {
+          "tip_type": { "data_collection_id": "tip_type", "value": "parking", "rationale": "The tester talked about parking." }
+        }
+      },
+      "conversation_initiation_client_data": {
+        "dynamic_variables": {
+          "destination_title": "Kollwitzstraße 52", "scenario_num": 1, "scenario_title": "Parking loops — two slow passes and a stop",
+          "scenario_question": "Is it hard to park here at this time? Where did you find a spot?",
+          "expected_tip_type": "parking — where to stop at this address", "debrief_language": "English",
+          "trigger_fired": "yes", "trigger_passes": 2, "trigger_stopped": "yes"
+        },
+        "conversation_config_override": { "agent": { "first_message": "Is it hard to park here at this time? Where did you find a spot?" } }
+      },
+      "branch_id": "branch_main", "version_id": "agtvrsn_v1"
+    }
+  },
+  {
+    "list": { "agent_id": "agent_test1", "conversation_id": "conv_bbb", "start_time_unix_secs": 1789003600, "call_duration_secs": 70, "message_count": 4, "status": "done", "call_successful": "success", "branch_id": "branch_main", "version_id": "agtvrsn_v1" },
+    "detail": {
+      "agent_id": "agent_test1", "conversation_id": "conv_bbb", "status": "done",
+      "metadata": { "start_time_unix_secs": 1789003600, "call_duration_secs": 70, "cost": 9 },
+      "transcript": [
+        { "role": "agent", "message": "Was the road closed there? What blocked you?", "time_in_call_secs": 0 },
+        { "role": "user", "message": "A removal truck shut Wörther Straße at the Kollwitzstraße end. Coming in from Husemannstraße works.", "time_in_call_secs": 8 },
+        { "role": "agent", "message": "Noted — in from Husemannstraße. Thanks, and safe travels.", "time_in_call_secs": 14 },
+        { "role": "user", "message": "Cheers.", "time_in_call_secs": 16 }
+      ],
+      "analysis": {
+        "call_successful": "success",
+        "transcript_summary": "Road blocked by a removal truck; the approach from Husemannstraße works.",
+        "evaluation_criteria_results": {
+          "otto_tip_elicited": { "criteria_id": "otto_tip_elicited", "result": "success", "rationale": "A usable detour was elicited." },
+          "otto_three_questions": { "criteria_id": "otto_three_questions", "result": "success", "rationale": "Two questions." }
+        },
+        "data_collection_results": {
+          "tip_type": { "data_collection_id": "tip_type", "value": "hazard", "rationale": "A blocked road." }
+        }
+      },
+      "conversation_initiation_client_data": {
+        "dynamic_variables": {
+          "destination_title": "Wörther Straße 12", "scenario_num": 8, "scenario_title": "Blocked route — turned round short of the address",
+          "scenario_question": "Was the road closed there? What blocked you?",
+          "expected_tip_type": "hazard — what blocks the approach", "debrief_language": "English", "trigger_fired": "no"
+        }
+      },
+      "branch_id": "branch_main", "version_id": "agtvrsn_v1"
+    }
+  },
+  {
+    "list": { "agent_id": "agent_test1", "conversation_id": "conv_ccc", "start_time_unix_secs": 1789007200, "call_duration_secs": 12, "message_count": 1, "status": "done", "call_successful": "unknown", "branch_id": "branch_main", "version_id": "agtvrsn_v1" },
+    "detail": {
+      "agent_id": "agent_test1", "conversation_id": "conv_ccc", "status": "done",
+      "metadata": { "start_time_unix_secs": 1789007200, "call_duration_secs": 12, "cost": 2 },
+      "transcript": [
+        { "role": "agent", "message": "What did you find?", "time_in_call_secs": 0 }
+      ],
+      "analysis": { "call_successful": "unknown", "transcript_summary": "The tester said nothing.", "evaluation_criteria_results": {}, "data_collection_results": {} },
+      "conversation_initiation_client_data": { "dynamic_variables": {} },
+      "branch_id": "branch_main", "version_id": "agtvrsn_v1"
+    }
+  }
+]

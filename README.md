@@ -274,6 +274,179 @@ and `NOTE_CATEGORY_GUIDE` together (the guide tells the model what each
 label means) — `scenario-ai` reads `NOTE_CATEGORIES` too, so drafted
 scenarios expect tip types Otto can actually file.
 
+## The agent loop (record → grade → replay → propose → version)
+
+The tuning loop above tunes the trigger *detector*. With [Otto as an
+ElevenLabs agent](#otto-as-your-elevenlabs-agent) there is a second
+knob — the agent's **prompt**: does Otto open with the scenario's
+question, follow up on what the tester actually found, come back with
+the tip type the row expects, keep it to a couple of questions, and
+stay in the language the card chose? [`elevenlabs/`](elevenlabs/) runs
+the same loop for that prompt, on the same principles — record in the
+field, judge in the field, replay offline, propose the smallest change,
+keep the trail — and never edits the live prompt on its own. Plain Node
+(>= 20, ESM, no dependencies; `npm test` is `node --test`), like
+`mock-api/`, because the generator has to read `trigger-scenarios.js`
+and mirror `agentVars()` in `app.js` function for function.
+[`elevenlabs/README.md`](elevenlabs/README.md) is the long form. Every
+command below is `node loop.mjs <command>` from inside `elevenlabs/`,
+and `--dry-run` on any of them prints every request it would send —
+method, path, body — and sends nothing; it needs no key, which makes it
+the safe way to see what a command does.
+
+1. **Record.** Every ◆ AGENT debrief now carries the ElevenLabs
+   `conversation_id` it came out of — the join to the agent's own
+   record of the call at the other end of the wire (transcript,
+   analysis, evaluation results) — and on the dashboard the designer
+   **grades the conversation**: five ✓/✗ lines under THE CONVERSATION
+   (opened with the scenario's question · followed up on what the
+   tester actually found · got the expected tip type · kept it short ·
+   right language throughout) plus a one-line note. A second tap
+   clears a line back to *not judged*, and the row folds behind a
+   `GRADED · 4/5` (or `GRADED · ✗`) chip once saved. This is the
+   verdict on the *conversation*, distinct from the scenario's PASS /
+   PARTIAL / FAIL on the trigger, and it is the ground truth the loop
+   scores the prompt against: a grade with any ✗ is what a regression
+   test gets cut from. The header counts the backlog ("2/5 agent
+   debriefs graded"), the DEMO view hides all of it, and Spec JSON ⇩
+   exports `conversation_id` and `grade` on each result. On the agent's
+   side, `node loop.mjs configure` puts
+   [`elevenlabs/analysis.json`](elevenlabs/analysis.json) on the agent
+   — five generic evaluation criteria (a concrete tip elicited, at
+   most three questions, one language, nothing invented, closed by
+   letting the tester go) and four data-collection fields (`tip_text`,
+   `tip_type`, `question_count`, `tester_language`) — so ElevenLabs
+   grades every real field call too, and enables the overrides the
+   phone needs (first message, language) plus text-only, so a text
+   client can talk to the agent without audio cost for a manual check.
+   It merges over the agent's own criteria, reads the agent back, and
+   warns if the criteria did not land.
+2. **Replay: the suite.** `npm run generate`
+   ([`generate-tests.mjs`](elevenlabs/generate-tests.mjs)) turns every
+   row of the "Otto triggers" sheet — the starter sheet by default,
+   `--supabase` for your own rows — into ElevenLabs **simulation
+   tests**: one per row and persona, three personas in
+   [`personas.json`](elevenlabs/personas.json) (*cooperative*; *terse*,
+   who volunteers nothing until Otto's follow-up names it;
+   *sidetracked*, who opens with an aside and keeps chatting if Otto
+   takes the bait). Each test carries exactly the dynamic variables a
+   phone sends — the same `agentVars()` keys, the same number
+   formatting, empty values omitted — from a Kollwitzkiez fixture stop
+   with real notes on file and a synthetic run (two slow passes and a
+   stop for #1, 310 m parked and 340 m walked for #2, a silent run for
+   #8); the row's "Otto says" line as the opening agent turn, exactly
+   as the phone overrides the first message; a simulated tester who
+   knows what they found on the ground and may reveal only that; and
+   success conditions derived from the row — opened with the question,
+   followed up on this run's measurements, elicited the tip type "What
+   Otto learns" names, at most three questions then let them go, one
+   language — plus a row-specific check where the row implies one (#8:
+   never claims to have measured anything on a run where nothing
+   fired; #10, the control: accepts "nothing to report" without
+   inventing a problem). Italian variants are cut for row #1 only —
+   every test costs a simulated conversation, and one row is enough to
+   see what the prompt does with `{{debrief_language}}` and an Italian
+   opener. Output is deterministic and committed under
+   [`test_configs/`](elevenlabs/test_configs/) (33 files today), so a
+   sheet edit shows up as a diff; and `npm test` reads `agentVars()`'s
+   key list straight out of `app.js`, so a new variable on the phone
+   fails the tests until
+   [`lib/scenario-vars.mjs`](elevenlabs/lib/scenario-vars.mjs) mirrors
+   it. `push-tests` creates or updates the tests by name and writes
+   `tests.lock.json` (name → id; commit it, so a fresh clone updates
+   instead of duplicating); `run` runs them with a repeat count
+   (`--repeat 3` by default, up to 20; `--filter TEXT` for a subset,
+   `--branch ID` for a branch) and prints **pass rates, worst first**,
+   with the evaluator's first rationale per test, to
+   `results/<stamp>-<label>.json`.
+3. **Field failures become tests.** `pull` fetches every conversation
+   the agent had (`--days 14` by default, or `--since ISO`) with its
+   transcript, the analysis ElevenLabs ran on it and the dynamic
+   variables the phone sent, and joins them by conversation id to the
+   debrief, its grade and its scenario (Supabase with the anon key,
+   like `tune_triggers.py`; `SUPABASE_URL` / `SUPABASE_ANON_KEY` read
+   another project). It also stamps each grade with the agent version
+   that took the call — the dashboard cannot know it — so a grade stays
+   comparable after the prompt moves on (`--no-stamp` skips the write).
+   `score` puts the two next to each other per scenario: suite pass
+   rate, field grade rate, which checks failed, the failures grouped
+   by reason. `cut` turns each debrief graded bad into an `llm`
+   next-reply regression test under `test_configs/regressions/`: the
+   turns up to the reply the designer marked bad, a success condition
+   built from the failed checks and the note, and that reply as the
+   failure example. A debrief that failed on the opener alone is cut
+   before the first agent turn instead — on the phone the opener is
+   the sheet's "Otto says" line sent as the first-message override, so
+   a wrong one points at the override or the sheet line before it
+   points at the prompt. `push-tests` again and the regressions join
+   the suite.
+4. **Propose → branch → compare → promote.** `propose` hands a model
+   the current prompt (the ElevenLabs CLI's `agent_configs/` if you
+   keep one in the folder, `--prompt FILE`, or `--agent` to read it
+   live), the failing tests with their rationales, the debriefs graded
+   bad, and how often each evaluation criterion failed in the field,
+   and asks for the **smallest edit the evidence supports** — every
+   `{{dynamic_variable}}` kept, nothing restructured. The reply is
+   refused if it changes nothing or grows the prompt by more than a
+   quarter, because a longer prompt is not a better one. What lands is
+   `proposals/<stamp>.json`: the prompt, a one-line note, the rationale
+   and a unified diff — read it. `branch --proposal FILE` puts that
+   prompt on an agent **branch** cut from the version the agent is on;
+   `run --branch ID --label branch` runs the suite there; `compare
+   --base results/<main>.json --branch results/<branch>.json` says
+   **ACCEPT** when no test drops by more than the margin (ten points;
+   `--margin 0.1`) *and* at least one previously failing test
+   improves, **REJECT** otherwise (exit 1). `promote --branch ID
+   --proposal FILE` merges into the agent's main branch and archives
+   the branch — by hand, every time; nothing in the loop touches the
+   live prompt on its own — and tells you to pull the config into git
+   with the note as the version description. Then `run --label main`
+   again: the new baseline.
+
+The proposer is the repo's existing model provider (`OPENAI_API_KEY`,
+the same secret `scenario-ai` carries; `LOOP_MODEL` picks the model).
+`ELEVENLABS_API_KEY` is a **secret**: it lives in your shell or in a CI
+secret, travels only in the request header, and is never in browser
+code, never logged (the dry-run printer redacts it), never committed.
+`ELEVENLABS_AGENT_ID` is the same public value `config.js` carries.
+
+What it costs: the suite is LLM-only — a simulated tester talking to
+the agent's LLM, judged by an evaluation model; no TTS, no minutes —
+and `--repeat` multiplies it (33 tests × 3 is a hundred simulated
+conversations; `--filter` for a subset). `pull` only reads. `propose`
+is one chat completion, its input trimmed to fit (the worst tests and
+the latest debriefs survive, and it says what it left out). Field
+conversations cost what they cost on the phone, and the post-call
+analysis `configure` switches on adds a small LLM charge per call.
+
+The blind spot, known: a test sends the agent the dynamic variables and
+the opening line, not the phone's **contextual update** — the same
+briefing in plain sentences (`agentBriefing()` in `app.js`), which the
+testing API has no slot for. A prompt that leans on the briefing rather
+than on `{{scenario_rule}}`-style variables tests worse than it
+performs in the field; every generated test carries the briefing under
+`_otto.briefing`, and a prompt that references the variables is the
+fix.
+
+CI: the `agent-suite` workflow
+([`.github/workflows/agent-suite.yml`](.github/workflows/agent-suite.yml))
+runs the node tests on every push or pull request that touches
+`elevenlabs/` or what the generator mirrors (`app.js`, `otto-agent.js`,
+`trigger-scenarios.js`, `route-kollwitz.js`), then re-generates the
+tests from the starter sheet and fails if the committed `test_configs/`
+drifted (fix: `cd elevenlabs && node generate-tests.mjs`, commit). The
+live suite runs on demand from the Actions tab (repeat count 2–20, an
+optional agent branch id, an optional name filter) and every Monday
+06:00 UTC — but only when the repository carries the
+`ELEVENLABS_API_KEY` secret and the `ELEVENLABS_AGENT_ID` variable
+(Settings → Secrets and variables → Actions); without the key the job
+skips green, so a fork is not nagged every Monday. The table lands in
+the run's job summary, and the per-test JSON plus `tests.lock.json` are
+downloadable from the run's Artifacts as `agent-suite-results`. The
+rates are the signal, not a red job: a simulated tester is not
+deterministic, so the loop exits 0 once the suite has run, whatever the
+rates, and the step fails only when the loop itself does.
+
 ## Otto as your ElevenLabs agent
 
 A one-shot voice note cannot ask a follow-up, and a trigger scenario is
@@ -296,8 +469,11 @@ Then deploy
 agent is private (same `ALLOWED_ORIGINS` secret as the others; set
 `ELEVENLABS_AGENT_ID` on it too and the function can only ever sign
 conversations for that one agent), and re-run
-[`schema.sql`](supabase/schema.sql) for the two columns that hold the
-conversation. Quick test without deploying anything: open the phone page
+[`schema.sql`](supabase/schema.sql) for the columns that hold the
+conversation (`via`, `convo`) and, since [the agent
+loop](#the-agent-loop-record--grade--replay--propose--version), its
+ElevenLabs id and grade (`conversation_id`, `grade`). Quick test without
+deploying anything: open the phone page
 with `?agent=YOUR_AGENT_ID` (and `?noagent=1` forces the recorded
 debrief back). The mic self-test behind the version chip names which
 Otto the phone will actually open.
@@ -313,6 +489,7 @@ works whether or not the agent's prompt was written for this app:
    (the [pre-arrival notes](#pre-arrival-notes--otto-reads-before-you-arrive)
    on file), `scenario_num`,
    `scenario_title`, `scenario_version`, `scenario_question`,
+   `debrief_language` (the card's 🇬🇧/🇮🇹 pick, as a word),
    `scenario_rule`, `scenario_ar_states`, `scenario_signals`,
    `scenario_timing`, `scenario_test_steps`, `expected_tip_type`,
    `trigger_fired`, `trigger_passes`, `trigger_stopped`,
@@ -377,6 +554,24 @@ carries the whole exchange turn by turn under **the conversation** —
 what Otto had to *ask* to get the answer is half of what a trigger
 scenario is being tested for, and it rides along into the exported
 spec JSON.
+
+Since [the agent loop](#the-agent-loop-record--grade--replay--propose--version)
+the debrief also carries the ElevenLabs **conversation id** it came out
+of (hover the ◆ AGENT chip) — the join to the agent's own record of the
+call, transcript and analysis included — and the TESTING card lets the
+designer **grade the conversation** under THE CONVERSATION: five ✓/✗
+lines (opened with the scenario's question, followed up on what the
+tester found, got the expected tip type, kept it short, right language
+throughout) and a one-line note, folded behind a `GRADED · 4/5` chip
+once saved. That grade is the verdict on the *conversation*, not on the
+trigger, and it is what the loop scores the prompt against — a debrief
+graded ✗ anywhere becomes a regression test. Two columns hold the pair,
+`conversation_id` and `grade` on `messages`: re-run
+[`schema.sql`](supabase/schema.sql) once for them. A database without
+them still saves the debrief, minus the id, exactly as it does for
+`via`/`convo` (the phone drops only the column PostgREST names and
+retries), and a grade that cannot land says so in the dashboard's
+header line.
 
 Everything degrades the way the rest of the kit does. No agent id → the
 recorded debrief, unchanged. Agent configured but unreachable → the
@@ -741,8 +936,13 @@ by design).
    the [pre-arrival notes](#pre-arrival-notes--otto-reads-before-you-arrive)
    read in Otto's ElevenLabs voice (`ELEVENLABS_API_KEY` +
    optionally `ELEVENLABS_VOICE_ID`; keyless it falls back to the
-   browser's own speech). Set `ALLOWED_ORIGINS` on all of them. Deploy
-   each one with `--no-verify-jwt` (or switch **Verify JWT** off in the
+   browser's own speech). Set `ALLOWED_ORIGINS` on all of them. (The
+   agent's own tuning loop under `elevenlabs/` is not a function and
+   never runs in a browser: it takes `ELEVENLABS_API_KEY`,
+   `ELEVENLABS_AGENT_ID` and `OPENAI_API_KEY` from your shell or a CI
+   secret — see [the agent
+   loop](#the-agent-loop-record--grade--replay--propose--version).)
+   Deploy each one with `--no-verify-jwt` (or switch **Verify JWT** off in the
    function's settings in the dashboard): the browser calls them with
    the project's publishable `sb_publishable_…` key, which is not a
    JWT, so the platform's JWT gate would answer every call with a 401.
@@ -780,10 +980,12 @@ by design).
 
 ### Moving to another Supabase project
 
-The kit's project is written in three places — the two defaults at the
+The kit's project is written in four places — the two defaults at the
 top of `config.js`, and the `DEFAULT_URL` / `DEFAULT_KEY` pair in
-[`scripts/tune_triggers.py`](scripts/tune_triggers.py) and
-[`scripts/migrate_supabase.py`](scripts/migrate_supabase.py). To move:
+[`scripts/tune_triggers.py`](scripts/tune_triggers.py),
+[`scripts/migrate_supabase.py`](scripts/migrate_supabase.py) and
+[`elevenlabs/lib/supabase.mjs`](elevenlabs/lib/supabase.mjs) (the agent
+loop's reader; `lib/sheet.mjs` imports the pair from there). To move:
 
 1. **Schema** — paste [`supabase/schema.sql`](supabase/schema.sql) into
    the new project's SQL editor and run it: tables, indexes, the open
@@ -794,7 +996,7 @@ top of `config.js`, and the `DEFAULT_URL` / `DEFAULT_KEY` pair in
    and set their secrets again: they belong to the project, not the
    code (`OPENAI_API_KEY`, `GMAPS_SERVER_KEY`, `ELEVENLABS_API_KEY`,
    `ALLOWED_ORIGINS`, the persona tuning).
-3. **Point the app at it** — the three files above; on Vercel set
+3. **Point the app at it** — the four files above; on Vercel set
    `SUPABASE_URL` / `SUPABASE_ANON_KEY` to the new values, or delete
    them, and redeploy: env vars left on the old project win over the
    defaults.
@@ -823,6 +1025,7 @@ word). Everything else is the kit as extracted:
 | new | `app.js`, `index.html`, `backend.js`, `config.js`, `supabase/schema.sql` | Destinations, the card, the wiring |
 | new | `dashboard.html`, `dashboard.js`, `supabase/functions/scenario-ai/` | Trigger scenarios: define, pin, compare, verdict — and the tuning loop (draft, sliders, feedback, versions, spec export) |
 | new | `otto-agent.js`, `supabase/functions/elevenlabs-token/` | Otto as your own ElevenLabs agent: the same debrief as a live conversation, with the scenario as its context |
+| new | `elevenlabs/`, `.github/workflows/agent-suite.yml` | The tuning loop for the agent's prompt: scenario tests from the sheet, field conversations joined to their dashboard grades, proposed prompt diffs on an agent branch — Node, no dependencies |
 
 The dashboard composes through the same seams: `FieldMap.mount` draws the
 scenario pins (status as `color`/`icon`), `Geo.simulate` centres the
@@ -872,6 +1075,11 @@ The composition happens entirely through the kits' public seams:
 | `trigger-scenarios.js` | The starter sheet: ten finished "Otto triggers" rows — the deck's worked example, eight more situations, the clean-run control — loadable in one tap, idempotent by title |
 | `parcelvox-dashboard.html`, `parcelvox-dashboard/` | The ParcelVox dispatcher dashboard — map and pre-arrival notes wired to the same shared store (localStorage or Supabase), report counts and hotspots from the analytics API; the rest labelled sample data |
 | `mock-api/` | A mock of the Parcelvox Analytics API contract: the store's real rows reshaped into places, reports, guidance, tours and outreach, plus invented history; no dependencies, `node server.mjs` |
+| `elevenlabs/` | The agent loop — the tuning loop for Otto's ElevenLabs prompt; Node >= 20, no dependencies, `npm test`; its own [`README.md`](elevenlabs/README.md), `personas.json`, `lib/` (the `agentVars()` mirror, the API client, the Supabase reader), `test/` (an in-process mock of the three services). Guarded by `.github/workflows/agent-suite.yml`: node tests + generator drift on every change, the live suite on demand and Mondays when the key secret exists |
+| `elevenlabs/loop.mjs` | `configure` · `push-tests` · `run` · `pull` · `score` · `cut` · `propose` · `branch` · `compare` · `promote` — the REST API called directly, `--dry-run` prints every request and sends nothing; results, field pulls and proposals land in gitignored folders next to it |
+| `elevenlabs/generate-tests.mjs` | One ElevenLabs simulation test per sheet row and persona (`--sheet` the starter sheet, `--supabase` your rows), carrying the dynamic variables a phone would send, a simulated tester who knows what they found, and success conditions derived from the row; deterministic |
+| `elevenlabs/test_configs/` | The generated suite, committed (33 files: ten rows × three personas, plus Italian variants of row #1), one create-test request body each; `regressions/` holds the next-reply tests `cut` makes from debriefs graded bad; `tests.lock.json` next to it maps test names to ElevenLabs ids once pushed |
+| `elevenlabs/analysis.json` | What `configure` puts on the agent: five evaluation criteria and four data-collection fields ElevenLabs runs on every real call, and the overrides the phone and the loop need enabled |
 | `route-schoeneberg.js` | The Schöneberg demo route: 100 stops in driving order, 87 real geocoded addresses, dispatch + driver notes on file at 40 of them |
 | `route-kollwitz.js` | The Kollwitzkiez walking route: 12 stops on foot around Kollwitzplatz, 11 real geocoded addresses, notes on file at 8 — the tour a tester walks so the dispatcher dashboard gets real tours |
 | `activity-rec.js` | Google-AR-style activity states from web signals; `inject()`/`feed()` seams for the real Android API |
@@ -881,5 +1089,5 @@ The composition happens entirely through the kits' public seams:
 | `scripts/migrate_supabase.py` | Moves the rows to another Supabase project, ids intact (`schema.sql` does the tables) |
 | `voice-note.js/.css` | from voice-notes-kit + hands-free pause-to-send |
 | `geolocate.js`, `field-map.js/.css` | verbatim from field-map-kit |
-| `supabase/schema.sql` | `destinations` (incl. pre-arrival notes: consignee / floor / notes, and route / stop) + `messages` (incl. the agent conversation) + `scenarios` (incl. params / versions / feedback) + `runs` + `visits` (the Delivered tap), RLS |
+| `supabase/schema.sql` | `destinations` (incl. pre-arrival notes: consignee / floor / notes, and route / stop) + `messages` (incl. the agent conversation, its ElevenLabs `conversation_id` and the dashboard's `grade` of it) + `scenarios` (incl. params / versions / feedback) + `runs` + `visits` (the Delivered tap), RLS |
 | `supabase/functions/` | `voice-note` (kit + trailing-"stop" strip + a text path for agent conversations) + `geocode` (verbatim) + `scenario-ai` (draft, revise & the 🇮🇹 question translation) + `elevenlabs-token` (signed URLs for a private agent) + `elevenlabs-tts` (the pre-arrival notes read in Otto's real voice) |

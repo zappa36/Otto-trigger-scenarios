@@ -1,0 +1,34 @@
+{
+  "agent_id": "agent_test1",
+  "name": "Otto (fixture)",
+  "conversation_config": {
+    "agent": {
+      "first_message": "What did you find?",
+      "language": "en",
+      "prompt": {
+        "prompt": "You are Otto, the voice of a parcel-delivery app, debriefing a field tester right after a trigger scenario fired.\nThe scenario: {{scenario_title}} (rule: {{scenario_rule}}). The tip type it should produce: {{expected_tip_type}}.\nOpen with the question you were given. Then ask about what they actually found on the ground.\nKeep it to a couple of short questions, then let them go.\nSpeak {{debrief_language}} throughout.\nNever state a measurement the phone did not give you.",
+        "llm": "gpt-4o-mini"
+      }
+    },
+    "conversation": { "text_only": false }
+  },
+  "platform_settings": {
+    "evaluation": {
+      "criteria": [
+        { "id": "their_crit", "name": "Their own criterion", "type": "prompt", "conversation_goal_prompt": "Was the agent polite?" }
+      ]
+    },
+    "data_collection": {},
+    "overrides": { "conversation_config_override": { "agent": { "first_message": false } } },
+    "auth": { "enable_auth": false, "allowlist": [{ "hostname": "otto.example" }], "require_origin_header": false },
+    "call_limits": { "agent_concurrency_limit": -1, "daily_limit": 100, "bursting_enabled": true },
+    "privacy": { "record_voice": true, "retention_days": 30 },
+    "widget": { "variant": "compact" },
+    "testing": { "attached_tests": [{ "test_id": "test_pre8" }] },
+    "queueing_config": { "enabled": false, "hold_audio": { "audio_path": "hold/otto.mp3", "audio_url": "https://cdn.example/hold/otto.mp3", "original_filename": "otto.mp3", "duration_secs": 4.2, "size_bytes": 67000 } },
+    "safety": { "is_blocked_ivc": false, "is_blocked_non_ivc": false, "ignore_safety_evaluation": false }
+  },
+  "version_id": "agtvrsn_v1",
+  "branch_id": "branch_main",
+  "main_branch_id": "branch_main"
+}

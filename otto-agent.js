@@ -263,6 +263,7 @@ const OttoAgent = (() => {
     const state = {
       ws: null, stream: null, inCtx: null, node: null, src: null,
       turns: [], phase: 'connect', ending: false, saved: false, dead: false, opened: false,
+      conversationId: null, // ElevenLabs's id for the conversation, from its opening metadata
       allowOverrides: true, wantsLanguage: false, tried: 0, lastVoice: 0, timers: [],
       inFmt: { codec: 'pcm', rate: 16000 }, outFmt: { codec: 'pcm', rate: 16000 },
       queue: [], playHead: 0,
@@ -640,6 +641,12 @@ const OttoAgent = (() => {
       }
 
       const lastReply = [...state.turns].reverse().find(t => t.from === 'ai');
+      /* The conversation's ElevenLabs id rides along with the turns: it
+       * is the join to the agent's own record of the call — transcript,
+       * analysis, evaluation results — which is what the agent's tuning
+       * loop (elevenlabs/) reads back once the dashboard has graded this
+       * debrief. A reconnect got a fresh id; the latest one is the
+       * conversation the turns below came from. */
       const row = {
         context,
         transcript: spoken,
@@ -647,6 +654,7 @@ const OttoAgent = (() => {
         category: note.category,
         via: 'elevenlabs',
         convo: state.turns,
+        conversation_id: state.conversationId || null,
         ...opt.extra(),
       };
       let saved = null;
@@ -672,18 +680,32 @@ const OttoAgent = (() => {
       }
     }
 
-    /* `via` and `convo` arrived with this feature; a database still on the
-     * older schema rejects the whole row for them. The conversation is
-     * worth more than its metadata — drop them and save the debrief. */
+    /* `via` and `convo` arrived with this feature, `conversation_id`
+     * with the agent's tuning loop; a database still on an older schema
+     * rejects the whole row for whichever of them it lacks. PostgREST
+     * names the column it could not find, and it names one per attempt
+     * — so only that one is dropped and the save retried, once per
+     * missing column. A database that took via and convo at the earlier
+     * stage keeps the turn-by-turn conversation (and its ◆ AGENT card)
+     * even before schema.sql is re-run for the id; only an error that
+     * names none of the three costs all of them. The conversation is
+     * worth more than its metadata. */
+    const OPTIONAL_COLUMNS = ['via', 'convo', 'conversation_id'];
     async function save(row) {
       if (!Backend.enabled) return null;
-      try {
-        return await Backend.saveNote(row);
-      } catch (e) {
-        if (!/via|convo|column/i.test(String(e.message || ''))) throw e;
-        console.warn('OttoAgent: messages table has no via/convo column yet (re-run schema.sql) — saving without them');
-        const { via, convo, ...rest } = row;
-        return Backend.saveNote(rest);
+      let rest = row;
+      for (;;) {
+        try {
+          return await Backend.saveNote(rest);
+        } catch (e) {
+          const msg = String(e.message || '');
+          const left = OPTIONAL_COLUMNS.filter(k => k in rest);
+          if (!left.length || !/via|convo|conversation_id|column/i.test(msg)) throw e;
+          const named = (msg.match(/'([a-z_]+)' column/i) || [])[1];
+          const drop = left.includes(named) ? [named] : left;
+          console.warn(`OttoAgent: messages table has no ${drop.join('/')} column yet (re-run schema.sql) — saving without ${drop.length > 1 ? 'them' : 'it'}`);
+          rest = Object.fromEntries(Object.entries(rest).filter(([k]) => !drop.includes(k)));
+        }
       }
     }
 

@@ -1,0 +1,19 @@
+{
+  "_otto": { "note": "fixture: one criterion, one field, the three overrides" },
+  "platform_settings": {
+    "evaluation": {
+      "criteria": [
+        { "id": "otto_tip_elicited", "name": "Elicited a concrete, actionable tip", "type": "prompt", "scope": "conversation", "conversation_goal_prompt": "Did the agent get at least one concrete, actionable tip out of the tester?" }
+      ]
+    },
+    "data_collection": {
+      "tip_type": { "type": "string", "enum": ["access", "parking", "gate_code", "recipient", "address", "hazard", "other", "none"], "description": "The category of the tip." }
+    },
+    "overrides": {
+      "conversation_config_override": {
+        "agent": { "first_message": true, "language": true },
+        "conversation": { "text_only": true }
+      }
+    }
+  }
+}

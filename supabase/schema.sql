@@ -47,6 +47,8 @@ create table if not exists public.messages (
   ar_trace jsonb,                   -- segments + any fired trigger (see activity-rec.js)
   via text,                         -- which Otto took the debrief: 'elevenlabs' or null (recorded)
   convo jsonb,                      -- the conversation, turn by turn: [{from:'ai'|'me',text,at}]
+  conversation_id text,             -- the ElevenLabs conversation id (null for recorded debriefs)
+  grade jsonb,                      -- the dashboard's grade of the conversation: {checks,note,at,agent_version}
   created_at timestamptz not null default now()
 );
 
@@ -63,7 +65,26 @@ alter table public.messages add column if not exists ar_trace jsonb;
 alter table public.messages add column if not exists via text;
 alter table public.messages add column if not exists convo jsonb;
 
+-- Agent-loop columns, for databases created before the agent's prompt
+-- got a tuning loop of its own (elevenlabs/). conversation_id is the
+-- id ElevenLabs gave the conversation — the join to the agent's own
+-- transcript, analysis and evaluation results at the other end of the
+-- wire (null for a recorded debrief: there is no conversation there).
+-- grade is the designer's verdict on the CONVERSATION, as opposed to
+-- the scenario verdict on the trigger: did Otto open with the
+-- scenario's question, follow up on what was found, get the expected
+-- tip type, keep it short, stay in the right language —
+--   {checks:{opener,followup,tip,brevity,language: true|false|null},
+--    note, at, agent_version}
+-- null = not judged. That is the ground truth the loop scores the
+-- prompt against, and a grade with a false in it is what a regression
+-- test gets cut from.
+alter table public.messages add column if not exists conversation_id text;
+alter table public.messages add column if not exists grade jsonb;
+
 create index if not exists messages_dest_idx on public.messages (destination_id, created_at desc);
+-- the loop joins field conversations to their grades by this id
+create index if not exists messages_convo_idx on public.messages (conversation_id);
 
 -- One row per row of the "Otto triggers" sheet: what should trigger,
 -- what Otto should ask, what he should learn — plus the pin where the
