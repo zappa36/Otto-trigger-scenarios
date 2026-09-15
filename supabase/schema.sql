@@ -194,11 +194,46 @@ create table if not exists public.visits (
 create index if not exists visits_dest_idx on public.visits (destination_id, created_at desc);
 create index if not exists visits_route_idx on public.visits (route, delivered_at desc);
 
+-- Every run of the agent suite (elevenlabs/loop.mjs run — the ElevenLabs
+-- simulation tests cut from the scenario sheet), published by
+-- `loop.mjs publish`: the agent-suite workflow does it after every
+-- suite it runs, a terminal can too. The suite's results used to live
+-- only in a job summary and an artifact on GitHub, while the designer
+-- grades the field debriefs on dashboard.html — and a scenario's suite
+-- verdict belongs next to its field verdict, not three clicks away.
+-- One row per run: which agent, branch and version took it, how many
+-- runs per test, and per test how many passed with the FIRST failed
+-- run whole (the evaluator's rationale and the turns it judged), so a
+-- card can show which turn went wrong rather than only that one did.
+-- A branch run from `propose` also carries compare's word and the
+-- proposal's note: what was tried, and why it was or was not promoted.
+create table if not exists public.agent_runs (
+  id uuid primary key default gen_random_uuid(),
+  agent_id text not null,           -- the ElevenLabs agent the suite ran against
+  label text,                       -- the run's label: main (a baseline), branch, or what --label said
+  branch_id text,                   -- the agent branch the suite ran on; null = the agent's main branch
+  version_id text,                  -- the agent version that took the runs
+  invocation_id text,               -- the ElevenLabs test invocation, to find the runs there
+  repeat integer,                   -- runs per test the suite was asked for
+  run_url text,                     -- the GitHub Actions run page; null when run by hand
+  verdict text check (verdict in ('accept', 'reject')),  -- compare's word, on a branch run from propose; null otherwise
+  verdict_reason text,              -- compare's reason line
+  note text,                        -- the proposal's one-line note: what the branch's prompt changed
+  tests jsonb not null,             -- per test: [{name,test_id,kind,scenario_num,scenario_title,persona,language,runs,passed,pass_rate,why,failure:{test_run_id,rationale,transcript:[{role,message}]}|null}]
+  summary jsonb,                    -- {tests,tests_at_100,runs,passed,pass_rate,by_scenario:{"<num>":{tests,runs,passed,pass_rate}}}
+  ran_at timestamptz not null,      -- when the suite ran (the results file's stamp)
+  created_at timestamptz not null default now()
+);
+
+-- the dashboard reads the latest runs of one agent, newest first
+create index if not exists agent_runs_agent_idx on public.agent_runs (agent_id, ran_at desc);
+
 alter table public.destinations enable row level security;
 alter table public.messages enable row level security;
 alter table public.scenarios enable row level security;
 alter table public.runs enable row level security;
 alter table public.visits enable row level security;
+alter table public.agent_runs enable row level security;
 
 -- ------------------------------------------------------------
 -- OPEN PILOT POLICIES (the default in this kit)
@@ -285,6 +320,17 @@ create policy "anyone adds visits" on public.visits
 drop policy if exists "anyone deletes visits" on public.visits;
 create policy "anyone deletes visits" on public.visits
   for delete to anon, authenticated using (true);
+
+drop policy if exists "anyone reads agent_runs" on public.agent_runs;
+create policy "anyone reads agent_runs" on public.agent_runs
+  for select to anon, authenticated using (true);
+
+-- the loop publishes a run; nothing updates or deletes one. A run is a
+-- record of what the agent did on a day, and the newest row is the
+-- current picture — an older one is the history the trail is for.
+drop policy if exists "anyone adds agent_runs" on public.agent_runs;
+create policy "anyone adds agent_runs" on public.agent_runs
+  for insert to anon, authenticated with check (true);
 
 -- ------------------------------------------------------------
 -- SIGNED-IN POLICIES

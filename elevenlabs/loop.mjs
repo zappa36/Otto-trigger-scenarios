@@ -28,6 +28,8 @@
  *   branch       that diff on an agent branch
  *   compare      base results vs branch results -> ACCEPT / REJECT
  *   promote      merge the branch into main
+ *   publish      a results file as a row of the agent_runs table, for
+ *                the dashboard to show next to each scenario
  *
  *   node loop.mjs <command> [--dry-run] [--dir DIR] [flags]
  *
@@ -330,13 +332,33 @@ async function pollInvocation(api, id, ctx) {
   }
 }
 
-/* one row per test: how many runs, how many passed, why the rest failed */
+/* The first failed run of a test, whole: what the evaluator said and
+ * the turns it judged. A pass rate says THAT a test fails; the designer
+ * reading the dashboard needs to see HOW — which turn went wrong, in
+ * which words — and one run is enough for that, so the first is kept
+ * and the rest only add their rationale to the list. The rationale is
+ * the evaluator's summary followed by its messages (the detail), the
+ * transcript the agent_responses of that run without their timings. */
+function failureOf(r) {
+  const ra = ((r.condition_result || {}).rationale) || {};
+  const lines = [ra.summary, ...(ra.messages || [])].map(x => String(x || '').trim()).filter(Boolean);
+  return {
+    test_run_id: r.test_run_id || null,
+    rationale: [...new Set(lines)].join('\n') || 'no rationale returned',
+    transcript: (r.agent_responses || []).filter(m => m && m.message).map(m => ({ role: m.role === 'agent' ? 'agent' : 'user', message: String(m.message) })),
+  };
+}
+const oneLine = x => String(x == null ? '' : x).replace(/\s+/g, ' ').trim();
+
+/* one row per test: how many runs, how many passed, why the rest failed
+ * (`why` is the first failure's rationale on one line, `failure` that
+ * run whole — null for a test that passed every run) */
 export function aggregate(inv, { idToName = {}, meta = {} } = {}) {
   const byTest = new Map();
   for (const r of (inv && inv.test_runs) || []) {
     const name = idToName[r.test_id] || r.test_name || (r.metadata && r.metadata.test_name) || r.test_id;
     if (!byTest.has(r.test_id)) {
-      byTest.set(r.test_id, { name, test_id: r.test_id, runs: 0, passed: 0, pending: 0, pass_rate: 0, rationales: [], branch_id: r.branch_id || null, version_id: r.version_id || null, ...(meta[name] || {}) });
+      byTest.set(r.test_id, { name, test_id: r.test_id, runs: 0, passed: 0, pending: 0, pass_rate: 0, why: null, rationales: [], failure: null, branch_id: r.branch_id || null, version_id: r.version_id || null, ...(meta[name] || {}) });
     }
     const t = byTest.get(r.test_id);
     t.runs++;
@@ -346,6 +368,7 @@ export function aggregate(inv, { idToName = {}, meta = {} } = {}) {
       const cr = r.condition_result || {};
       const why = (cr.rationale && (cr.rationale.summary || (cr.rationale.messages || []).join(' '))) || 'no rationale returned';
       if (!t.rationales.includes(why)) t.rationales.push(why);
+      if (!t.failure) { t.why = oneLine(why); t.failure = failureOf(r); }
     }
     if (!t.branch_id && r.branch_id) t.branch_id = r.branch_id;
     if (!t.version_id && r.version_id) t.version_id = r.version_id;
@@ -664,9 +687,18 @@ async function cut(ctx, flags) {
       failure_examples: [{ response: turns[at].message, type: 'failure' }],
     };
     if (field.agent_id) body.from_conversation_metadata = { conversation_id: c.conversation_id, agent_id: field.agent_id };
+    /* which scenario the regression belongs to — on the dashboard a
+     * suite result is shown per scenario, and a test without one is a
+     * test nobody sees. pull joins the debrief to its scenario through
+     * the destination; when that join is gone (a debrief deleted on the
+     * dashboard, a field file fed by hand) the dynamic variables the
+     * phone sent the agent still name the row it was acting out. */
+    const dv = c.dynamic_variables || {};
+    const sc = c.scenario || {};
+    const numOf = x => (x == null || x === '' || Number.isNaN(Number(x)) ? null : Number(x));
     body._otto = {
-      scenario_num: c.scenario && c.scenario.num != null ? c.scenario.num : null,
-      scenario_title: (c.scenario && c.scenario.title) || '',
+      scenario_num: numOf(sc.num) ?? numOf(dv.scenario_num),
+      scenario_title: String(sc.title || dv.scenario_title || ''),
       persona: 'field',
       kind: 'regression',
       source_conversation_id: c.conversation_id,
@@ -942,9 +974,125 @@ async function promote(ctx, flags) {
   return 0;
 }
 
+/* ---------- publish ---------- */
+
+/* The row the dashboard reads — the contract between this file and
+ * dashboard.html, so it changes together with both. `tests` is the
+ * results file's per-test rows cut down to what a scenario card shows:
+ * which test, which scenario and persona, runs and passes, the first
+ * failure's one-line why and that run whole (failureOf). `summary` is
+ * the run in five numbers, and the same per scenario keyed by the
+ * sheet's #, so a card finds its own without scanning the tests. A test
+ * that knows no scenario (a regression cut from a debrief the join
+ * could not place) counts in the totals and under no scenario. Fields
+ * the results file has as '' (metaByName's empties) go as null: the row
+ * is JSON for a reader that asks "is there one", not "is it empty". */
+export function agentRunRow(results, { runUrl = null, verdict = null, reason = null, note = null } = {}) {
+  const text = x => (x == null || String(x).trim() === '' ? null : String(x));
+  const numOf = x => (x == null || x === '' || Number.isNaN(Number(x)) ? null : Number(x));
+  const rate = (passed, runs) => (runs ? passed / runs : 0);
+  const tests = ((results && results.tests) || []).map(t => {
+    const runs = t.runs || 0, passed = t.passed || 0;
+    return {
+      name: String(t.name || t.test_id || ''),
+      test_id: text(t.test_id),
+      /* a results file from before `kind` rode along: the regressions
+       * are the tests cut names that way */
+      kind: t.kind === 'regression' || t.kind === 'scenario' ? t.kind : (/^Otto · regression · /.test(String(t.name || '')) ? 'regression' : 'scenario'),
+      scenario_num: numOf(t.scenario_num),
+      scenario_title: text(t.scenario_title),
+      persona: text(t.persona),
+      language: t.language === 'it' || t.language === 'en' ? t.language : null,
+      runs, passed, pass_rate: rate(passed, runs),
+      /* an older results file has the rationales but no `why` */
+      why: passed < runs ? text(oneLine(t.why != null ? t.why : (t.rationales || [])[0])) : null,
+      failure: passed < runs && t.failure ? t.failure : null,
+    };
+  });
+  const tally = list => {
+    const runs = list.reduce((n, t) => n + t.runs, 0), passed = list.reduce((n, t) => n + t.passed, 0);
+    return { tests: list.length, runs, passed, pass_rate: rate(passed, runs) };
+  };
+  const perScenario = new Map();
+  for (const t of tests) if (t.scenario_num != null) perScenario.set(t.scenario_num, [...(perScenario.get(t.scenario_num) || []), t]);
+  const all = tally(tests);
+  return {
+    agent_id: results.agent_id,
+    label: text(results.label),
+    branch_id: text(results.branch_id),
+    /* the version every run of the suite carries — the same on every
+     * test of one invocation, so the first that has one */
+    version_id: text((results.tests || []).map(t => t.version_id).find(Boolean)),
+    invocation_id: text(results.invocation_id),
+    repeat: numOf(results.repeat),
+    run_url: text(runUrl),
+    verdict: verdict || null,
+    verdict_reason: text(reason),
+    note: text(note),
+    tests,
+    summary: {
+      tests: all.tests,
+      tests_at_100: tests.filter(t => t.runs && t.passed === t.runs).length,
+      runs: all.runs, passed: all.passed, pass_rate: all.pass_rate,
+      by_scenario: Object.fromEntries([...perScenario.entries()].sort((a, b) => a[0] - b[0]).map(([num, list]) => [String(num), tally(list)])),
+    },
+    ran_at: results.at || new Date().toISOString(),
+  };
+}
+
+/* what PostgREST said, readable: its error body is JSON with a
+ * `message` (and a `hint` — "Perhaps you meant the table 'public.runs'"),
+ * which is the line worth putting in a job summary; the raw body is
+ * the fallback */
+function postgrestSaid(e) {
+  const m = String(e.message || '');
+  const i = m.indexOf('{');
+  if (i >= 0) {
+    try {
+      const j = JSON.parse(m.slice(i));
+      const what = j.message || j.hint || (j.detail && (j.detail.message || j.detail));
+      if (what) return m.slice(0, i) + String(what);
+    } catch { /* not whole JSON — the raw body then */ }
+  }
+  return m.slice(0, 160);
+}
+
+async function publish(ctx, flags) {
+  const { log } = ctx;
+  const resultsFile = flags.results || latest(ctx.p.results, /^(?!score-).*\.json$/);
+  if (!resultsFile) throw new UsageError('nothing to publish — run "run" first (results/), or pass --results FILE');
+  const results = readJson(resultsFile);
+  if (!results || !Array.isArray(results.tests)) throw new UsageError(`${resultsFile} is not a results file (no tests list)`);
+  if (!results.agent_id) throw new UsageError(`${resultsFile} carries no agent_id — the table wants to know which agent the suite ran against`);
+  /* compare's word, either case — the workflow hands it over as printed */
+  let verdict = null;
+  if (flags.verdict != null && String(flags.verdict).trim() !== '') {
+    verdict = String(flags.verdict).trim().toLowerCase();
+    if (verdict !== 'accept' && verdict !== 'reject') throw new UsageError(`--verdict is accept or reject (the word compare printed), not "${flags.verdict}"`);
+  }
+  const row = agentRunRow(results, { runUrl: flags.runUrl, verdict, reason: flags.reason, note: flags.note });
+  const db = needDb(ctx);
+  log(`publish — ${path.basename(resultsFile)}: ${row.summary.passed}/${row.summary.runs} runs passed across ${row.summary.tests} test(s)${row.verdict ? ', ' + row.verdict.toUpperCase() : ''} -> agent_runs`);
+  let stored;
+  try { stored = await db.insert('agent_runs', row); } catch (e) {
+    /* PostgREST's "no such table" is a 404 with code PGRST205; a table
+     * without the insert policy refuses with 42501. Both mean the
+     * schema on that project is behind this build, and the fix is the
+     * same file either way. */
+    if (e.status === 404 || /PGRST205/.test(e.message)) { log(`the agent_runs table is not there yet (${postgrestSaid(e)}) — re-run supabase/schema.sql in the Supabase SQL editor, then publish again; the results file is still on disk`); return 1; }
+    if (e.status === 401 || e.status === 403 || /42501/.test(e.message)) { log(`the agent_runs table refused the row (${postgrestSaid(e)}) — it lacks the insert policy: re-run supabase/schema.sql, then publish again`); return 1; }
+    throw e;
+  }
+  if (ctx.dryRun) { log('  (dry run) nothing published'); return 0; }
+  const id = stored[0] && stored[0].id;
+  if (!id) { log('agent_runs stored nothing — the insert matched no policy (re-run supabase/schema.sql)'); return 1; }
+  log(`published agent_runs ${id} (${Object.keys(row.summary.by_scenario).length} scenario(s), ${row.label || 'no label'}${row.run_url ? ', ' + row.run_url : ''}) — dashboard.html shows it per scenario`);
+  return 0;
+}
+
 /* ---------- the command line ---------- */
 
-const COMMANDS = { configure, 'push-tests': pushTests, run, pull, score, cut, propose, branch, compare, promote };
+const COMMANDS = { configure, 'push-tests': pushTests, run, pull, score, cut, propose, branch, compare, promote, publish };
 const BOOLEAN_FLAGS = new Set(['dry-run', 'agent', 'no-stamp', 'force', 'help']);
 
 export function parseArgs(argv) {
@@ -976,9 +1124,10 @@ const USAGE = `usage: node loop.mjs <command> [--dry-run] [--dir DIR] [flags]
   branch     --proposal FILE [--name TEXT]
   compare    --base FILE --branch FILE [--margin 0.1]
   promote    --branch ID [--target BRANCH_ID] [--proposal FILE] [--force]
+  publish    [--results FILE] [--run-url URL] [--verdict accept|reject] [--reason TEXT] [--note TEXT]
 
 env: ELEVENLABS_API_KEY (secret) ELEVENLABS_AGENT_ID OPENAI_API_KEY (secret) LOOP_MODEL=gpt-4o
-     SUPABASE_URL / SUPABASE_ANON_KEY (default: the kit's project) LOOP_DIR (same as --dir)
+     SUPABASE_URL / SUPABASE_ANON_KEY (default: the kit's project; pull reads it, publish writes it) LOOP_DIR (same as --dir)
      LOOP_POLL_MS=5000 (how often run polls the invocation) LOOP_TIMEOUT_MS=1200000 (when run gives up on it: 20 min)`;
 
 export async function main(argv = process.argv.slice(2), { env = process.env, log = console.log } = {}) {

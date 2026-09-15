@@ -403,6 +403,28 @@ the safe way to see what a command does.
    with the note as the version description. Then `run --label main`
    again: the new baseline.
 
+**Where to look.** Every suite run the buttons make is published to
+one table, `agent_runs` (re-run
+[`supabase/schema.sql`](supabase/schema.sql) once to create it; the
+loop's `publish` command writes it, with the run's URL), and the
+scenarios dashboard reads it back next to the field debriefs, so one
+page holds both halves of the evidence. Each scenario card carries an
+**AGENT SUITE** block in the TESTING view: one chip per test — the
+persona, 🇮🇹 for the Italian variants, REGRESSION for a test cut from a
+graded debrief — coloured by its pass rate and read like "terse 1/3",
+the trend against the previous baseline ("↑ +2"), and under every
+failing test the evaluator's reason in one line and **the conversation**
+the simulated tester had, turn by turn, so a failure is read here, not
+hunted for in the ElevenLabs dashboard. A proposed prompt that ran on a
+branch shows as one more line — the note, this scenario's before → after,
+ACCEPT or REJECT — with the promote button named. The same block puts
+the field next to it ("field: 4/5 agent debriefs graded ✓", from the
+grades on this card), the header rolls the latest baseline up ("agent
+suite 81% · 24/33 tests at 100% · 2 days ago"), and Spec JSON ⇩ carries
+the scenario's suite results along with everything else. DEMO hides all
+of it, like the rest of the workshop chrome; a keyless dashboard says
+where the suite runs from instead.
+
 The proposer is the repo's existing model provider (`OPENAI_API_KEY`,
 the same secret `scenario-ai` carries; `LOOP_MODEL` picks the model).
 `ELEVENLABS_API_KEY` is a **secret**: it lives in your shell or in a CI
@@ -1095,7 +1117,7 @@ The composition happens entirely through the kits' public seams:
 | `parcelvox-dashboard.html`, `parcelvox-dashboard/` | The ParcelVox dispatcher dashboard — map and pre-arrival notes wired to the same shared store (localStorage or Supabase), report counts and hotspots from the analytics API; the rest labelled sample data |
 | `mock-api/` | A mock of the Parcelvox Analytics API contract: the store's real rows reshaped into places, reports, guidance, tours and outreach, plus invented history; no dependencies, `node server.mjs` |
 | `elevenlabs/` | The agent loop — the tuning loop for Otto's ElevenLabs prompt; Node >= 20, no dependencies, `npm test`; its own [`README.md`](elevenlabs/README.md), `personas.json`, `lib/` (the `agentVars()` mirror, the API client, the Supabase reader), `test/` (an in-process mock of the three services). Guarded and driven by `.github/workflows/agent-suite.yml`: node tests + generator drift on every change, and every stage of the loop as a button in the Actions tab (the baseline on Mondays too) once the key secret exists |
-| `elevenlabs/loop.mjs` | `configure` · `push-tests` · `run` · `pull` · `score` · `cut` · `propose` · `branch` · `compare` · `promote` — the REST API called directly, `--dry-run` prints every request and sends nothing; results, field pulls and proposals land in gitignored folders next to it |
+| `elevenlabs/loop.mjs` | `configure` · `push-tests` · `run` · `publish` · `pull` · `score` · `cut` · `propose` · `branch` · `compare` · `promote` — the REST API called directly, `--dry-run` prints every request and sends nothing; results, field pulls and proposals land in gitignored folders next to it |
 | `elevenlabs/generate-tests.mjs` | One ElevenLabs simulation test per sheet row and persona (`--sheet` the starter sheet, `--supabase` your rows), carrying the dynamic variables a phone would send, a simulated tester who knows what they found, and success conditions derived from the row; deterministic |
 | `elevenlabs/test_configs/` | The generated suite, committed (33 files: ten rows × three personas, plus Italian variants of row #1), one create-test request body each; `regressions/` holds the next-reply tests `cut` makes from debriefs graded bad; `tests.lock.json` next to it maps test names to ElevenLabs ids once pushed |
 | `elevenlabs/analysis.json` | What `configure` puts on the agent: five evaluation criteria and four data-collection fields ElevenLabs runs on every real call, and the overrides the phone and the loop need enabled |
@@ -1108,5 +1130,5 @@ The composition happens entirely through the kits' public seams:
 | `scripts/migrate_supabase.py` | Moves the rows to another Supabase project, ids intact (`schema.sql` does the tables) |
 | `voice-note.js/.css` | from voice-notes-kit + hands-free pause-to-send |
 | `geolocate.js`, `field-map.js/.css` | verbatim from field-map-kit |
-| `supabase/schema.sql` | `destinations` (incl. pre-arrival notes: consignee / floor / notes, and route / stop) + `messages` (incl. the agent conversation, its ElevenLabs `conversation_id` and the dashboard's `grade` of it) + `scenarios` (incl. params / versions / feedback) + `runs` + `visits` (the Delivered tap), RLS |
+| `supabase/schema.sql` | `destinations` (incl. pre-arrival notes: consignee / floor / notes, and route / stop) + `messages` (incl. the agent conversation, its ElevenLabs `conversation_id` and the dashboard's `grade` of it) + `scenarios` (incl. params / versions / feedback) + `runs` + `visits` (the Delivered tap) + `agent_runs` (one row per suite run the agent loop published), RLS |
 | `supabase/functions/` | `voice-note` (kit + trailing-"stop" strip + a text path for agent conversations) + `geocode` (verbatim) + `scenario-ai` (draft, revise & the 🇮🇹 question translation) + `elevenlabs-token` (signed URLs for a private agent) + `elevenlabs-tts` (the pre-arrival notes read in Otto's real voice) |

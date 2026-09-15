@@ -13,6 +13,11 @@
  * dependency, so the file is read the way it is written: one job block,
  * its env block, its steps.
  *
+ * The same job is where a suite's results reach the dashboard: every
+ * step that runs the suite publishes it (loop.mjs publish) — a step
+ * that ran and did not would leave a run the designer never sees, and
+ * the four run sites are far enough apart in the file to lose one.
+ *
  *   node --test            (from elevenlabs/)
  */
 import { test } from 'node:test';
@@ -52,4 +57,26 @@ test('the live suite gives the loop a poll budget that fits inside the job', () 
   /* every place the suite runs is a step of this job, under that env */
   const runs = (live.match(/loop\.mjs "\$\{args\[@\]\}"|node loop\.mjs run\b/g) || []).length;
   assert.ok(runs >= 3, `expected the suite to run in the baseline, propose and promote paths of live-suite, found ${runs} run invocation(s)`);
+});
+
+/* the job's steps: from each `      - name:` line to the next one */
+const steps = jobText => jobText.split(/^      - (?=name:)/m).slice(1).map(t => ({ name: (t.match(/^name:\s*(.*)$/m) || [])[1] || '', text: t }));
+
+test('every step of the live suite that runs the suite publishes it for the dashboard', () => {
+  const live = job(readFileSync(WORKFLOW, 'utf8'), 'live-suite');
+  const runners = steps(live).filter(s => /args=\(run /.test(s.text));
+  assert.ok(runners.length >= 4, `expected the suite to run in four steps (baseline, propose without a baseline, propose on the branch, promote), found ${runners.length}`);
+  for (const s of runners) {
+    const publishes = (s.text.match(/node loop\.mjs publish\b/g) || []).length;
+    assert.ok(publishes >= 1, `"${s.name}" runs the suite and never publishes it`);
+    /* a publish that fails must not lose the run: wrapped in an if, the summary told */
+    assert.match(s.text, /if node loop\.mjs publish /, `"${s.name}" lets a failed publish fail the step`);
+    assert.match(s.text, /results not published — /, `"${s.name}" does not tell the summary when the publish failed`);
+    assert.match(s.text, /Results are on the scenarios dashboard \(dashboard\.html\), per scenario\./, `"${s.name}" does not point the summary at the dashboard`);
+    assert.match(s.text, /publish .*--run-url "\$GITHUB_SERVER_URL\/\$GITHUB_REPOSITORY\/actions\/runs\/\$GITHUB_RUN_ID"/, `"${s.name}" publishes without the run's page`);
+  }
+  /* the branch run carries compare's word and the proposal's note */
+  const propose = runners.find(s => /--label branch/.test(s.text));
+  assert.ok(propose, 'no step runs the suite on the branch');
+  assert.match(propose.text, /publish --results "\$br" .*--verdict "\$word" --reason "\$reason" --note "\$note"/);
 });
