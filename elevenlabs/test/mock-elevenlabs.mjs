@@ -1,8 +1,9 @@
 /*
  * An in-process stand-in for the three services the loop talks to —
  * the ElevenLabs API (tests, invocations, conversations, the agent,
- * branches), Supabase's REST (messages, scenarios) and the proposer's
- * chat-completions endpoint — on one port, fed from test/fixture/.
+ * branches), Supabase's REST (messages, scenarios, agent_runs) and the
+ * proposer's chat-completions endpoint — on one port, fed from
+ * test/fixture/.
  * It records every request it gets, which is how the tests check what
  * the loop sends (and that --dry-run sends nothing at all).
  *
@@ -45,6 +46,10 @@ export async function startMock(fixtureDir) {
     state.branches = [];
     state.merges = [];
     state.messages = JSON.parse(JSON.stringify(fixture.messages));
+    /* the agent_runs table, empty; false = a project whose schema.sql
+     * predates it, which PostgREST reports as a 404 (PGRST205) */
+    state.agentRuns = [];
+    state.agentRunsTable = true;
     state.failNext = null;
     /* an invocation that never finishes, for the poll timeout */
     state.neverComplete = false;
@@ -143,12 +148,28 @@ export async function startMock(fixtureDir) {
       return [200, [row]];
     }],
     ['GET', /^\/rest\/v1\/scenarios$/, () => [200, fixture.scenarios]],
+    ['GET', /^\/rest\/v1\/agent_runs$/, () => (state.agentRunsTable ? [200, state.agentRuns] : noTable())],
+    /* an insert the way PostgREST answers one: 201, the stored rows
+     * (id and created_at filled in) only when the Prefer header asked
+     * for the representation — a loop that forgot it would get nothing
+     * back and not know its row's id */
+    ['POST', /^\/rest\/v1\/agent_runs$/, (m, q, body, headers) => {
+      if (!state.agentRunsTable) return noTable();
+      const rows = (Array.isArray(body) ? body : [body]).map(r => ({
+        id: `00000000-0000-4000-8000-${String(state.agentRuns.length + 1).padStart(12, '0')}`,
+        ...r, created_at: new Date().toISOString(),
+      }));
+      state.agentRuns.push(...rows);
+      return [201, /return=representation/.test(String(headers.prefer || '')) ? rows : []];
+    }],
     /* ---------- the proposer ---------- */
     ['POST', /^\/v1\/chat\/completions$/, (m, q, body) => {
       const reply = typeof state.openaiReply === 'function' ? state.openaiReply(body) : state.openaiReply;
       return [200, { id: 'chatcmpl_1', choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify(reply) }, finish_reason: state.openaiFinish }] }];
     }],
   ];
+
+  const noTable = () => [404, { code: 'PGRST205', details: null, hint: "Perhaps you meant the table 'public.runs'", message: "Could not find the table 'public.agent_runs' in the schema cache" }];
 
   function pendingRuns() {
     const runs = [];
@@ -171,6 +192,7 @@ export async function startMock(fixtureDir) {
       mock.requests.push({
         method: req.method, path: url.pathname, query: q, body,
         auth: { xi: !!req.headers['xi-api-key'], apikey: !!req.headers.apikey, bearer: /^Bearer /.test(String(req.headers.authorization || '')) },
+        prefer: req.headers.prefer || null,
       });
       if (state.failNext) { const s = state.failNext; state.failNext = null; return json(res, s, { detail: `forced ${s}` }); }
       /* what a real request needs: the key header for ElevenLabs, the
@@ -180,7 +202,7 @@ export async function startMock(fixtureDir) {
       if (url.pathname === '/v1/chat/completions' && !/^Bearer /.test(String(req.headers.authorization || ''))) return json(res, 401, { error: { message: 'missing bearer' } });
       for (const [method, re, handler] of routes) {
         const m = method === req.method && re.exec(url.pathname);
-        if (m) { const [status, out] = handler(m, q, body); return json(res, status, out); }
+        if (m) { const [status, out] = handler(m, q, body, req.headers); return json(res, status, out); }
       }
       json(res, 404, { detail: `no mock route for ${req.method} ${url.pathname}` });
     });

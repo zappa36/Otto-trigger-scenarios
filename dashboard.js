@@ -31,6 +31,16 @@ let scenarios = [];
 let destinations = [];
 let messagesByDest = {};
 let runsByScenario = {};
+/* The agent suite's published runs (agent_runs), newest first — the
+ * simulated testers' half of the evidence, shown on each card next to
+ * the field debriefs. Live mode only: the loop publishes them from
+ * GitHub Actions into the shared backend, so a keyless dashboard has
+ * nothing to read. A missing table (schema.sql behind this build) and
+ * a read that failed are remembered apart, so every card can say
+ * which. */
+let agentRuns = [];
+let agentRunsMissing = false;
+let agentRunsError = '';
 let expandedId = null;
 
 /* in-flight UI state for the tuning loop — all per one scenario at a time */
@@ -427,6 +437,69 @@ function runParkwalk(r) {
   if (typeof t === 'string') { try { t = JSON.parse(t); } catch { t = null; } }
   return (t && typeof t === 'object' && t.parkwalk) || null;
 }
+/* ---------- the agent suite ----------
+ * elevenlabs/ runs one simulation test per scenario and persona
+ * against the agent — from GitHub Actions, the "buttons" — and
+ * publishes every suite run as one agent_runs row: the tests with
+ * their pass rates, the first failing conversation per test, a
+ * roll-up. Read back here so the simulated testers' results sit on
+ * the card next to the field debriefs. jsonb from Supabase, strings
+ * if hand-fed — parsed defensively, like convo and ar_trace. */
+const jsonOf = v => { if (typeof v === 'string') { try { v = JSON.parse(v); } catch { v = null; } } return v; };
+const agentRunTests = r => { const t = jsonOf(r && r.tests); return Array.isArray(t) ? t.filter(x => x && typeof x === 'object') : []; };
+const agentRunSummary = r => { const s = jsonOf(r && r.summary); return s && typeof s === 'object' ? s : null; };
+const agentRanAt = r => (r && (r.ran_at || r.created_at)) || null;
+const agentTime = r => new Date(agentRanAt(r) || 0).getTime() || 0;
+/* Which runs matter: the deployed agent's (config.js), or — with none
+ * configured here — whichever agent the newest run is for.
+ *   main    the latest baseline on the live prompt (label 'main')
+ *   prev    the baseline before it — what the trend is measured against
+ *   branch  a proposed prompt's run on an agent branch, newer than that
+ *           baseline: the candidate the designer is asked to promote */
+function agentSuite() {
+  const agentId = String(window.ELEVENLABS_AGENT_ID || '').trim() || String((agentRuns[0] && agentRuns[0].agent_id) || '');
+  const mine = agentRuns.filter(r => r && String(r.agent_id || '') === agentId);
+  const mains = mine.filter(r => r.label === 'main');
+  const main = mains[0] || null;
+  const branch = mine.find(r => r.branch_id && r !== main && (!main || agentTime(r) > agentTime(main))) || null;
+  return { agentId, main, prev: mains[1] || null, branch };
+}
+/* A test belongs to the card by the sheet number it was generated for,
+ * or by title when the numbers do not meet — a starter row renumbered
+ * on load (loadSheet) still finds its tests. */
+function agentTestsFor(run, sc) {
+  if (!run || !sc) return [];
+  const num = sc.num == null || sc.num === '' ? null : +sc.num;
+  const title = normTitle(sc.title);
+  return agentRunTests(run).filter(t =>
+    (num != null && t.scenario_num != null && +t.scenario_num === num)
+    || (!!title && normTitle(t.scenario_title) === title));
+}
+const agentTally = tests => tests.reduce(
+  (a, t) => ({ runs: a.runs + (+t.runs || 0), passed: a.passed + (+t.passed || 0) }), { runs: 0, passed: 0 });
+/* the run log's three colours: every run passed / half or better / worse */
+const agentRate = t => (+t.runs > 0 ? (+t.passed || 0) / +t.runs : +t.pass_rate || 0);
+const agentCls = t => { const r = agentRate(t); return r >= 1 ? 'ok' : r >= 0.5 ? 'warn' : 'bad'; };
+/* A chip reads like the loop's own table: who the simulated tester
+ * was, the Italian variant flagged, a regression cut from a graded
+ * debrief named as such — then passed/runs. Ordered for the eye, not
+ * worst-first like the loop prints: personas in the order
+ * personas.json lists them, Italian after English, regressions last. */
+const PERSONA_ORDER = ['cooperative', 'terse', 'sidetracked'];
+const agentWho = t => {
+  const parts = [];
+  if (t.persona) parts.push(String(t.persona));
+  if (t.language === 'it') parts.push('🇮🇹 IT');
+  if (t.kind === 'regression') parts.push('REGRESSION');
+  if (!parts.length) parts.push(String(t.name || 'test').replace(/^Otto · /, '').slice(0, 40));
+  return parts.join(' · ');
+};
+const agentTestOrder = (a, b) =>
+  ((a.kind === 'regression') - (b.kind === 'regression'))
+  || ((a.language === 'it') - (b.language === 'it'))
+  || (PERSONA_ORDER.indexOf(a.persona) - PERSONA_ORDER.indexOf(b.persona))
+  || String(a.name || '').localeCompare(String(b.name || ''));
+
 function statusOf(sc) {
   if (sc.verdict === 'pass') return { key: 'pass', label: 'PASS', rgb: '70,211,154', labelColor: '#7ce0b8', icon: '✓' };
   if (sc.verdict === 'partial') return { key: 'partial', label: 'PARTIAL', rgb: '255,217,94', labelColor: '#ffd95e', icon: '~' };
@@ -554,11 +627,34 @@ async function loadAll() {
       return;
     }
     runsByScenario = {};
+    /* the suite's published runs ride the same refresh, fetched side by
+     * side with the run log and picked up below — the failure kept as
+     * a value, so a 404 that lands first is never an unhandled
+     * rejection, and a cached backend.js from before the reader existed
+     * (a deploy caught half-way) shows on the cards instead of killing
+     * the boot */
+    const suiteReq = Promise.resolve().then(() => Backend.listAgentRuns(60))
+      .then(rows => ({ rows: rows || [] }), e => ({ error: e }));
     try {
       ((await Backend.listRuns(300)) || []).forEach(r => {
         if (r.scenario_id) (runsByScenario[r.scenario_id] = runsByScenario[r.scenario_id] || []).push(r);
       });
     } catch (e) { warn(e); /* runs table not created yet — the log just stays empty */ }
+    const suite = await suiteReq;
+    if (suite.error) {
+      warn(suite.error);
+      /* agent_runs is the newest table in schema.sql — a 404 is "not
+       * created yet", said on every card; anything else keeps the last
+       * good list and names the trouble instead */
+      const msg = String((suite.error && suite.error.message) || '');
+      agentRunsMissing = /\b404\b|PGRST205|42P01|schema cache/i.test(msg);
+      agentRunsError = agentRunsMissing ? '' : msg.slice(0, 120);
+      if (agentRunsMissing) agentRuns = [];
+    } else {
+      agentRunsMissing = false;
+      agentRunsError = '';
+      agentRuns = suite.rows.filter(r => r && typeof r === 'object').sort((a, b) => agentTime(b) - agentTime(a));
+    }
   } else {
     try { scenarios = JSON.parse(localStorage.getItem(LS_SCEN) || '[]'); } catch { scenarios = []; }
     try { destinations = JSON.parse(localStorage.getItem(LS_DEST) || '[]'); } catch { destinations = []; }
@@ -590,6 +686,18 @@ function fmtTime(iso) {
   const t = new Date(iso || 0);
   return isNaN(t) ? '' : t.toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
+/* "2 h ago" — how fresh a suite baseline is, at a glance; the exact
+ * stamp rides in the title. Past a month the date says more. */
+function fmtAgo(iso) {
+  const t = new Date(iso || 0).getTime();
+  if (!t) return '';
+  const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.round(s / 60) + ' min ago';
+  if (s < 86400) return Math.round(s / 3600) + ' h ago';
+  const d = Math.round(s / 86400);
+  return d === 1 ? 'yesterday' : d < 30 ? d + ' days ago' : fmtTime(iso);
+}
 
 function renderStats() {
   const by = { nopin: 0, ready: 0, debriefed: 0, pass: 0, partial: 0, fail: 0 };
@@ -606,6 +714,22 @@ function renderStats() {
     const graded = agentMsgs.filter(m => gradeSummary(gradeOf(m)).graded).length;
     parts.push(`${graded}/${agentMsgs.length} agent debrief${agentMsgs.length === 1 ? '' : 's'} graded`);
   }
+  /* the agent suite's latest baseline, rolled up — the simulated
+   * testers' side of the same backlog; nothing until it has run */
+  const suite = agentSuite();
+  const sm = suite.main && agentRunSummary(suite.main);
+  if (sm) {
+    const rate = sm.pass_rate != null && isFinite(+sm.pass_rate) ? Math.round(+sm.pass_rate * 100)
+      : +sm.runs > 0 ? Math.round(100 * (+sm.passed || 0) / +sm.runs) : null;
+    const text = `agent suite ${rate == null ? '—' : rate + '%'}`
+      + ` · ${sm.tests_at_100 == null ? '?' : +sm.tests_at_100}/${sm.tests == null ? '?' : +sm.tests} tests at 100%`
+      + ` · ${fmtAgo(agentRanAt(suite.main))}`;
+    const title = `Latest baseline · label ${suite.main.label || 'main'}`
+      + (suite.main.branch_id ? ` · branch ${suite.main.branch_id}` : '')
+      + ` · agent ${suite.main.agent_id || suite.agentId || '?'} · ran ${fmtTime(agentRanAt(suite.main))}`
+      + (suite.branch ? ` · a proposed prompt ran on branch ${suite.branch.branch_id} since` : '');
+    parts.push({ html: `<span class="stats-suite" title="${esc(title)}">${esc(text)}</span>` });
+  }
   const verdicts = [];
   if (by.pass) verdicts.push(`${by.pass} pass`);
   if (by.partial) verdicts.push(`${by.partial} partial`);
@@ -620,7 +744,9 @@ function renderStats() {
       + (noted ? ` · ${noted} with notes (amber pins)` : ''));
   }
   parts.push('build ' + window.BUILD);
-  el('stats').textContent = parts.join(' · ');
+  /* every part is data (route names, the suite's numbers) and goes
+   * through esc(); the suite part alone carries a tooltip, hence HTML */
+  el('stats').innerHTML = parts.map(p => (typeof p === 'string' ? esc(p) : p.html)).join(' · ');
 }
 
 function defCell(label, value) {
@@ -913,6 +1039,124 @@ function renderRuns(sc) {
     </div>`;
 }
 
+/* The agent suite on the card — the other half of "what Otto
+ * understood": what the SIMULATED testers got out of him, between the
+ * field debriefs above and the run log below. Workshop chrome, like
+ * the grade widget: only the TESTING body renders it. Every state the
+ * data can be in says what to do next, because the suite runs
+ * elsewhere (GitHub Actions) and this block is where its absence gets
+ * noticed. */
+function renderAgentBlock(sc) {
+  const box = inner => `
+          <div class="agent-block">${inner}</div>`;
+  const head = (rest, title, link) => `
+            <div class="agent-head"><span class="addr-tag"${title ? ` title="${esc(title)}"` : ''}>AGENT SUITE${rest || ''}</span>${link || ''}</div>`;
+  const note = html => `<p class="cmp-empty agent-note">${html}</p>`;
+  /* the row is shared data — only a real web address becomes a link */
+  const runLink = (r, what) => (r && /^https?:\/\//i.test(String(r.run_url || ''))
+    ? `<a class="row-link" href="${esc(r.run_url)}" target="_blank" rel="noopener" title="${esc(what)}">open the run ↗</a>` : '');
+  if (!Backend.enabled) {
+    return box(head() + note('The suite runs from GitHub Actions (Actions → agent-suite → baseline) and publishes into the shared backend — keyless, this dashboard has nothing to read it from. Point config.js at the Supabase project and its results show here.'));
+  }
+  if (agentRunsMissing) {
+    return box(head() + note('No agent_runs table yet — re-run supabase/schema.sql once, then ↻ REFRESH. The suite\'s runs land there from Actions → agent-suite.'));
+  }
+  if (agentRunsError) {
+    return box(head() + note(`Could not read the suite\'s runs — ${esc(agentRunsError)}. ↻ REFRESH to try again.`));
+  }
+  if (!agentRuns.length) {
+    return box(head() + note('The suite has not run yet — Actions → agent-suite → Run workflow → baseline. Its results land here: one chip per test, the failing conversations under them.'));
+  }
+  const { agentId, main, prev, branch } = agentSuite();
+  if (!main && !branch) {
+    return box(head() + note(`The runs on file are for another agent than this dashboard is configured for (${esc(agentId)}) — a baseline on this agent lands here.`));
+  }
+  const tests = agentTestsFor(main, sc).sort(agentTestOrder);
+  const tally = agentTally(tests);
+
+  /* the header line: how fresh, how many runs passed, and the trend
+   * against the baseline before — in passed runs, both fractions in
+   * the tooltip so a changed repeat count cannot pass for progress */
+  let headLine = ' · NO BASELINE YET';
+  let headTitle = '';
+  if (main) {
+    let trend = '';
+    const pt = agentTestsFor(prev, sc);
+    if (prev && pt.length && tests.length) {
+      const pTally = agentTally(pt);
+      const d = tally.passed - pTally.passed;
+      trend = `<span class="agent-trend ${d > 0 ? 'up' : d < 0 ? 'down' : 'flat'}" title="${esc(`vs the previous baseline (${fmtTime(agentRanAt(prev))}): ${pTally.passed}/${pTally.runs} → ${tally.passed}/${tally.runs} runs passed`)}">${d > 0 ? '↑ +' + d : d < 0 ? '↓ −' + (-d) : '='}</span>`;
+    }
+    headLine = ` · ${esc(fmtAgo(agentRanAt(main)))}` + (tests.length ? ` · ${tally.passed} of ${tally.runs} runs passed${trend}` : '');
+    headTitle = `Latest baseline · label ${main.label || 'main'} · agent ${main.agent_id || agentId || '?'} · ran ${fmtTime(agentRanAt(main))}${main.repeat ? ` · ${main.repeat}× per test` : ''}`;
+  }
+
+  const chips = tests.length ? `
+            <div class="agent-chips">${tests.map(t =>
+    `<span class="agent-chip ${agentCls(t)}" title="${esc(`${t.name || ''} — ${+t.passed || 0} of ${+t.runs || 0} runs passed${t.why ? ' · ' + t.why : ''}`)}">${esc(agentWho(t))} ${+t.passed || 0}/${+t.runs || 0}</span>`).join('')}</div>` : '';
+
+  /* under every failing test: the evaluator's reason in one line, and
+   * the conversation the simulated tester had — OTTO / TESTER turns
+   * exactly like a field debrief's, so a failure is read here, not
+   * hunted for in the ElevenLabs dashboard */
+  const fails = tests.map(t => {
+    const f = jsonOf(t.failure);
+    const failure = f && typeof f === 'object' ? f : null;
+    const why = String(t.why || (failure && failure.rationale) || '').trim();
+    if (!why && !failure) return '';
+    const turns = failure ? jsonOf(failure.transcript) : null;
+    const list = Array.isArray(turns) ? turns.filter(u => u && typeof u === 'object') : [];
+    const rationale = String((failure && failure.rationale) || '').trim();
+    return `
+            <div class="agent-fail">
+              <span class="agent-fail-who">${esc(agentWho(t))}</span><span class="agent-why">${esc(why)}</span>
+              ${list.length ? `<details class="msg-convo agent-convo">
+                <summary>THE CONVERSATION · ${list.length} TURNS</summary>
+                ${list.map(u => `<div class="msg-turn ${u.role === 'user' ? 'me' : 'ai'}"><b>${u.role === 'user' ? 'TESTER' : 'OTTO'}</b>${esc(u.message || '')}</div>`).join('')}
+                ${rationale && rationale !== why ? `<p class="agent-rationale"><b>EVALUATOR</b>${esc(rationale)}</p>` : ''}
+              </details>` : ''}
+            </div>`;
+  }).join('');
+
+  /* a proposed prompt that ran on a branch since the baseline: the
+   * note, this scenario before → after, the loop's verdict — and, on
+   * ACCEPT, where the promote button is and the id it asks for */
+  let branchLine = '';
+  if (branch) {
+    const bt = agentTestsFor(branch, sc);
+    const bTally = agentTally(bt);
+    const parts = ['PROPOSED PROMPT on branch'];
+    if (branch.note) parts.push(esc(branch.note));
+    if (bt.length) parts.push(`this scenario ${tests.length ? tally.passed + '/' + tally.runs : '—'} → ${bTally.passed}/${bTally.runs}`);
+    if (branch.verdict) {
+      const ok = branch.verdict === 'accept';
+      parts.push(`<b class="${ok ? 'ok' : 'bad'}">${esc(String(branch.verdict).toUpperCase())}</b>`
+        + (branch.verdict_reason ? ` (${esc(branch.verdict_reason)})` : '')
+        + (ok ? ` — promote from GitHub Actions (agent-suite → promote, branch_id ${esc(branch.branch_id)})` : ''));
+    }
+    branchLine = `
+            <p class="agent-branch" title="${esc(`branch ${branch.branch_id}${branch.version_id ? ' · version ' + branch.version_id : ''} · ran ${fmtTime(agentRanAt(branch))}`)}">${parts.join(' · ')} ${runLink(branch, 'The GitHub Actions run that proposed and tested this prompt')}</p>`;
+  }
+
+  /* the field half, from the grades on this card: a debrief counts as
+   * ok when it was graded and nothing on it was marked ✗ */
+  const agentMsgs = msgsOf(sc).filter(m => m && m.via === 'elevenlabs');
+  const grades = agentMsgs.map(m => gradeSummary(gradeOf(m))).filter(g => g.graded);
+  const ok = grades.filter(g => !g.bad).length;
+  const n = agentMsgs.length;
+  const field = !n ? 'field: no agent debriefs on this card yet'
+    : !grades.length ? `field: ${n} agent debrief${n === 1 ? '' : 's'} filed, none graded yet`
+    : `field: ${ok}/${grades.length} agent debrief${grades.length === 1 ? '' : 's'} graded ✓${n > grades.length ? ` · ${n - grades.length} still to grade` : ''}`;
+
+  const body = !main
+    ? note('No baseline on the live prompt yet — Actions → agent-suite → baseline. A proposed prompt has run meanwhile:')
+    : !tests.length
+      ? note('No test for this scenario yet — generate the tests from your rows (cd elevenlabs &amp;&amp; node generate-tests.mjs --supabase), push them, then baseline again.')
+      : chips + fails;
+  return box(head(headLine, headTitle, runLink(main, 'The GitHub Actions run that produced this baseline')) + body + branchLine + `
+            <p class="agent-field" title="From the grades on this card's ◆ AGENT debriefs — the field half of the same evidence">${esc(field)}</p>`);
+}
+
 /* ---------- DEMO / TESTING — the two faces of an open card ----------
  * TESTING is the full workbench below — address, notes, sliders,
  * feedback, versions, verdict. DEMO retells the same scenario for a
@@ -1131,6 +1375,7 @@ function renderScenario(sc) {
         <div class="cmp-col cmp-heard">
           <h4>WHAT OTTO UNDERSTOOD</h4>
           ${renderMessages(sc)}
+          ${renderAgentBlock(sc)}
           ${renderRuns(sc)}
         </div>
       </div>
@@ -1893,6 +2138,20 @@ function specOf(sc) {
       ar_summary: r.ar_summary || null,
       tuning: r.tuning || null,
     })),
+    /* the agent suite's latest baseline for this scenario — the
+     * simulated testers' results, failing conversations included, so
+     * the spec carries both halves of the evidence */
+    agent_suite: (() => {
+      const { main } = agentSuite();
+      const tests = agentTestsFor(main, sc);
+      return main && tests.length ? {
+        ran_at: agentRanAt(main),
+        label: main.label || null,
+        branch_id: main.branch_id || null,
+        run_url: main.run_url || null,
+        tests,
+      } : null;
+    })(),
   };
 }
 function downloadJson(name, data) {

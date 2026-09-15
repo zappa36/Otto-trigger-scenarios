@@ -567,6 +567,59 @@
     outline: none;
   }
   .msg-grade textarea:focus { border-color: rgba(60,192,224,.55); }
+  /* the agent suite on the card — what the simulated testers got out
+   * of Otto (elevenlabs/, run from GitHub Actions), between the field
+   * debriefs and the run log; purple, like the ◆ AGENT chip */
+  .agent-block {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(195,166,255,.3);
+    background: rgba(195,166,255,.05);
+  }
+  .agent-block .addr-tag { color: #c3a6ff; margin-bottom: 0; }
+  .agent-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .agent-head .row-link { margin-left: auto; }
+  .agent-note { margin: 6px 0 0; }
+  .agent-trend { margin-left: 6px; letter-spacing: .04em; }
+  .agent-trend.up { color: #7ce0b8; }
+  .agent-trend.down { color: #ffab8a; }
+  .agent-trend.flat { color: #8b97a8; }
+  .agent-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  /* one chip per test, coloured by its pass rate — the run log's three colours */
+  .agent-chip {
+    padding: 3px 8px;
+    border-radius: 999px;
+    font-family: ui-monospace, monospace;
+    font-size: 9.5px;
+    letter-spacing: .08em;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .agent-chip.ok   { color: #7ce0b8; border-color: rgba(70,211,154,.45);  background: rgba(70,211,154,.09); }
+  .agent-chip.warn { color: #ffd95e; border-color: rgba(255,217,94,.45);  background: rgba(255,217,94,.09); }
+  .agent-chip.bad  { color: #ffab8a; border-color: rgba(255,120,69,.5);   background: rgba(255,120,69,.1); }
+  .agent-fail { margin-top: 8px; font-size: 12.5px; }
+  .agent-fail-who { font-family: ui-monospace, monospace; font-size: 9.5px; letter-spacing: .08em; color: #ffab8a; margin-right: 7px; }
+  .agent-why { color: #d7dfe9; }
+  /* the failing conversation reads like a field one: the same OTTO /
+   * TESTER turns (.msg-turn), folded behind the same summary */
+  .agent-fail .msg-convo { margin-top: 4px; }
+  .agent-fail .msg-turn { font-size: 12.5px; }
+  .agent-rationale { margin: 8px 0 0; padding-left: 9px; font-size: 12px; color: #aeb9c8; }
+  .agent-rationale b {
+    display: block;
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: .1em;
+    color: #8e9bb0;
+    margin-bottom: 1px;
+  }
+  .agent-branch { margin: 9px 0 0; font-size: 12px; color: #d7dfe9; }
+  .agent-branch .ok { color: #7ce0b8; }
+  .agent-branch .bad { color: #ffab8a; }
+  .agent-branch .row-link { margin-left: 4px; }
+  .agent-field { margin: 8px 0 0; font-size: 11.5px; color: #94a1b2; }
   .msg-tr { margin: 3px 0 0; color: #aeb9c8; font-size: 12.5px; }
   .msg-ar {
     margin-top: 6px;

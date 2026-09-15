@@ -30,7 +30,7 @@ optional (below) and only for keeping the agent's config in git.
 | Stage | What | Command |
 |---|---|---|
 | 1 · record | the conversation id lands on every agent debrief (`otto-agent.js`); the dashboard grades it; ElevenLabs grades every call with the criteria in `analysis.json` | `node loop.mjs configure` |
-| 2 · suite | one simulation test per scenario row × persona, from the sheet | `npm run generate` → `node loop.mjs push-tests` → `node loop.mjs run` |
+| 2 · suite | one simulation test per scenario row × persona, from the sheet; the run published for the dashboard | `npm run generate` → `node loop.mjs push-tests` → `node loop.mjs run` → `publish` |
 | 3 · field | conversations + analysis + grades pulled and joined; a debrief graded bad becomes a next-reply regression test | `node loop.mjs pull` → `score` → `cut` |
 | 4 · improve | a minimal prompt diff, on a branch, compared, promoted by hand | `propose` → `branch` → `run --branch` → `compare` → `promote` |
 
@@ -47,6 +47,7 @@ propose    [--results FILE] [--field FILE] [--prompt FILE | --agent]
 branch     --proposal FILE [--name TEXT]
 compare    --base FILE --branch FILE [--margin 0.1]
 promote    --branch ID [--target BRANCH_ID] [--proposal FILE] [--force]
+publish    [--results FILE] [--run-url URL] [--verdict accept|reject] [--reason TEXT] [--note TEXT]
 ```
 
 `--dry-run` prints every request a command would send — method, path,
@@ -62,7 +63,7 @@ loop reads and writes; the tests use it to stay out of this folder.
 | `ELEVENLABS_AGENT_ID` | the agent the phone opens (public by design — the same value `config.js` carries) | shell / CI |
 | `OPENAI_API_KEY` | **secret** — the proposer (the repo's existing provider; `scenario-ai` uses the same key) | shell / CI |
 | `LOOP_MODEL` | the proposer's model, default `gpt-4o` | optional |
-| `SUPABASE_URL` / `SUPABASE_ANON_KEY` | where the debriefs and grades are; default: the kit's project, the same pair `scripts/tune_triggers.py` carries | optional |
+| `SUPABASE_URL` / `SUPABASE_ANON_KEY` | where the debriefs and grades are (`pull` reads them) and where a suite run is published for the dashboard (`publish` adds an `agent_runs` row); default: the kit's project, the same pair `scripts/tune_triggers.py` carries | optional |
 | `LOOP_DIR` | same as `--dir` | optional |
 | `LOOP_POLL_MS` | how often `run` polls the invocation; default `5000` (5 s) | optional |
 | `LOOP_TIMEOUT_MS` | when `run` gives up on it; default `1200000` (20 min). It then prints the invocation id to poll by hand and writes no results file — a big suite with a high `--repeat` may need more; the buttons set 80 minutes inside a 90-minute job | optional |
@@ -81,6 +82,7 @@ node loop.mjs configure            # criteria + data collection on the agent; th
 npm run generate                   # test_configs/ from the starter sheet (--supabase for your own rows)
 node loop.mjs push-tests           # create / update by name -> tests.lock.json
 node loop.mjs run --label main     # the baseline: 3 runs per test, results/<stamp>-main.json
+node loop.mjs publish              # that run onto the dashboard: a row of agent_runs, shown per scenario
 
 # … testers drive; on the dashboard, grade the agent debriefs (GRADE THE CONVERSATION) …
 
@@ -93,8 +95,10 @@ node loop.mjs propose              # proposals/<stamp>.json: the prompt, a one-l
 node loop.mjs branch --proposal proposals/<stamp>.json
 node loop.mjs run --branch <created_branch_id> --label branch
 node loop.mjs compare --base results/<stamp>-main.json --branch results/<stamp>-branch.json
+node loop.mjs publish --verdict accept --reason "…" --note "…"   # the branch run, with compare's word and the proposal's note
 node loop.mjs promote --branch <created_branch_id> --proposal proposals/<stamp>.json
 node loop.mjs run --label main     # the new baseline
+node loop.mjs publish
 ```
 
 `compare` says **ACCEPT** when no test drops by more than the margin (ten
@@ -102,6 +106,20 @@ points by default) *and* at least one previously failing test improves;
 anything else is **REJECT**, exit code 1. `promote` merges the branch
 into the agent's main branch and archives it, then tells you to pull the
 config into git with the note as the version description.
+
+`publish` is how a run reaches the person it is for. The designer grades
+the field debriefs on `dashboard.html`, per scenario; the suite's verdict
+on the same scenario belongs next to them, not in a job summary on
+GitHub. So the latest results file (or `--results FILE`) becomes one
+row of the `agent_runs` table: per test the runs, passes and pass rate,
+the first failure's one-line *why* and that run whole — the evaluator's
+rationale and the turns it judged — plus the totals per scenario; on a
+branch run from `propose`, `--verdict` / `--reason` / `--note` carry
+compare's word, its reason line and the proposal's note. `--run-url` is
+the Actions run page (the buttons pass it; by hand there is none). It
+prints the row's id; a project whose `schema.sql` predates the table
+gets "re-run supabase/schema.sql" and exit 1, and the results file stays
+where it is.
 
 ## Without a terminal: the buttons
 
@@ -114,10 +132,10 @@ run's job summary (the run page, "Summary" at the top):
 | Button | Runs | Summary ends with |
 |---|---|---|
 | **configure** | `configure` | the next button |
-| **baseline** | `push-tests` → `run --label main` (`repeat`, `filter` from the form; Mondays 06:00 UTC too) | the suite's pass rates |
+| **baseline** | `push-tests` → `run --label main` → `publish` (`repeat`, `filter` from the form; Mondays 06:00 UTC too) | the suite's pass rates |
 | **field** | `pull --days N` → `score` → `cut` → `push-tests` | what was pulled, scored and cut |
-| **propose** | the field again → `propose` → `branch` → `run --branch … --label branch` → `compare` against the latest baseline | **ACCEPT** or **REJECT**, and the branch id |
-| **promote** | `promote --branch <branch_id from the form>` → `run --label main` | the new baseline |
+| **propose** | the field again → `propose` → `branch` → `run --branch … --label branch` → `compare` against the latest baseline → `publish` with the verdict | **ACCEPT** or **REJECT**, and the branch id |
+| **promote** | `promote --branch <branch_id from the form>` → `run --label main` → `publish` | the new baseline |
 
 One-time setup, in the browser: Settings → Secrets and variables →
 Actions. Add `ELEVENLABS_API_KEY` as a **secret**, `ELEVENLABS_AGENT_ID`
@@ -135,6 +153,15 @@ live agent first when there is none), *promote* the latest
 `loop-proposal` for the version note. Artifacts expire after ninety
 days. Two presses at once queue behind each other.
 
+Every suite a button runs is also published as an `agent_runs` row (the
+kit's Supabase project unless the job is given another
+`SUPABASE_URL` / `SUPABASE_ANON_KEY`), and the summary ends with
+"Results are on the scenarios dashboard (dashboard.html), per
+scenario." A publish that fails does not fail the button — the suite
+was paid for, its summary and artifact still land — and the summary
+says "results not published" with the loop's last line, which names the
+fix (most likely: re-run `supabase/schema.sql` on that project).
+
 ### What each command leaves behind
 
 | File | Written by | What |
@@ -142,10 +169,11 @@ days. Two presses at once queue behind each other.
 | `test_configs/scenario-NN-<slug>--<persona>[-it].json` | `generate` | one request body for `POST /v1/convai/agent-testing/create`, plus `_otto` (scenario, persona, language, the briefing) which the loop strips before posting |
 | `test_configs/regressions/<conversation_id>.json` | `cut` | an `llm` test cut from the real conversation. For a follow-up / tip / brevity / language failure: the turns before the LAST agent turn, a success condition from those checks and the designer's note, and that last turn — the reply graded bad — as the failure example. For a debrief failed on the opener ALONE: cut before the FIRST agent turn (no `chat_history`), so the reply scored is the opener itself. A test cut mid-conversation carries no opener demand, and `cut` says how many it left out |
 | `tests.lock.json` | `push-tests` | `{"<test name>": "<test id>"}` — committed, so a fresh clone updates rather than duplicates |
-| `results/<stamp>-<label>.json` | `run` | per test: runs, passed, pass_rate, the failure rationales, branch/version |
+| `results/<stamp>-<label>.json` | `run` | per test: runs, passed, pass_rate, the failure rationales, the first failed run whole (`why`, `failure`), branch/version |
 | `results/score-<stamp>.json` | `score` | per scenario: suite pass rate, field grade rate, checks failed, failures by reason |
 | `field/<stamp>.json` | `pull` | conversations joined to their debrief, grade and scenario |
 | `proposals/<stamp>.json` | `propose` (`branch` adds the branch ids) | prompt, note, rationale, unified diff |
+| a row of `agent_runs` (Supabase, not a file) | `publish` | the results file as the dashboard reads it: `tests` — per test its scenario, persona, language, runs / passed / pass rate, `why` (the first failure, one line) and `failure` (that run's rationale and transcript; null when every run passed) — and `summary` (totals, and the same per scenario under `by_scenario`); the agent, branch, version and invocation ids; `run_url`; on a branch run from `propose`, `verdict`, `verdict_reason` and `note` |
 
 `results/`, `field/` and `proposals/` are gitignored; the rest is meant
 to be committed.
@@ -254,10 +282,13 @@ cd elevenlabs && npm test
 ```
 
 `test/loop.test.mjs` runs every command against an in-process mock of
-the three services (`test/mock-elevenlabs.mjs`) on `test/fixture/`, in a
-temp folder; it checks the requests, the files, that a command without
-its key sends nothing, and that `--dry-run` sends nothing.
+the three services (`test/mock-elevenlabs.mjs`; its Supabase has an
+`agent_runs` table that can be switched off, for the schema hint) on
+`test/fixture/`, in a temp folder; it checks the requests, the files,
+the row `publish` posts, that a command without its key sends nothing,
+and that `--dry-run` sends nothing.
 `test/generate.test.mjs` checks the generator against the sheet and
 `app.js`. `test/workflow.test.mjs` reads the live-suite job in
 `.github/workflows/agent-suite.yml` and checks the poll budget it hands
-the loop fits inside the job's own timeout.
+the loop fits inside the job's own timeout, and that every step which
+runs the suite publishes it.

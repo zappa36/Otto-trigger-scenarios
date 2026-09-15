@@ -2,9 +2,9 @@
  * Supabase over plain REST, the way scripts/tune_triggers.py reads it:
  * the anon key in both headers (apikey + bearer), PostgREST's own query
  * syntax on the URL, the kit's project as the default. The pilot
- * policies let the anon key read every table — and update messages,
- * which is the one write the loop makes (stamping the agent version
- * onto a grade).
+ * policies let the anon key read every table — and make the loop's two
+ * writes: update messages (stamping the agent version onto a grade)
+ * and add agent_runs (a suite run, published for the dashboard).
  */
 
 /* The kit's Supabase project — the same pair config.js and
@@ -29,6 +29,17 @@ export function supabase({ url = DEFAULT_URL, key = DEFAULT_KEY, http }) {
     patch: async (table, filter, body) =>
       rows(await http.send({
         method: 'PATCH', base, path: `/rest/v1/${table}`, query: filter, body,
+        headers: { ...headers, Prefer: 'return=representation' },
+      })),
+    /* POST with the representation back, the way backend.js inserts
+     * (saveNote, insertRun): the body is a list of rows, the reply the
+     * rows as stored — id and created_at filled in by the database,
+     * which is how the caller learns the id. A table the schema does
+     * not have yet is a 404 (PGRST205) from PostgREST, and the caller
+     * says what to run. */
+    insert: async (table, body) =>
+      rows(await http.send({
+        method: 'POST', base, path: `/rest/v1/${table}`, body: Array.isArray(body) ? body : [body],
         headers: { ...headers, Prefer: 'return=representation' },
       })),
   };

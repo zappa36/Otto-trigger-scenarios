@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startMock } from './mock-elevenlabs.mjs';
-import { main, aggregate, compareResults, scoreData, gradeSummary, fitEvidence } from '../loop.mjs';
+import { main, aggregate, compareResults, scoreData, gradeSummary, fitEvidence, agentRunRow } from '../loop.mjs';
 import { makeHttp, elevenLabs, ApiError } from '../lib/elevenlabs-api.mjs';
 import { unifiedDiff, table, reasonKey } from '../lib/report.mjs';
 
@@ -118,7 +118,19 @@ test('run polls the invocation, aggregates per test worst-first, and writes the 
   assert.deepEqual(res.tests[0].rationales, ['The agent asked four questions and never let the tester go. It opened correctly.']);
   assert.equal(res.tests[0].scenario_num, 1, 'the _otto block rides along');
   assert.equal(res.tests[0].persona, 'cooperative');
+  assert.equal(res.tests[0].kind, 'scenario');
+  assert.equal(res.tests[0].language, 'en');
+  /* the first failed run, whole — the dashboard shows which turn went
+   * wrong, not just that one did */
+  assert.equal(res.tests[0].why, 'The agent asked four questions and never let the tester go. It opened correctly.');
+  assert.deepEqual(res.tests[0].failure, {
+    test_run_id: 'run_2',
+    rationale: 'The agent asked four questions and never let the tester go. It opened correctly.\nAsked four questions.\nDid not let the tester go.',
+    transcript: [{ role: 'agent', message: 'Is it hard to park here at this time? Where did you find a spot?' }],
+  });
   assert.equal(res.tests[1].pass_rate, 1);
+  assert.equal(res.tests[1].why, null);
+  assert.equal(res.tests[1].failure, null, 'a test that passed every run has no failure to show');
   assert.match(r.out, /2\/3/);
   assert.match(r.out, /5\/6 runs passed/);
 });
@@ -144,6 +156,112 @@ test('run --filter narrows by name, and an empty lock is a clear message', async
   assert.equal(r.code, 1);
   assert.match(r.out, /push-tests first/);
   assert.equal(mock.requests.filter(q => /run-tests/.test(q.path)).length, 1, 'nothing sent for the empty lock');
+});
+
+test('publish posts the results file as one agent_runs row — the contract dashboard.html reads — and prints the id', async () => {
+  const dir = shared.dir;
+  const results = readJson(shared.results);
+  let r = await loop(['publish', '--results', shared.results, '--run-url', 'https://github.com/o/r/actions/runs/42'], dir);
+  assert.equal(r.code, 0, r.out);
+  const posts = sent('POST', /\/rest\/v1\/agent_runs$/);
+  assert.equal(posts.length, 1);
+  assert.ok(posts[0].auth.apikey && posts[0].auth.bearer, 'the anon key in both headers, like every Supabase write');
+  assert.equal(posts[0].prefer, 'return=representation', 'the row comes back with its id');
+  assert.ok(Array.isArray(posts[0].body) && posts[0].body.length === 1, 'one row, as a list — the shape backend.js inserts');
+  const row = posts[0].body[0];
+  assert.ok(!('id' in row) && !('created_at' in row), 'the database fills those in');
+  assert.deepEqual(Object.keys(row), ['agent_id', 'label', 'branch_id', 'version_id', 'invocation_id', 'repeat', 'run_url', 'verdict', 'verdict_reason', 'note', 'tests', 'summary', 'ran_at']);
+  assert.equal(row.agent_id, 'agent_test1');
+  assert.equal(row.label, 'main');
+  assert.equal(row.branch_id, null);
+  assert.equal(row.version_id, 'agtvrsn_v1', 'from the tests\' version_id');
+  assert.equal(row.invocation_id, 'inv_1');
+  assert.equal(row.repeat, 3);
+  assert.equal(row.run_url, 'https://github.com/o/r/actions/runs/42');
+  assert.equal(row.verdict, null, 'no verdict on a baseline');
+  assert.equal(row.verdict_reason, null);
+  assert.equal(row.note, null);
+  assert.equal(row.ran_at, results.at);
+  assert.deepEqual(row.tests[0], {
+    name: T1, test_id: 'test_001', kind: 'scenario', scenario_num: 1, scenario_title: 'Parking loops — two slow passes and a stop', persona: 'cooperative', language: 'en',
+    runs: 3, passed: 2, pass_rate: 2 / 3,
+    why: 'The agent asked four questions and never let the tester go. It opened correctly.',
+    failure: {
+      test_run_id: 'run_2',
+      rationale: 'The agent asked four questions and never let the tester go. It opened correctly.\nAsked four questions.\nDid not let the tester go.',
+      transcript: [{ role: 'agent', message: 'Is it hard to park here at this time? Where did you find a spot?' }],
+    },
+  });
+  assert.deepEqual(row.tests[1], { name: T8, test_id: 'test_pre8', kind: 'scenario', scenario_num: 8, scenario_title: 'Blocked route — turned round short of the address', persona: 'terse', language: 'en', runs: 3, passed: 3, pass_rate: 1, why: null, failure: null });
+  assert.deepEqual(row.summary, {
+    tests: 2, tests_at_100: 1, runs: 6, passed: 5, pass_rate: 5 / 6,
+    by_scenario: { 1: { tests: 1, runs: 3, passed: 2, pass_rate: 2 / 3 }, 8: { tests: 1, runs: 3, passed: 3, pass_rate: 1 } },
+  });
+  assert.equal(mock.state.agentRuns.length, 1, 'stored');
+  assert.match(r.out, /5\/6 runs passed across 2 test\(s\) -> agent_runs/);
+  assert.match(r.out, /published agent_runs 00000000-0000-4000-8000-000000000001 \(2 scenario\(s\), main, https:\/\/github\.com\/o\/r\/actions\/runs\/42\) — dashboard\.html shows it per scenario/);
+
+  /* the branch run from propose: compare's verdict and the proposal's note ride along */
+  mock.requests.length = 0;
+  r = await loop(['publish', '--results', shared.branchResults, '--verdict', 'REJECT', '--reason', 'no previously failing test improved', '--note', 'Ask where they parked first'], dir);
+  assert.equal(r.code, 0, r.out);
+  const branchRow = sent('POST', /agent_runs$/)[0].body[0];
+  assert.equal(branchRow.label, 'branch');
+  assert.equal(branchRow.branch_id, 'branch_loop1');
+  assert.equal(branchRow.version_id, 'agtvrsn_b1');
+  assert.equal(branchRow.verdict, 'reject', 'compare\'s word, whichever case it came in');
+  assert.equal(branchRow.verdict_reason, 'no previously failing test improved');
+  assert.equal(branchRow.note, 'Ask where they parked first');
+  assert.equal(branchRow.run_url, null, 'run by hand');
+  assert.match(r.out, /, REJECT -> agent_runs/);
+  assert.match(r.out, /published agent_runs 00000000-0000-4000-8000-000000000002/);
+
+  /* no --results: the latest results file that is not a score */
+  mock.requests.length = 0;
+  r = await loop(['publish'], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(sent('POST', /agent_runs$/)[0].body[0].label, 'blocked', 'the last run in this folder was the filtered one');
+
+  /* a word compare never prints */
+  mock.requests.length = 0;
+  r = await loop(['publish', '--results', shared.results, '--verdict', 'maybe'], dir);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /--verdict is accept or reject/);
+  assert.equal(mock.requests.length, 0, 'nothing sent');
+
+  /* a project whose schema.sql predates the table: say what to run, exit 1 */
+  mock.state.agentRunsTable = false;
+  r = await loop(['publish', '--results', shared.results], dir);
+  assert.equal(r.code, 1, r.out);
+  assert.equal(sent('POST', /agent_runs$/).length, 1, 'one POST, not retried');
+  assert.match(r.out, /the agent_runs table is not there yet \(404 from POST \/rest\/v1\/agent_runs: Could not find the table 'public\.agent_runs' in the schema cache\) — re-run supabase\/schema\.sql/, 'PostgREST\'s own message, not its JSON');
+  mock.state.agentRunsTable = true;
+
+  /* --dry-run: the row is printed, nothing is sent, no key appears */
+  mock.requests.length = 0;
+  r = await loop(['publish', '--results', shared.results, '--run-url', 'https://github.com/o/r/actions/runs/43', '--dry-run'], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(mock.requests.length, 0, 'the mock saw nothing');
+  assert.equal(mock.state.agentRuns.length, 3, 'nothing stored');
+  assert.match(r.out, /\(dry run\) POST .*\/rest\/v1\/agent_runs/);
+  assert.match(r.out, /"run_url": "https:\/\/github\.com\/o\/r\/actions\/runs\/43"/);
+  assert.match(r.out, /nothing published/);
+  assert.ok(!r.out.includes('anon-test') && !r.out.includes('sk-eleven'), 'no key printed');
+
+  /* a results file from before why/failure rode along publishes with what it has */
+  const old = { at: '2026-09-01T06:00:00.000Z', agent_id: 'agent_test1', invocation_id: 'inv_0', branch_id: null, label: 'main', repeat: 2,
+    tests: [{ name: 'Otto · regression · conv_old', test_id: 'test_9', runs: 2, passed: 1, pass_rate: 0.5, rationales: ['Too  long.\nReally.'] }] };
+  const oldFile = path.join(dir, 'old.json');
+  writeFileSync(oldFile, JSON.stringify(old));
+  const oldRow = agentRunRow(old, { runUrl: '' });
+  assert.deepEqual(oldRow.tests[0], { name: 'Otto · regression · conv_old', test_id: 'test_9', kind: 'regression', scenario_num: null, scenario_title: null, persona: null, language: null, runs: 2, passed: 1, pass_rate: 0.5, why: 'Too long. Really.', failure: null });
+  assert.deepEqual(oldRow.summary, { tests: 1, tests_at_100: 0, runs: 2, passed: 1, pass_rate: 0.5, by_scenario: {} }, 'a test without a scenario counts in the totals and under no scenario');
+  assert.equal(oldRow.version_id, null);
+  assert.equal(oldRow.run_url, null, 'an empty --run-url is none');
+  mock.requests.length = 0;
+  r = await loop(['publish', '--results', oldFile], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(sent('POST', /agent_runs$/)[0].body[0].ran_at, '2026-09-01T06:00:00.000Z');
 });
 
 test('pull joins conversations to their dashboard grades by conversation_id and stamps the agent version', async () => {
@@ -407,6 +525,7 @@ test('--dry-run prints every request and sends nothing, with no key in the envir
     ['configure'], ['push-tests'], ['run', '--repeat', '2'], ['pull'],
     ['cut', '--field', shared.field], ['propose', '--results', shared.results, '--field', shared.field],
     ['branch', '--proposal', proposal], ['promote', '--branch', 'branch_x'],
+    ['publish', '--results', shared.results, '--verdict', 'accept', '--reason', 'r', '--note', 'n'],
   ];
   for (const cmd of commands) {
     const r = await loop([...cmd, '--dry-run'], dir, noKeys);
@@ -564,6 +683,31 @@ test('cut puts an opener failure at the first agent turn, and leaves the opener 
   assert.ok(posted);
   assert.ok(!('chat_history' in posted));
   assert.equal(posted.type, 'llm');
+});
+
+test('cut files a regression under its scenario: the join first, the phone\'s dynamic variables when the join is gone', async () => {
+  const dir = workdir();
+  const field = readJson(shared.field);
+  const aaa = field.conversations.find(c => c.conversation_id === 'conv_aaa');
+  const bad = { checks: { opener: true, followup: false, tip: null, brevity: null, language: null }, note: '', at: '2026-09-10T09:00:00Z', agent_version: null };
+  const clone = (id, extra) => ({ ...JSON.parse(JSON.stringify(aaa)), conversation_id: id, grade: bad, ...extra });
+  const joined = clone('conv_j1', {});
+  /* the debrief's row is gone from the dashboard: no message, no scenario — but the phone told the agent which row it was */
+  const unjoined = clone('conv_j2', { message: null, scenario: null, dynamic_variables: { ...aaa.dynamic_variables, scenario_num: '8', scenario_title: 'Blocked route — turned round short of the address' } });
+  const nowhere = clone('conv_j3', { message: null, scenario: null, dynamic_variables: { debrief_language: 'Italian' } });
+  const f = path.join(dir, 'field.json');
+  writeFileSync(f, JSON.stringify({ ...field, conversations: [joined, unjoined, nowhere] }));
+  const r = await loop(['cut', '--field', f], dir);
+  assert.equal(r.code, 0, r.out);
+  const otto = id => readJson(path.join(dir, 'test_configs', 'regressions', `${id}.json`))._otto;
+  assert.deepEqual(otto('conv_j1'), { scenario_num: 1, scenario_title: 'Parking loops — two slow passes and a stop', persona: 'field', kind: 'regression', source_conversation_id: 'conv_j1', language: 'en' });
+  assert.deepEqual(otto('conv_j2'), { scenario_num: 8, scenario_title: 'Blocked route — turned round short of the address', persona: 'field', kind: 'regression', source_conversation_id: 'conv_j2', language: 'en' }, 'the number as a number, from the variables');
+  assert.deepEqual(otto('conv_j3'), { scenario_num: null, scenario_title: '', persona: 'field', kind: 'regression', source_conversation_id: 'conv_j3', language: 'it' }, 'no scenario anywhere stays unknown rather than invented');
+  /* and through run, the regression's row knows its scenario */
+  mock.requests.length = 0;
+  assert.equal((await loop(['push-tests'], dir)).code, 0);
+  const lock = readJson(path.join(dir, 'tests.lock.json'));
+  assert.ok(lock['Otto · regression · conv_j2']);
 });
 
 test('run gives up on an invocation that never completes, names the knobs, and writes nothing', async () => {

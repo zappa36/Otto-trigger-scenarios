@@ -207,6 +207,16 @@ const Backend = (() => {
     }),
     listRuns: limit => rest(`/rest/v1/runs?select=*&order=created_at.desc&limit=${limit || 300}`),
 
+    /* ---------- the agent suite's published runs ----------
+     * One row per suite run the agent loop (elevenlabs/) publishes from
+     * GitHub Actions — the simulated testers' half of the evidence,
+     * read by dashboard.js to sit next to the field debriefs. Newest
+     * first by when the suite RAN, not by when the row landed: a run
+     * published late must not pose as the latest baseline. The table
+     * is the newest in schema.sql, so a 404 here is "not created yet"
+     * and the dashboard says so instead of failing the page. */
+    listAgentRuns: limit => rest(`/rest/v1/agent_runs?select=*&order=ran_at.desc&limit=${limit || 50}`),
+
     /* ---------- visits ----------
      * The Delivered / Not delivered tap on a route stop (app.js) — the
      * stand-in for a courier's parcel scan, and the row a tour is built

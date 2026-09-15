@@ -53,6 +53,16 @@ name: agent-suite
 # compare against, promote the latest "loop-proposal" for the version
 # note. Artifacts expire after ninety days; a fresh baseline is one press.
 #
+# Where the results go to be READ: every suite run is also published as
+# a row of the agent_runs table in Supabase (loop.mjs publish) — the
+# pass rate per test with the first failure's transcript, the totals per
+# scenario, and on a propose run the ACCEPT / REJECT and the proposal's
+# note — which dashboard.html shows next to each scenario, where the
+# designer grades the field debriefs. A publish that fails (the table
+# not created yet, Supabase unreachable) does not fail the step: the
+# suite was paid for, its summary and artifact still land, and the
+# summary says "results not published" and why.
+#
 # Secrets cannot be read from an `if:`, so the first step copies the key
 # into its own environment, tests it there and publishes a yes/no output;
 # every later step keys off that output. The key itself is only ever
@@ -230,13 +240,26 @@ jobs:
       # summary are the signal, not a red job. The step fails only when
       # the loop itself does (an API error, the poll giving up): pipefail
       # comes with `shell: bash`, so tee does not swallow that exit code.
+      #
+      # Then the results go where the designer looks: `publish` writes
+      # the run as a row of the agent_runs table, which dashboard.html
+      # shows per scenario. It is wrapped in an `if` so that a publish
+      # that fails cannot fail the step and lose a suite that was paid
+      # for — the summary carries the loop's last line instead, which
+      # names the fix (re-run schema.sql, most likely).
       - name: Run the suite
         if: steps.plan.outputs.go == 'true' && steps.plan.outputs.action == 'baseline'
         run: |
           args=(run --repeat "$REPEAT" --label main)
           if [ -n "$FILTER" ]; then args+=(--filter "$FILTER"); fi
           node loop.mjs "${args[@]}" | tee "$RUNNER_TEMP/suite.txt"
+          if node loop.mjs publish --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" | tee "$RUNNER_TEMP/publish.txt"; then
+            published="Results are on the scenarios dashboard (dashboard.html), per scenario."
+          else
+            published="results not published — $(tail -n 1 "$RUNNER_TEMP/publish.txt")"
+          fi
           { echo; echo "### The suite on the live agent — ×$REPEAT${FILTER:+, filter \"$FILTER\"}"; echo; echo '```'; cat "$RUNNER_TEMP/suite.txt"; echo '```'; echo
+            echo "$published"; echo
             echo "Next button: **field** once testers have run and you have graded their debriefs on the dashboard; **propose** to try a prompt change against this baseline."; } >> "$GITHUB_STEP_SUMMARY"
 
       # ---------- field (and the first half of propose) ----------
@@ -281,7 +304,13 @@ jobs:
           args=(run --repeat "$REPEAT" --label main)
           if [ -n "$FILTER" ]; then args+=(--filter "$FILTER"); fi
           node loop.mjs "${args[@]}" | tee "$RUNNER_TEMP/suite.txt"
-          { echo; echo "### The suite on the live agent — ×$REPEAT (no earlier baseline to compare against)"; echo; echo '```'; cat "$RUNNER_TEMP/suite.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          if node loop.mjs publish --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" | tee "$RUNNER_TEMP/publish.txt"; then
+            published="Results are on the scenarios dashboard (dashboard.html), per scenario."
+          else
+            published="results not published — $(tail -n 1 "$RUNNER_TEMP/publish.txt")"
+          fi
+          { echo; echo "### The suite on the live agent — ×$REPEAT (no earlier baseline to compare against)"; echo; echo '```'; cat "$RUNNER_TEMP/suite.txt"; echo '```'; echo
+            echo "$published"; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Propose a prompt diff, try it on a branch, compare
         id: propose
@@ -310,9 +339,21 @@ jobs:
           if [ "$verdict" -eq 0 ]; then word=ACCEPT; else word=REJECT; fi
           echo "verdict=$word" >> "$GITHUB_OUTPUT"
           echo "branch_id=$bid" >> "$GITHUB_OUTPUT"
+          # the branch run goes on the dashboard with compare's word, its
+          # reason line ("ACCEPT — <reason>" in the compare output) and the
+          # proposal's note, so the designer sees what was tried and why it
+          # was or was not promoted
+          reason="$(grep -m1 -E '^(ACCEPT|REJECT) ' "$RUNNER_TEMP/compare.txt" | cut -d' ' -f3- || true)"
+          note="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).note || "")' "$prop")"
+          if node loop.mjs publish --results "$br" --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --verdict "$word" --reason "$reason" --note "$note" | tee "$RUNNER_TEMP/publish.txt"; then
+            published="Results are on the scenarios dashboard (dashboard.html), per scenario."
+          else
+            published="results not published — $(tail -n 1 "$RUNNER_TEMP/publish.txt")"
+          fi
           { echo; echo "### The proposal"; echo; echo '```'; cat "$RUNNER_TEMP/propose.txt" "$RUNNER_TEMP/branch.txt"; echo '```'
             echo; echo "### The suite on the branch — ×$REPEAT${FILTER:+, filter \"$FILTER\"}"; echo; echo '```'; cat "$RUNNER_TEMP/suite-branch.txt"; echo '```'
             echo; echo "### $word"; echo; echo '```'; cat "$RUNNER_TEMP/compare.txt"; echo '```'; echo
+            echo "$published"; echo
             if [ "$word" = ACCEPT ]; then
               echo "Next button: **promote** with branch_id \`$bid\` — merges this prompt into the agent and runs a fresh baseline. The branch stays as it is until then."
             else
@@ -340,8 +381,14 @@ jobs:
           args=(run --repeat "$REPEAT" --label main)
           if [ -n "$FILTER" ]; then args+=(--filter "$FILTER"); fi
           node loop.mjs "${args[@]}" | tee "$RUNNER_TEMP/suite.txt"
+          if node loop.mjs publish --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" | tee "$RUNNER_TEMP/publish.txt"; then
+            published="Results are on the scenarios dashboard (dashboard.html), per scenario."
+          else
+            published="results not published — $(tail -n 1 "$RUNNER_TEMP/publish.txt")"
+          fi
           { echo; echo "### Promoted"; echo; echo '```'; cat "$RUNNER_TEMP/promote.txt"; echo '```'
             echo; echo "### The new baseline — ×$REPEAT${FILTER:+, filter \"$FILTER\"}"; echo; echo '```'; cat "$RUNNER_TEMP/suite.txt"; echo '```'; echo
+            echo "$published"; echo
             echo "The prompt on the agent has changed. Next: testers drive; grade their debriefs; **field** or **propose** again."; } >> "$GITHUB_STEP_SUMMARY"
 
       # ---------- what goes back to git ----------
