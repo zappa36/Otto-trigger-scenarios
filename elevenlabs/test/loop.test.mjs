@@ -829,3 +829,52 @@ test('propose trims the evidence to the budget instead of cutting the JSON, and 
   assert.match(r.out, /evidence trimmed to fit 80000 chars: rationales and transcripts shortened, 0 of 1 failing test\(s\) and [1-9]\d* of 120 bad debrief\(s\) left out/);
   assert.match(r.out, /pass a narrower --results \/ --field/);
 });
+
+test('push-tests mocks the agent\'s tools for the suite — a client tool has no phone to answer it', async () => {
+  const dir = workdir();
+  /* the fixture agent carries one client tool and one system tool */
+  mock.state.agent.conversation_config.agent.prompt.tool_ids = ['tool_report', 'tool_end'];
+  let r = await loop(['push-tests'], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /mocking 1 tool\(s\) for the suite: report_incident \(client\)/);
+  const created = sent('POST', /agent-testing\/create$/).map(x => x.body);
+  const sim = created.find(b => b.type === 'simulation');
+  assert.ok(sim, 'a simulation test was created');
+  assert.deepEqual(sim.tool_mock_config, { mocking_strategy: 'all', fallback_strategy: 'raise_error' });
+  assert.match(sim.tool_mock_overrides.tool_report.mock_result, /report_incident/);
+  assert.equal(sim.tool_mock_overrides.tool_report.is_error, false);
+  assert.equal(sim.tool_mock_overrides.tool_end, undefined, 'system tools are never mocked');
+  assert.equal(sim._otto, undefined);
+  /* the files on disk stay agent-independent */
+  const onDisk = readJson(path.join(dir, 'test_configs', 'scenario-01-parking-loops--cooperative.json'));
+  assert.equal(onDisk.tool_mock_config, undefined);
+
+  /* an agent without tools gets no mock block; --no-mock-tools sends none either way */
+  mock.reset();
+  r = await loop(['push-tests'], dir);
+  assert.match(r.out, /carries no tools to mock/);
+  assert.ok(sent('PUT', /agent-testing\//).every(x => x.body.tool_mock_config === undefined));
+  mock.reset();
+  mock.state.agent.conversation_config.agent.prompt.tool_ids = ['tool_report'];
+  r = await loop(['push-tests', '--no-mock-tools'], dir);
+  assert.match(r.out, /tool mocks off/);
+  assert.ok(sent('PUT', /agent-testing\//).every(x => x.body.tool_mock_config === undefined));
+  assert.equal(sent('GET', /\/v1\/convai\/tools$/).length, 0, 'the tools are not even looked up');
+});
+
+test('the why line names the failed criterion, not the verdict word', async () => {
+  const { whyOf } = await import('../loop.mjs');
+  const generic = { rationale: { summary: 'Evaluation failed', messages: [
+    'Criterion 1: The agent opens with exactly the required question. Criteria met.',
+    'Criterion 4: Questions asked: four — exceeding the limit of three.',
+    'The agent ended the conversation.',
+  ] } };
+  assert.equal(whyOf(generic), 'Criterion 4: Questions asked: four — exceeding the limit of three.');
+  const specific = { rationale: { summary: 'Unsupported client tool', messages: ["Client tool 'report_incident' was called during simulation."] } };
+  assert.equal(whyOf(specific), 'Unsupported client tool');
+  const noSummary = { rationale: { messages: ['m1', 'm2'] } };
+  assert.equal(whyOf(noSummary), 'm1 m2');
+  assert.equal(whyOf({}), 'no rationale returned');
+  const long = { rationale: { summary: 'Evaluation failed', messages: ['Criterion 2: ' + 'the agent never '.repeat(40)] } };
+  assert.ok(whyOf(long).length <= 240 && whyOf(long).endsWith('…'));
+});

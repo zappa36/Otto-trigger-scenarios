@@ -93,7 +93,7 @@ const STARTER = {
     stop: 7, run: { fired: true, passes: 2, stopped: true }, distance_to_pin_m: 180,
     activity: { state: 'IN_VEHICLE', summary: 'IN_VEHICLE 6m → STILL 1m → IN_VEHICLE 30s' },
     found: 'There was no legal spot anywhere on Sredzkistraße; after two slow loops you stopped in the loading bay on Husemannstraße, about 40 m from the door, which was free. It is like this every weekday morning before ten',
-    specific: () => 'The elicited parking tip names a place — a street, a bay, a side of the road — where the tester actually stopped, not merely that parking was hard, and the agent asks whether that spot works generally at this address.',
+    specific: () => 'The elicited parking tip names a place — a street, a bay, a side of the road — where the tester actually stopped, not merely that parking was hard.',
   },
   2: {
     stop: 1, run: { fired: true, park_distance_m: 310, walk_m: 340 }, distance_to_pin_m: 12,
@@ -233,7 +233,9 @@ function successConditions({ sc, v, q, lang, fx, cat }) {
   c.push(`The agent opens the debrief by asking “${q}” — that question or a close paraphrase of it — and its next turn continues from the tester's answer instead of restarting with a greeting, an introduction or a different opening question.`);
   const bits = measuredBits(v);
   const situation = noStop(sc.described || sc.title);
-  c.push(v.trigger_fired === 'yes' && bits.length
+  /* the control row learns nothing — a follow-up demanded there would
+   * contradict its own condition to accept "nothing to report" */
+  if (cat !== 'none') c.push(v.trigger_fired === 'yes' && bits.length
     ? `At least one agent follow-up refers to what actually happened on this run — the phone measured ${bits.join(', ')} — or to the specific situation this scenario is about (${situation}). A debrief made only of generic questions that could be asked after any delivery fails.`
     : `At least one agent follow-up refers to the specific situation this scenario is about (${situation}) rather than only generic questions that could be asked after any delivery.`);
   c.push(cat === 'none'
