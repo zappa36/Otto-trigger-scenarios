@@ -115,6 +115,10 @@ export function elevenLabs({ apiKey, base = DEFAULT_BASE, http }) {
     updateTest: (id, body) => call('PUT', `/v1/convai/agent-testing/${encodeURIComponent(id)}`, { body, label: body && body.name }),
     /* https://elevenlabs.io/docs/api-reference/tests/list — ?search= filters by name */
     listTests: (query = {}) => paginate('/v1/convai/agent-testing', query, 'tests'),
+    /* https://elevenlabs.io/docs/api-reference/tools/list — the workspace's
+     * tools, each { id, tool_config: { name, type: client|webhook|system|mcp } };
+     * an agent names its own by id in conversation_config.agent.prompt.tool_ids */
+    listTools: (query = {}) => paginate('/v1/convai/tools', query, 'tools'),
     /* https://elevenlabs.io/docs/api-reference/tests/run-tests — body
      * { tests: [{test_id}], branch_id?, repeat_count?, agent_config_override? } */
     runTests: (agentId, body) => call('POST', `/v1/convai/agents/${encodeURIComponent(agentId)}/run-tests`, { body }),

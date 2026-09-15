@@ -269,16 +269,65 @@ async function findByName(api, prefix) {
   return found;
 }
 
-async function pushTests(ctx) {
+/* The suite runs with no phone on the other end. A client tool the
+ * agent calls — report_incident, say — has nobody to answer it, and
+ * ElevenLabs fails the run outright ("Client tools are not supported in
+ * simulation tests because there is no client to handle them"): the
+ * first live baseline lost 21 of 33 tests to exactly that, not to the
+ * prompt. So every tool the agent carries is mocked for the suite — an
+ * answer in the tool's name, and the conversation goes on, which is
+ * what the prompt is being judged on. Mocks are keyed by tool id, so
+ * they are looked up here at push time rather than written into the
+ * test files, which stay agent-independent. System tools are never
+ * mocked by ElevenLabs and are left out. (On the phone the same tool is
+ * real; otto-agent.js is where it would be answered.) */
+async function toolMocks(api, agentId) {
+  const agent = await api.getAgent(agentId);
+  if (!agent) return null; // dry run
+  const prompt = (((agent.conversation_config || {}).agent || {}).prompt) || {};
+  const ids = [...new Set((prompt.tool_ids || []).map(String))];
+  if (!ids.length) return { config: null, overrides: {}, names: [] };
+  const known = new Map();
+  for await (const t of api.listTools()) {
+    if (t && ids.includes(String(t.id))) known.set(String(t.id), { name: (t.tool_config || {}).name || t.id, type: (t.tool_config || {}).type || '' });
+  }
+  const overrides = {};
+  const names = [];
+  for (const id of ids) {
+    const info = known.get(id) || { name: id, type: '' };
+    if (info.type === 'system') continue;
+    overrides[id] = { mock_result: `Done — ${info.name} was handled on the client side; carry on with the debrief.`, is_error: false };
+    names.push(info.type ? `${info.name} (${info.type})` : info.name);
+  }
+  if (!names.length) return { config: null, overrides: {}, names: [] };
+  return { config: { mocking_strategy: 'all', fallback_strategy: 'raise_error' }, overrides, names };
+}
+/* a test file's own mock settings win over the looked-up ones */
+function withMocks(req, mocks) {
+  if (!mocks || !mocks.config || req.type !== 'simulation') return req;
+  return {
+    ...req,
+    tool_mock_config: req.tool_mock_config || mocks.config,
+    tool_mock_overrides: { ...mocks.overrides, ...(req.tool_mock_overrides || {}) },
+  };
+}
+
+async function pushTests(ctx, flags = {}) {
   const { log } = ctx;
   const configs = listConfigs(ctx.p.configs, log);
   if (!configs.length) { log(`no test files under ${ctx.p.configs} — run "npm run generate" first (regressions come from "cut")`); return 1; }
   const lock = readLock(ctx);
-  const { api } = needEleven(ctx);
+  const { api, agentId } = needEleven(ctx);
+  const mocks = flags.noMockTools ? null : await toolMocks(api, agentId);
+  if (flags.noMockTools) log('tool mocks off (--no-mock-tools): a client tool the agent calls fails the run');
+  else if (!mocks) log('(dry run) the agent\'s tools are not looked up — live, every one of them is mocked for the suite');
+  else if (mocks.names.length) log(`mocking ${mocks.names.length} tool(s) for the suite: ${mocks.names.join(', ')}`);
+  else log('the agent carries no tools to mock');
   const rows = [];
   let byName = null;
   for (const { file, body } of configs) {
-    const { _otto, ...req } = body;
+    const { _otto, ...bare } = body;
+    const req = withMocks(bare, mocks);
     const name = req.name;
     let id = lock[name] || null;
     let action = '';
@@ -350,9 +399,28 @@ function failureOf(r) {
 }
 const oneLine = x => String(x == null ? '' : x).replace(/\s+/g, ' ').trim();
 
+/* The evaluator's summary is usually the verdict, not the reason:
+ * "Evaluation failed", full stop. Its messages carry one paragraph per
+ * success condition, so the first that reads as a failure is the line
+ * worth a chip; a summary that says something of its own ("Unsupported
+ * client tool") stands. */
+const GENERIC_SUMMARY = /^(evaluation failed|failed|failure|test failed)\.?$/i;
+const FAIL_CUES = /\b(not met|not satisfied|fails?|failed|exceed(s|ed|ing)?|never|does not|did not|doesn't|didn't|no follow-up|invent(s|ed)?|fabricat|violat|missing|contradict)\b|non (soddisfatt|è soddisfatt|chiede|fa riferimento)|supera(ndo)?|non soddisfatto/i;
+function whyOf(cr) {
+  const ra = (cr && cr.rationale) || {};
+  const summary = oneLine(ra.summary);
+  const msgs = (ra.messages || []).map(oneLine).filter(Boolean);
+  if (summary && !GENERIC_SUMMARY.test(summary)) return summary;
+  const failed = msgs.find(m => /^criteri(on|a|o) \d+/i.test(m) && FAIL_CUES.test(m));
+  /* no summary at all: the messages are the whole rationale, as before */
+  const line = failed || (summary ? msgs[0] : msgs.join(' ')) || summary || 'no rationale returned';
+  return line.length > 240 ? line.slice(0, 237).replace(/\s+\S*$/, '') + '…' : line;
+}
+
 /* one row per test: how many runs, how many passed, why the rest failed
  * (`why` is the first failure's rationale on one line, `failure` that
  * run whole — null for a test that passed every run) */
+export { whyOf };
 export function aggregate(inv, { idToName = {}, meta = {} } = {}) {
   const byTest = new Map();
   for (const r of (inv && inv.test_runs) || []) {
@@ -366,7 +434,7 @@ export function aggregate(inv, { idToName = {}, meta = {} } = {}) {
     else if (r.status === 'pending') t.pending++;
     else {
       const cr = r.condition_result || {};
-      const why = (cr.rationale && (cr.rationale.summary || (cr.rationale.messages || []).join(' '))) || 'no rationale returned';
+      const why = whyOf(cr);
       if (!t.rationales.includes(why)) t.rationales.push(why);
       if (!t.failure) { t.why = oneLine(why); t.failure = failureOf(r); }
     }
@@ -1093,7 +1161,7 @@ async function publish(ctx, flags) {
 /* ---------- the command line ---------- */
 
 const COMMANDS = { configure, 'push-tests': pushTests, run, pull, score, cut, propose, branch, compare, promote, publish };
-const BOOLEAN_FLAGS = new Set(['dry-run', 'agent', 'no-stamp', 'force', 'help']);
+const BOOLEAN_FLAGS = new Set(['dry-run', 'agent', 'no-stamp', 'force', 'help', 'no-mock-tools']);
 
 export function parseArgs(argv) {
   const out = { cmd: null, flags: {}, rest: [] };
@@ -1115,7 +1183,8 @@ export function parseArgs(argv) {
 const USAGE = `usage: node loop.mjs <command> [--dry-run] [--dir DIR] [flags]
 
   configure                       evaluation criteria + data collection + overrides (analysis.json) onto the agent
-  push-tests                      test_configs/**.json -> ElevenLabs tests, by name; writes tests.lock.json
+  push-tests [--no-mock-tools]    test_configs/**.json -> ElevenLabs tests, by name; writes tests.lock.json;
+                                  the agent's tools are mocked for the suite (a client tool has no phone to answer it)
   run        [--branch ID] [--repeat N=3] [--filter TEXT] [--label TEXT]
   pull       [--since ISO | --days N=14] [--no-stamp]
   score      [--results FILE] [--field FILE]

@@ -50,6 +50,13 @@ export async function startMock(fixtureDir) {
      * predates it, which PostgREST reports as a 404 (PGRST205) */
     state.agentRuns = [];
     state.agentRunsTable = true;
+    /* the workspace's tools: one client tool an agent may carry (the
+     * suite mocks it), one system tool (never mocked); the fixture agent
+     * carries neither until a test gives it tool_ids */
+    state.tools = [
+      { id: 'tool_report', tool_config: { name: 'report_incident', type: 'client' } },
+      { id: 'tool_end', tool_config: { name: 'end_call', type: 'system' } },
+    ];
     state.failNext = null;
     /* an invocation that never finishes, for the poll timeout */
     state.neverComplete = false;
@@ -114,6 +121,7 @@ export async function startMock(fixtureDir) {
       const c = fixture.conversations.find(x => x.list.conversation_id === m[1]);
       return c ? [200, c.detail] : [404, { detail: 'not found' }];
     }],
+    ['GET', /^\/v1\/convai\/tools$/, () => [200, { tools: state.tools, has_more: false, next_cursor: null }]],
     ['GET', /^\/v1\/convai\/agents\/([^/]+)$/, () => [200, state.agent]],
     ['PATCH', /^\/v1\/convai\/agents\/([^/]+)$/, (m, q, body) => {
       /* the reference does not say whether platform_settings merges

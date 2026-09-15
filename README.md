@@ -352,9 +352,12 @@ the safe way to see what a command does.
    key list straight out of `app.js`, so a new variable on the phone
    fails the tests until
    [`lib/scenario-vars.mjs`](elevenlabs/lib/scenario-vars.mjs) mirrors
-   it. `push-tests` creates or updates the tests by name and writes
+   it. `push-tests` creates or updates the tests by name, writes
    `tests.lock.json` (name → id; commit it, so a fresh clone updates
-   instead of duplicating); `run` runs them with a repeat count
+   instead of duplicating), and mocks every tool the agent carries for
+   the suite — a client tool such as `report_incident` has no phone to
+   answer it in a simulation, and ElevenLabs fails the run rather than
+   guess (the first live baseline lost most of its runs to that); `run` runs them with a repeat count
    (`--repeat 3` by default, up to 20; `--filter TEXT` for a subset,
    `--branch ID` for a branch) and prints **pass rates, worst first**,
    with the evaluator's first rationale per test, to

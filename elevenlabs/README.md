@@ -38,7 +38,8 @@ optional (below) and only for keeping the agent's config in git.
 node loop.mjs <command> [--dry-run] [--dir DIR] [flags]
 
 configure                       evaluation + data collection + overrides (analysis.json) onto the agent
-push-tests                      test_configs/**.json -> ElevenLabs tests, by name; writes tests.lock.json
+push-tests [--no-mock-tools]    test_configs/**.json -> ElevenLabs tests, by name; writes tests.lock.json;
+                                  the agent's tools are mocked for the suite (a client tool has no phone to answer it)
 run        [--branch ID] [--repeat N=3] [--filter TEXT] [--label TEXT]
 pull       [--since ISO | --days N=14] [--no-stamp]
 score      [--results FILE] [--field FILE]
@@ -161,6 +162,28 @@ scenario." A publish that fails does not fail the button — the suite
 was paid for, its summary and artifact still land — and the summary
 says "results not published" with the loop's last line, which names the
 fix (most likely: re-run `supabase/schema.sql` on that project).
+
+### Tools, mocked for the suite
+
+The suite runs with no phone on the other end. A **client tool** the
+agent calls — `report_incident`, say — has nobody to answer it, and
+ElevenLabs fails the run outright ("Client tools are not supported in
+simulation tests"): the first live baseline lost 21 of 33 tests to
+exactly that, not to the prompt. So `push-tests` looks up the tools the
+agent carries and sends every simulation test with `tool_mock_config`
+(mock all, error when a tool has no mock) and one `tool_mock_overrides`
+entry per tool, answering in the tool's name; system tools are left
+out, ElevenLabs never mocks those. The mocks are keyed by tool id, so
+they are added at push time and the files under `test_configs/` stay
+agent-independent; a file that carries its own mock block keeps it.
+`--no-mock-tools` sends the files as they are.
+
+The **why** line on a failed test (the table, the dashboard chip) is
+the evaluator's summary when it says something of its own
+("Unsupported client tool"), and otherwise — the summary is usually
+just "Evaluation failed" — the first success condition whose paragraph
+reads as a failure ("Criterion 4: … four questions, exceeding the
+limit of three"). The whole rationale is kept under `failure`.
 
 ### What each command leaves behind
 
