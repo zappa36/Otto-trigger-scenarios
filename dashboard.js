@@ -79,11 +79,19 @@ const localId = p => p + Date.now().toString(36) + Math.random().toString(36).sl
 const warn = e => console.warn('dashboard:', e && e.message ? e.message : e);
 /* A write failing against a live backend usually means the scenarios
  * table predates the tuning-loop columns — say so where it is seen. */
+/* A hint held until the next render has drawn, because the render that
+ * usually follows a failed save repaints #stats and would wipe it. */
+let schemaMsg = '';
 const schemaHint = e => {
   warn(e);
-  if (Backend.enabled && /column|schema|400/i.test(String(e && e.message))) {
-    el('stats').textContent = 'Save failed — a table is missing newer columns. Re-run supabase/schema.sql, then ↻ REFRESH.';
-  }
+  if (!Backend.enabled) return;
+  const msg = String((e && e.message) || '');
+  if (/situations/i.test(msg) || /PGRST205|42P01|schema cache/i.test(msg)) {
+    schemaMsg = 'That row could not be saved — the backend has no situations table yet. Re-run supabase/schema.sql once, then ↻ REFRESH. Until then rows stay in this browser only.';
+  } else if (/column|schema|400/i.test(msg)) {
+    schemaMsg = 'Save failed — a table is missing newer columns. Re-run supabase/schema.sql, then ↻ REFRESH.';
+  } else { return; }
+  el('stats').textContent = schemaMsg;
 };
 /* Auto-refresh must not repaint over a drag, a recording, or an open
  * proposal — those live only in the DOM until saved. Same for the
@@ -646,6 +654,7 @@ async function loadAll() {
     try {
       situations = (await Backend.listSituations()) || [];
       situationsMissing = false;
+      if (/situations table/i.test(schemaMsg)) schemaMsg = '';
     } catch (e) {
       warn(e);
       situationsMissing = /\b404\b|PGRST205|42P01|schema cache/i.test(String((e && e.message) || ''));
@@ -746,6 +755,9 @@ function fmtAgo(iso) {
 }
 
 function renderStats() {
+  /* a schema hint outlives one repaint: the save that raised it is what
+   * the reader needs to see, not the counts they already had */
+  if (schemaMsg) { el('stats').textContent = schemaMsg; return; }
   /* the line counts what the list is showing: on the SITUATIONS tab the
    * scenarios' pins and debriefs are not the subject, the situations and
    * how many of them the suite has results for are */
@@ -2863,6 +2875,11 @@ async function loadSituationSheet() {
  * A new situation is a real row from the first click: the card IS the
  * editor, so there is nothing to fill in before it exists. */
 async function newSituation() {
+  /* the button can be pressed from anywhere the browser still shows it
+   * (an old cached page, a stale stylesheet) — a new row must never be
+   * created onto a list that is not on screen, or the press reads as
+   * "nothing happened" */
+  setListTab('situations');
   const row = sitRow({
     num: Math.max(0, ...situations.map(s => +s.num || 0)) + 1,
     title: 'New situation',
