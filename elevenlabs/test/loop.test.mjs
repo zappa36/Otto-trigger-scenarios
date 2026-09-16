@@ -1041,3 +1041,39 @@ test('a situation test carries its row through run, results and the agent_runs r
   assert.equal(guessed.tests[0].kind, 'situation');
   rmSync(dir, { recursive: true, force: true });
 });
+
+test('push-tests pushes only the suite it was given, and replaces a test the API will not update', async () => {
+  const dir = workdir();
+  /* two suites side by side in the same folder */
+  mkdirSync(path.join(dir, 'test_configs', 'situations'), { recursive: true });
+  writeFileSync(path.join(dir, 'test_configs', 'situations', 'situation-01-road-closed--terse.json'), JSON.stringify({
+    name: 'Otto · situation #1 Road closed · terse', type: 'simulation',
+    dynamic_variables: { trigger_fired: 'no' }, simulation_scenario: 'you are a driver', simulation_max_turns: 8,
+    success_conditions: ['Otto asks about the closure'],
+    _otto: { kind: 'situation', situation_num: 1, situation_title: 'Road closed', persona: 'terse', language: 'en' },
+  }, null, 2));
+
+  let r = await loop(['push-tests', '--filter', 'Otto · situation'], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /pushing 1 of \d+ test file\(s\)/);
+  const pushedNames = [...sent('POST', /agent-testing\/create$/), ...sent('PUT', /agent-testing\//)].map(x => x.body.name);
+  assert.deepEqual(pushedNames, ['Otto · situation #1 Road closed · terse'], 'the trigger tests were left alone');
+  assert.deepEqual(Object.keys(readJson(path.join(dir, 'tests.lock.json'))), ['Otto · situation #1 Road closed · terse']);
+
+  /* the API refuses to update what is already there: it is replaced, and
+   * the rest of the push carries on */
+  mock.reset();
+  mock.state.refuseUpdate = true;
+  r = await loop(['push-tests', '--filter', 'Otto · situation'], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /would not take the update/);
+  assert.match(r.out, /1 test\(s\) the API would not update were replaced/);
+  assert.equal(sent('DELETE', /agent-testing\//).length, 1, 'the refused test was deleted');
+  assert.equal(sent('POST', /agent-testing\/create$/).length, 1, 'and made again');
+  assert.ok(readJson(path.join(dir, 'tests.lock.json'))['Otto · situation #1 Road closed · terse'], 'the lock points at the new id');
+
+  /* a filter that matches nothing says so instead of pushing everything */
+  r = await loop(['push-tests', '--filter', 'nothing matches this'], dir);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /no test file .* is named like/);
+});
