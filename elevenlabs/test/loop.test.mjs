@@ -879,8 +879,10 @@ test('push-tests mocks the agent\'s tools for the suite — a client tool has no
   const sim = created.find(b => b.type === 'simulation');
   assert.ok(sim, 'a simulation test was created');
   assert.deepEqual(sim.tool_mock_config, { mocking_strategy: 'all', fallback_strategy: 'raise_error' });
-  assert.match(sim.tool_mock_overrides.tool_report.mock_result, /report_incident/);
-  assert.equal(sim.tool_mock_overrides.tool_report.is_error, false);
+  assert.ok(Array.isArray(sim.tool_mock_overrides.tool_report), 'the API wants a list of answers per tool, not one object');
+  assert.equal(sim.tool_mock_overrides.tool_report.length, 1);
+  assert.match(sim.tool_mock_overrides.tool_report[0].mock_result, /report_incident/);
+  assert.equal(sim.tool_mock_overrides.tool_report[0].is_error, false);
   assert.equal(sim.tool_mock_overrides.tool_end, undefined, 'system tools are never mocked');
   assert.equal(sim._otto, undefined);
   /* the files on disk stay agent-independent */
