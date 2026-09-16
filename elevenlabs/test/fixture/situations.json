@@ -1,0 +1,44 @@
+[
+  {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "num": 2,
+    "title": "Letterbox full — card would not fit",
+    "category": "recipient",
+    "stop": 6,
+    "driver_says": "The letterbox was stuffed full, I couldn't even get a card in.",
+    "driver_knows": "The box was overflowing with free papers. Nobody answered the bell. The parcel went back in the van and no card was left.",
+    "follow_up": ["whether anybody was home", "how the recipient will be told", "whether the parcel is back in the van"],
+    "off_topic": ["parking", "the road"],
+    "tip": "Husemannstraße 14: the letterbox is full, a card will not fit — ring, or take it back.",
+    "active": true,
+    "created_at": "2026-09-10T08:00:00.000Z"
+  },
+  {
+    "id": "22222222-2222-4222-8222-222222222222",
+    "num": 5,
+    "title": "Building site mud across the path",
+    "category": "hazard",
+    "stop": null,
+    "driver_says": "The whole path is mud from the building site, the trolley just sank in.",
+    "driver_knows": "A digger has churned up the path to the door. There are boards laid along the left-hand side that hold. The parcel was delivered.",
+    "follow_up": ["whether there is a way in that holds", "how long the works last", "whether the parcel was delivered"],
+    "off_topic": ["gate codes", "the recipient's hours"],
+    "tip": "Mud across the path from the building site — keep to the boards on the left.",
+    "active": true,
+    "created_at": "2026-09-10T08:00:00.000Z"
+  },
+  {
+    "id": "33333333-3333-4333-8333-333333333333",
+    "num": 9,
+    "title": "Retired row — kept but switched off",
+    "category": "other",
+    "stop": 1,
+    "driver_says": "Nothing to say about this one.",
+    "driver_knows": "Nothing happened.",
+    "follow_up": ["nothing"],
+    "off_topic": ["everything"],
+    "tip": "Nothing to note.",
+    "active": false,
+    "created_at": "2026-09-10T08:00:00.000Z"
+  }
+]

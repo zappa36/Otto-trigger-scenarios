@@ -186,6 +186,27 @@ const Backend = (() => {
     }),
     deleteScenario: id => rest('/rest/v1/scenarios?id=eq.' + encodeURIComponent(id), { method: 'DELETE' }),
 
+    /* ---------- situations (dashboard.js) ----------
+     * The other sheet: not WHEN Otto speaks but what happens after the
+     * driver presses REPORT and says what they found. One row is one
+     * thing a driver might say first, plus what a fitting follow-up
+     * asks about — the unit the agent suite tests during the pilot,
+     * where there are no triggers yet. No pin and no destination: a
+     * situation is acted out in a conversation, not at an address. */
+    listSituations: () => rest('/rest/v1/situations?select=*&order=num.asc.nullslast,created_at.asc'),
+    /* the starter sheet lands as ONE insert, like the demo route */
+    insertSituations: rows => rest('/rest/v1/situations', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify(rows),
+    }),
+    updateSituation: (id, patch) => rest('/rest/v1/situations?id=eq.' + encodeURIComponent(id), {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify(patch),
+    }),
+    deleteSituation: id => rest('/rest/v1/situations?id=eq.' + encodeURIComponent(id), { method: 'DELETE' }),
+
     /* ---------- test-run log ----------
      * Every tracked run, fired or not (app.js saves, dashboard.js reads).
      * The runs where nothing happened are the ones debugging needs. */

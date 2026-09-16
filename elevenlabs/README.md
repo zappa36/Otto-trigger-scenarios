@@ -7,10 +7,14 @@ Conversational AI agent that is Otto when the phone opens a live
 conversation (`otto-agent.js`). Its prompt is the knob; the evidence is
 two-fold:
 
-- **a suite** of ElevenLabs simulation tests, one per row of the "Otto
-  triggers" sheet × persona, carrying the *same dynamic variables a
-  phone sends* on a real run (`generate-tests.mjs` mirrors `agentVars()`
-  in `app.js`, and its test fails the moment the two drift);
+- **a suite** of ElevenLabs simulation tests carrying the *same dynamic
+  variables a phone sends* on a real run (`generate-tests.mjs` mirrors
+  `agentVars()` in `app.js`, and its test fails the moment the two
+  drift). There are two of them: the **situations** — what a driver
+  reports after pressing the big REPORT button, which is all the pilot
+  has and the suite the buttons run by default ([below](#the-situation-suite)) — and the
+  **triggers**, one test per row of the "Otto triggers" sheet × persona,
+  for when a trigger fires the conversation instead;
 - **the field**: every real conversation the agent had, with the
   analysis ElevenLabs ran on it, joined to the grade the designer gave
   the debrief on the dashboard (did Otto open with the scenario's
@@ -21,6 +25,10 @@ Both are scored, a model proposes the smallest prompt diff the evidence
 supports, the diff goes on an agent **branch**, the suite runs there, and
 a human merges. Nothing in here edits the live prompt on its own.
 
+**The prompt is confidential and this repository is public.** Nothing in
+here prints it, diffs it in a log, or stores what a change to it was
+for — see [Confidential prompt](#confidential-prompt).
+
 Plain Node (>= 20, ESM, `node --test`), no dependencies — like
 `mock-api/`. The REST API is called directly; the ElevenLabs CLI is
 optional (below) and only for keeping the agent's config in git.
@@ -30,12 +38,15 @@ optional (below) and only for keeping the agent's config in git.
 | Stage | What | Command |
 |---|---|---|
 | 1 · record | the conversation id lands on every agent debrief (`otto-agent.js`); the dashboard grades it; ElevenLabs grades every call with the criteria in `analysis.json` | `node loop.mjs configure` |
-| 2 · suite | one simulation test per scenario row × persona, from the sheet; the run published for the dashboard | `npm run generate` → `node loop.mjs push-tests` → `node loop.mjs run` → `publish` |
+| 2 · suite | one simulation test per row × persona — the situation rows, the scenario sheet, or both; the run published for the dashboard | `npm run generate:situations` → `node loop.mjs push-tests` → `node loop.mjs run --filter "Otto · situation"` → `publish` |
 | 3 · field | conversations + analysis + grades pulled and joined; a debrief graded bad becomes a next-reply regression test | `node loop.mjs pull` → `score` → `cut` |
 | 4 · improve | a minimal prompt diff, on a branch, compared, promoted by hand | `propose` → `branch` → `run --branch` → `compare` → `promote` |
 
 ```
-node loop.mjs <command> [--dry-run] [--dir DIR] [flags]
+node generate-tests.mjs [--sheet | --supabase [URL KEY]] [--out DIR] [--lang en,it] [--scenario N]
+node generate-tests.mjs --situations [--supabase [URL KEY] | --sheet | --file JSON] [--out DIR] [--situation N]
+
+node loop.mjs <command> [--dry-run] [--quiet] [--dir DIR] [flags]
 
 configure                       evaluation + data collection + overrides (analysis.json) onto the agent
 push-tests [--no-mock-tools]    test_configs/**.json -> ElevenLabs tests, by name; writes tests.lock.json;
@@ -44,17 +55,26 @@ run        [--branch ID] [--repeat N=3] [--filter TEXT] [--label TEXT]
 pull       [--since ISO | --days N=14] [--no-stamp]
 score      [--results FILE] [--field FILE]
 cut        [--field FILE]
-propose    [--results FILE] [--field FILE] [--prompt FILE | --agent]
+propose    [--results FILE] [--field FILE] [--prompt FILE | --agent] [--quiet]
 branch     --proposal FILE [--name TEXT]
 compare    --base FILE --branch FILE [--margin 0.1]
-promote    --branch ID [--target BRANCH_ID] [--proposal FILE] [--force]
-publish    [--results FILE] [--run-url URL] [--verdict accept|reject] [--reason TEXT] [--note TEXT]
+promote    --branch ID [--target BRANCH_ID] [--force] [--quiet]
+publish    [--results FILE] [--run-url URL] [--verdict accept|reject] [--reason TEXT]
 ```
+
+`--filter` is how one suite is run on its own: the generator names the
+situation tests `Otto · situation #N …` and the trigger tests
+`Otto · #N …`, so `--filter "Otto · situation"` and `--filter "Otto · #"`
+each pick one, and no filter runs everything in `tests.lock.json`.
 
 `--dry-run` prints every request a command would send — method, path,
 body — and sends nothing; it needs no key, which makes it the safe way
-to see what a command does. `--dir` (or `LOOP_DIR`) moves every file the
-loop reads and writes; the tests use it to stay out of this folder.
+to see what a command does. `--quiet` keeps the prompt, its diff and a
+branch's version note off stdout, for a run whose log is published; it
+takes nothing else away, and it also stops a dry run printing bodies
+(the proposer's body *is* the prompt). `--dir` (or `LOOP_DIR`) moves
+every file the loop reads and writes; the tests use it to stay out of
+this folder.
 
 ## Environment
 
@@ -80,27 +100,30 @@ cd elevenlabs
 export ELEVENLABS_API_KEY=…  ELEVENLABS_AGENT_ID=agent_…  OPENAI_API_KEY=…
 
 node loop.mjs configure            # criteria + data collection on the agent; the overrides the phone needs
-npm run generate                   # test_configs/ from the starter sheet (--supabase for your own rows)
+npm run generate:situations        # test_configs/situations/ from the live rows (--sheet for the starter twenty)
 node loop.mjs push-tests           # create / update by name -> tests.lock.json
-node loop.mjs run --label main     # the baseline: 3 runs per test, results/<stamp>-main.json
-node loop.mjs publish              # that run onto the dashboard: a row of agent_runs, shown per scenario
+node loop.mjs run --label main --filter "Otto · situation"   # the baseline: 3 runs per test, results/<stamp>-main.json
+node loop.mjs publish              # that run onto the dashboard: a row of agent_runs, shown per row
 
-# … testers drive; on the dashboard, grade the agent debriefs (GRADE THE CONVERSATION) …
+# … drivers drive and press REPORT; on the dashboard, grade the conversations …
 
 node loop.mjs pull                 # field/<stamp>.json: conversations + analysis + grades
-node loop.mjs score                # per scenario: suite pass rate, field grade rate, failures by reason
+node loop.mjs score                # per row: suite pass rate, field grade rate, failures by reason
 node loop.mjs cut                  # a debrief graded bad -> test_configs/regressions/<conversation_id>.json
 node loop.mjs push-tests           # the regressions join the suite
 
-node loop.mjs propose              # proposals/<stamp>.json: the prompt, a one-line note, the diff
-node loop.mjs branch --proposal proposals/<stamp>.json
-node loop.mjs run --branch <created_branch_id> --label branch
+node loop.mjs propose              # proposals/<stamp>.json: the prompt, a one-line note, the diff (--quiet in CI)
+node loop.mjs branch --proposal proposals/<stamp>.json        # the note becomes the branch's description
+node loop.mjs run --branch <created_branch_id> --label branch --filter "Otto · situation"
 node loop.mjs compare --base results/<stamp>-main.json --branch results/<stamp>-branch.json
-node loop.mjs publish --verdict accept --reason "…" --note "…"   # the branch run, with compare's word and the proposal's note
-node loop.mjs promote --branch <created_branch_id> --proposal proposals/<stamp>.json
-node loop.mjs run --label main     # the new baseline
+node loop.mjs publish --verdict accept --reason "…"   # the branch run, with compare's word
+node loop.mjs promote --branch <created_branch_id>    # the version note comes from the branch itself
+node loop.mjs run --label main --filter "Otto · situation"    # the new baseline
 node loop.mjs publish
 ```
+
+`npm run generate` (no suffix) generates the *trigger* suite into
+`test_configs/`, which is committed; the situation files are not.
 
 `compare` says **ACCEPT** when no test drops by more than the margin (ten
 points by default) *and* at least one previously failing test improves;
@@ -109,18 +132,136 @@ into the agent's main branch and archives it, then tells you to pull the
 config into git with the note as the version description.
 
 `publish` is how a run reaches the person it is for. The designer grades
-the field debriefs on `dashboard.html`, per scenario; the suite's verdict
-on the same scenario belongs next to them, not in a job summary on
-GitHub. So the latest results file (or `--results FILE`) becomes one
-row of the `agent_runs` table: per test the runs, passes and pass rate,
-the first failure's one-line *why* and that run whole — the evaluator's
-rationale and the turns it judged — plus the totals per scenario; on a
-branch run from `propose`, `--verdict` / `--reason` / `--note` carry
-compare's word, its reason line and the proposal's note. `--run-url` is
-the Actions run page (the buttons pass it; by hand there is none). It
-prints the row's id; a project whose `schema.sql` predates the table
-gets "re-run supabase/schema.sql" and exit 1, and the results file stays
-where it is.
+the field debriefs on `dashboard.html`, per row; the suite's verdict on
+the same row belongs next to them, not in a job summary on GitHub. So
+the latest results file (or `--results FILE`) becomes one row of the
+`agent_runs` table: per test the runs, passes and pass rate, the first
+failure's one-line *why* and that run whole — the evaluator's rationale
+and the turns it judged — plus the totals per situation (`by_situation`)
+and per scenario (`by_scenario`); on a branch run, `--verdict` and
+`--reason` carry compare's word and its reason line. There is no
+`--note`: what a branch changed says what the prompt says, and this
+table is world-readable. `--run-url` is the Actions run page (the
+buttons pass it; by hand there is none). It prints the row's id; a
+project whose `schema.sql` predates the table gets "re-run
+supabase/schema.sql" and exit 1, and the results file stays where it
+is.
+
+## The situation suite
+
+In the pilot there are no triggers. The driver finishes a stop, presses
+the big **REPORT** button on the phone and says what they found — *the
+road was closed*, *a big dog at the door*, *the bell does nothing*. What
+matters is what happens next: Otto's follow-up has to fit **that**
+report, not a script, and after two or three questions he confirms the
+tip in one line and lets the driver go. That is what this suite
+measures, and it is the suite the buttons run by default.
+
+**A situation row** is one thing a driver might report. Twenty of them
+ship in `situations-starter.js`; the dashboard's SITUATIONS tab loads
+them into the `situations` table and that is where they are edited from
+then on. Each row carries:
+
+| Column | What |
+|---|---|
+| `num`, `title` | the row's number and a short name ("A big dog at the door") |
+| `category` | `access` · `parking` · `gate_code` · `recipient` · `address` · `hazard` · `other` |
+| `stop` | the Kollwitzkiez stop (`route-kollwitz.js`) it is set at — driver and Otto share an address, a consignee and the notes on file; empty cycles through the twelve |
+| `driver_says` | the driver's first words, the line the simulated driver opens with |
+| `driver_knows` | what the driver can tell **if asked, and only then** — the material Otto's questions have to pull out |
+| `follow_up` | what a fitting follow-up asks about, as a list |
+| `off_topic` | what would not fit here (this row's wrong answers) |
+| `tip` | the one line Otto should end up confirming |
+| `active` | false = kept on the tab, left out of the suite |
+
+**Four personas** (`personas.json`), one test each, so a row is four
+conversations: **cooperative** (answers fully, adds the one useful
+detail), **terse** (three to six words, volunteers nothing),
+**sidetracked** (opens with the weather, then answers) and **vague** —
+new for this suite — who opens with *"it didn't really work out at that
+one"* and only says what happened when Otto asks. Eight turns each, ten
+for the vague one, whose first exchange says nothing yet.
+
+The test carries **no `chat_history`**: Otto opens with his own first
+message from the agent config, the way the button flow leaves him to,
+and the simulated driver reports when asked (or straight away if Otto
+only greets). Its dynamic variables are exactly what the phone sends
+with no scenario and no trigger — the stop (`destination_*`),
+`debrief_language`, and `trigger_fired: "no"` — and nothing else: no
+rule, no measurements, no "Otto says" line.
+
+**Six conditions**, in this order, each written to stand on its own
+(the evaluator sees one at a time):
+
+1. **RELEVANCE** — Otto's first follow-up is about what the driver
+   reported and asks about one of the row's `follow_up` items. Something
+   off topic, or a question that could follow any report at all, fails.
+2. **NO REPETITION** — he never asks for what the driver already said.
+3. **NATURAL** — a colleague on the phone: a short acknowledgement
+   before the question, plain words, no lecturing, no form-filling, no
+   read-backs mid-conversation.
+4. **NO INVENTION** — no fact the driver did not say. Asking is fine.
+5. **LENGTH** — two or three questions in total, then he closes. Four
+   fails.
+6. **CLOSE** — he confirms the tip in one line, consistent with what the
+   driver said, and lets the driver go.
+
+The **control row** (#20, "nothing to report") turns three of them
+round: at most one confirming question, no probing, and a close that
+says there is nothing to note — a suite that never accepts "nothing
+happened" teaches the prompt to invent problems. The **vague** persona
+gets a seventh: before anything specific, one open question to find out
+what happened. Any row whose `follow_up` says "nothing" is a control.
+
+**Generated at run time, never committed.** The rows live on the
+dashboard, so the files are cut from the live table on every press of a
+button (`node generate-tests.mjs --situations`, the anon key by
+default) into `test_configs/situations/`, which is gitignored. A project
+whose `schema.sql` predates the table, or whose tab is empty, falls back
+to `situations-starter.js` and says so in one line, so a button never
+comes back with nothing to run. `--sheet` forces the starter twenty,
+`--file JSON` reads rows from a file, `--situation N` does one row.
+
+Both suites live in one ElevenLabs workspace and are told apart by
+name — `Otto · situation #3 …` against `Otto · #3 …` — which is all the
+`suite` input on the buttons and `--filter` on `run` need.
+
+## Confidential prompt
+
+Otto's prompt is the work. This repository is public, and so is
+everything a run of the buttons writes: the job log, the job summary,
+the artifacts, and the `agent_runs` table (the open pilot policies let
+anyone read it with the anon key). So the prompt lives in **one place —
+ElevenLabs** — and the loop is built to keep it there.
+
+**What never leaves ElevenLabs**
+
+- the prompt itself. `propose --quiet` prints how many characters
+  changed and the name of the file it wrote — never the text. `branch`
+  prints ids. The one request that carries the prompt (`POST …/branches`)
+  never prints what came back either: a validator quoting the field it
+  refused would quote the prompt.
+- the **diff**. It is written to `proposals/<stamp>.json` on the machine
+  that ran `propose`, which is gitignored and uploaded as no artifact.
+- the **note** — the one line saying what a change was for. It goes to
+  ElevenLabs as the agent branch's `description`, and `promote` reads it
+  back from there (`GET /v1/convai/agents/{id}/branches/{branch_id}`)
+  instead of carrying a proposal file around. `publish` has no `--note`
+  and the `agent_runs.note` column is always null; `promote --quiet`
+  does not print it.
+- `agent_configs/` — what the ElevenLabs CLI pulls. **Never commit it**:
+  it is the prompt in a file. It is in `.gitignore` and it stays there.
+
+**What the public repo does carry**, on purpose: the transcripts of the
+**simulated** conversations (a made-up driver talking to the agent — the
+evidence a pass rate means something), the pass rates themselves, the
+evaluator's reason for a failure, `tests.lock.json`, and the test files
+for the trigger suite. None of those quote the prompt.
+
+`--quiet` is the switch, on `propose` and `promote`; the buttons pass
+it. It takes nothing else away — counts, ids, pass rates and transcripts
+still print — and it also stops a dry run printing request bodies, since
+the proposer's body *is* the prompt.
 
 ## Without a terminal: the buttons
 
@@ -130,29 +271,38 @@ workflow* form under Actions → agent-suite with one dropdown; each
 button runs one stage on a GitHub runner and writes the table into the
 run's job summary (the run page, "Summary" at the top):
 
+The form has two dropdowns: **action** (which stage) and **suite**
+(which tests — *situations*, the default and the pilot's own; *triggers*,
+the scenario sheet; or *all*). Every action but *configure* regenerates
+the situation tests from the live rows before it pushes anything, so a
+row edited on the dashboard is in the next press.
+
 | Button | Runs | Summary ends with |
 |---|---|---|
 | **configure** | `configure` | the next button |
-| **baseline** | `push-tests` → `run --label main` → `publish` (`repeat`, `filter` from the form; Mondays 06:00 UTC too) | the suite's pass rates |
+| **baseline** | `generate --situations` → `push-tests` → `run --label main` → `publish` (`repeat`, `filter` from the form; Mondays 06:00 UTC too) | the suite's pass rates |
 | **field** | `pull --days N` → `score` → `cut` → `push-tests` | what was pulled, scored and cut |
-| **propose** | the field again → `propose` → `branch` → `run --branch … --label branch` → `compare` against the latest baseline → `publish` with the verdict | **ACCEPT** or **REJECT**, and the branch id |
-| **promote** | `promote --branch <branch_id from the form>` → `run --label main` → `publish` | the new baseline |
+| **propose** | the field again → `propose --quiet` → `branch` → `run --branch … --label branch` → `compare` against the latest baseline → `publish` with the verdict | the branch run's table, **ACCEPT** or **REJECT** with the branch id, and the next button — *not* the proposal, the diff or the note |
+| **try** | `run --branch <branch_id from the form> --label branch` → `compare` against the latest baseline → `publish` with the verdict | the same, for a branch that already exists: a prompt edited by hand in the ElevenLabs dashboard, tried without a model and without `OPENAI_API_KEY` |
+| **promote** | `promote --branch <branch_id from the form> --quiet` → `run --label main` → `publish` | the new baseline |
 
 One-time setup, in the browser: Settings → Secrets and variables →
 Actions. Add `ELEVENLABS_API_KEY` as a **secret**, `ELEVENLABS_AGENT_ID`
 as a **variable** (the id the phone uses — the same value as the Vercel
-env var), and `OPENAI_API_KEY` as a secret for *propose*. A button
-pressed without the key fails with those instructions.
+env var), and `OPENAI_API_KEY` as a secret for *propose* (*try* needs
+neither the model nor that key). A button pressed without the key fails
+with those instructions.
 
 State between presses: `tests.lock.json` and `test_configs/regressions/`
 are committed back to the branch the run started from by the workflow
-itself (as `github-actions[bot]`). `results/`, `field/` and `proposals/`
-are uploaded as the run's Artifacts — `loop-baseline` (baseline,
-promote), `loop-field`, `loop-proposal` — and *propose* downloads the
-latest `loop-baseline` to compare against (running the suite on the
-live agent first when there is none), *promote* the latest
-`loop-proposal` for the version note. Artifacts expire after ninety
-days. Two presses at once queue behind each other.
+itself (as `github-actions[bot]`). `results/` and `field/` are uploaded
+as the run's Artifacts — `loop-baseline` (baseline, promote) and
+`loop-field` — and *propose* and *try* download the latest
+`loop-baseline` to compare against (running the suite on the live agent
+first when there is none). **`proposals/` is uploaded nowhere**: it
+carries the prompt, and *promote* no longer needs it, since the version
+note is read back from the branch. Artifacts expire after ninety days.
+Two presses at once queue behind each other.
 
 Every suite a button runs is also published as an `agent_runs` row (the
 kit's Supabase project unless the job is given another
@@ -195,11 +345,13 @@ limit of three"). The whole rationale is kept under `failure`.
 | `results/<stamp>-<label>.json` | `run` | per test: runs, passed, pass_rate, the failure rationales, the first failed run whole (`why`, `failure`), branch/version |
 | `results/score-<stamp>.json` | `score` | per scenario: suite pass rate, field grade rate, checks failed, failures by reason |
 | `field/<stamp>.json` | `pull` | conversations joined to their debrief, grade and scenario |
-| `proposals/<stamp>.json` | `propose` (`branch` adds the branch ids) | prompt, note, rationale, unified diff |
-| a row of `agent_runs` (Supabase, not a file) | `publish` | the results file as the dashboard reads it: `tests` — per test its scenario, persona, language, runs / passed / pass rate, `why` (the first failure, one line) and `failure` (that run's rationale and transcript; null when every run passed) — and `summary` (totals, and the same per scenario under `by_scenario`); the agent, branch, version and invocation ids; `run_url`; on a branch run from `propose`, `verdict`, `verdict_reason` and `note` |
+| `proposals/<stamp>.json` | `propose` (`branch` adds the branch ids) | prompt, note, rationale, unified diff. Gitignored, and uploaded as no artifact: this is the confidential one |
+| `test_configs/situations/situation-NN-<slug>--<persona>.json` | `generate --situations` | one simulation test per situation row × persona, from the LIVE rows at run time; gitignored, regenerated every run |
+| a row of `agent_runs` (Supabase, not a file) | `publish` | the results file as the dashboard reads it: `tests` — per test its scenario **or situation**, persona, language, runs / passed / pass rate, `why` (the first failure, one line) and `failure` (that run's rationale and transcript; null when every run passed) — and `summary` (totals, and the same per row under `by_scenario` / `by_situation`); the agent, branch, version and invocation ids; `run_url`; on a branch run, `verdict` and `verdict_reason`. Never the note |
 
-`results/`, `field/` and `proposals/` are gitignored; the rest is meant
-to be committed.
+`results/`, `field/`, `proposals/`, `agent_configs/` and
+`test_configs/situations/` are gitignored; the rest is meant to be
+committed.
 
 ### Grades
 
@@ -223,10 +375,10 @@ which overrides are enabled). So an `opener` failure points at the
 override or the sheet line before it points at the prompt, and only a
 debrief failed on the opener alone becomes a first-turn test.
 
-## The ElevenLabs CLI (optional): the prompt in git
+## The ElevenLabs CLI (optional): the prompt on your own machine
 
-The loop never needs the CLI. It is the convenient way to keep the
-agent's config next to the tests:
+The loop never needs the CLI. It is the convenient way to have the
+agent's config to hand while you work on it:
 
 ```sh
 npm i -g @elevenlabs/cli          # or: brew install elevenlabs
@@ -234,6 +386,11 @@ elevenlabs agents init
 elevenlabs agents pull --agent $ELEVENLABS_AGENT_ID     # -> agent_configs/
 elevenlabs agents push --version-description "Ask where they parked first"
 ```
+
+**`agent_configs/` is gitignored and must stay that way** — it is the
+prompt in a file, and this repository is public (see [Confidential
+prompt](#confidential-prompt)). Pull it, work with it, leave it out of
+the commit.
 
 `propose` reads the current prompt from any JSON under `agent_configs/`
 that carries `conversation_config.agent.prompt.prompt` before it falls
@@ -255,8 +412,9 @@ LLM charge per call.
 
 ## The blind spot
 
-A test sends the agent the phone's **dynamic variables** and the
-scenario's opening line. The phone also sends a **contextual update** —
+A *trigger* test sends the agent the phone's **dynamic variables** and
+the scenario's opening line. The phone also sends a **contextual
+update** —
 the same briefing in plain sentences (`agentBriefing()` in `app.js`) —
 which the testing API has no slot for. An agent whose prompt leans on
 the briefing rather than on `{{scenario_rule}}`-style variables will
@@ -282,6 +440,14 @@ markdown). What the docs do not settle:
 - Whether `conversation_config` on `POST …/branches` merges a partial
   object (`{agent:{prompt:{prompt}}}`) into the parent version, as
   "changes to apply" suggests, or needs the full config.
+- Nothing about the branch's own note: `GET
+  /v1/convai/agents/{agent_id}/branches/{branch_id}` is documented to
+  answer with `id, name, agent_id, description, created_at,
+  last_committed_at, is_archived, …`, and `description` is what `branch`
+  set — that is where `promote` reads the version note from. The merge
+  endpoint takes no note of its own (only `target_branch_id`,
+  `archive_source_branch`, `force`), so the note stays on the branch
+  rather than becoming the merged version's description.
 - `success_examples` / `failure_examples` on an `llm` test are described
   as "non-empty list … optional", so `cut` sends no `success_examples`
   and exactly one failure example (the reply that was graded bad). How
@@ -310,8 +476,16 @@ the three services (`test/mock-elevenlabs.mjs`; its Supabase has an
 `test/fixture/`, in a temp folder; it checks the requests, the files,
 the row `publish` posts, that a command without its key sends nothing,
 and that `--dry-run` sends nothing.
-`test/generate.test.mjs` checks the generator against the sheet and
-`app.js`. `test/workflow.test.mjs` reads the live-suite job in
+`test/generate.test.mjs` checks the trigger generator against the sheet
+and `app.js`. `test/situations.test.mjs` checks the situation suite: the
+twenty starter rows × four personas, the six conditions in their order
+(and the control row's three, and the vague persona's seventh), no
+`chat_history`, the exact dynamic-variable key set, determinism, and
+both sources — the live table and the fallback to the starter sheet when
+a project has no table or nothing active in it.
+`test/workflow.test.mjs` reads the live-suite job in
 `.github/workflows/agent-suite.yml` and checks the poll budget it hands
-the loop fits inside the job's own timeout, and that every step which
-runs the suite publishes it.
+the loop fits inside the job's own timeout, that every step which runs
+the suite publishes it, that the situation tests are generated before
+anything is pushed, that the `suite` input picks the filter, and that
+nothing the buttons write can carry the prompt, its diff or its note.

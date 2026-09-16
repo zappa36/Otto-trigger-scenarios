@@ -8,15 +8,20 @@ name: agent-suite
 #               or what it mirrors — the generator ports agentVars() from
 #               app.js and reads the starter sheet and the fixture route,
 #               and its tests fail the moment those drift: the node
-#               tests, then the generator is re-run against the starter
-#               sheet and diffed against the committed test_configs/. A
-#               sheet edit or a generator change has to land together
-#               with the files it produces, otherwise the suite
-#               ElevenLabs runs is no longer what the phone sends.
+#               tests, then the trigger generator is re-run against the
+#               starter sheet and diffed against the committed
+#               test_configs/. A sheet edit or a generator change has to
+#               land together with the files it produces, otherwise the
+#               suite ElevenLabs runs is no longer what the phone sends.
+#               The situation tests are not committed and not diffed —
+#               they come from the dashboard's rows at run time — but
+#               the node tests build all eighty from the starter sheet
+#               and check their shape.
 #
 #   live-suite  The buttons. Actions → agent-suite → Run workflow, pick an
-#               action, press Run; the result lands in the run's job
-#               summary and the files it made in the run's Artifacts:
+#               action and a suite, press Run; the result lands in the
+#               run's job summary and the files it made in the run's
+#               Artifacts:
 #
 #                 configure  the evaluation criteria, data collection and
 #                            overrides in analysis.json go onto the agent
@@ -30,11 +35,25 @@ name: agent-suite
 #                 propose    the field again, then a proposed prompt diff,
 #                            an agent branch carrying it, the suite on
 #                            that branch, and the comparison against the
-#                            latest baseline — ACCEPT or REJECT, and the
-#                            branch id to promote → "loop-proposal"
+#                            latest baseline — ACCEPT or REJECT and the
+#                            branch id to promote
+#                 try        the suite on a branch that already exists
+#                            (branch_id below) against the latest
+#                            baseline — ACCEPT or REJECT, no model and no
+#                            OpenAI key: the way to test a prompt edit
+#                            made by hand in the ElevenLabs dashboard
 #                 promote    merge that branch into the agent's main
 #                            branch (branch_id below), then a fresh
 #                            baseline → "loop-baseline"
+#
+#               `suite` picks WHICH tests run: the SITUATIONS (the
+#               default — what a driver reports after pressing the big
+#               REPORT button, which is all the pilot has), the TRIGGERS
+#               (the scenario sheet, for when triggers come back), or
+#               all. The situation tests are generated from the live
+#               rows of the dashboard's SITUATIONS tab at the start of
+#               every run, so a row edited there is in the next press —
+#               they are not committed.
 #
 #               Every run costs real simulated conversations, so a button
 #               only goes ahead when the repository carries the
@@ -44,23 +63,33 @@ name: agent-suite
 #               key fails with the setup instructions; the Monday run
 #               skips green instead, so a fork is not nagged every week.
 #
+# THE PROMPT IS CONFIDENTIAL AND THIS REPOSITORY IS PUBLIC. A job log, a
+# job summary and an artifact are published the moment they are written,
+# and so is the agent_runs table (the open pilot policies let anyone
+# read it with the anon key). So none of them ever carries the prompt,
+# a diff of it, or the one-line note saying what a proposal changed:
+# `propose --quiet` prints counts and a file name, `branch` prints ids,
+# proposals/ never leaves the runner (there is no proposal artifact),
+# `promote` reads the version note from the ElevenLabs branch itself,
+# and `publish` has no --note. What these runs DO put on the record:
+# pass rates, the transcripts of the SIMULATED conversations, ids.
+#
 # What the loop writes back: tests.lock.json (test name → ElevenLabs id)
 # and test_configs/regressions/ are committed to the branch the run was
 # started from, so the next run updates tests instead of duplicating
-# them and the regressions stay in the suite. Results, field pulls and
-# proposals stay out of git (they carry transcripts and the prompt) and
-# travel as artifacts: propose fetches the latest "loop-baseline" to
-# compare against, promote the latest "loop-proposal" for the version
-# note. Artifacts expire after ninety days; a fresh baseline is one press.
+# them and the regressions stay in the suite. Results and field pulls
+# stay out of git (they carry transcripts) and travel as artifacts:
+# propose and try fetch the latest "loop-baseline" to compare against.
+# Artifacts expire after ninety days; a fresh baseline is one press.
 #
 # Where the results go to be READ: every suite run is also published as
 # a row of the agent_runs table in Supabase (loop.mjs publish) — the
 # pass rate per test with the first failure's transcript, the totals per
-# scenario, and on a propose run the ACCEPT / REJECT and the proposal's
-# note — which dashboard.html shows next to each scenario, where the
-# designer grades the field debriefs. A publish that fails (the table
-# not created yet, Supabase unreachable) does not fail the step: the
-# suite was paid for, its summary and artifact still land, and the
+# situation and per scenario, and on a branch run the ACCEPT / REJECT
+# with compare's reason — which dashboard.html shows next to each row,
+# where the designer grades the field debriefs. A publish that fails (the
+# table not created yet, Supabase unreachable) does not fail the step:
+# the suite was paid for, its summary and artifact still land, and the
 # summary says "results not published" and why.
 #
 # Secrets cannot be read from an `if:`, so the first step copies the key
@@ -77,6 +106,7 @@ on:
       - "app.js"
       - "otto-agent.js"
       - "trigger-scenarios.js"
+      - "situations-starter.js"
       - "route-kollwitz.js"
   pull_request:
     paths:
@@ -85,6 +115,7 @@ on:
       - "app.js"
       - "otto-agent.js"
       - "trigger-scenarios.js"
+      - "situations-starter.js"
       - "route-kollwitz.js"
   workflow_dispatch:
     inputs:
@@ -98,13 +129,23 @@ on:
           - baseline
           - field
           - propose
+          - try
           - promote
+      suite:
+        description: "Which tests to run: the situations (what a driver reports — the pilot's suite), the trigger scenarios, or both"
+        type: choice
+        required: true
+        default: situations
+        options:
+          - situations
+          - triggers
+          - all
       repeat:
-        description: "Runs per test (2–20); the pass rate is over these (baseline, propose, promote)"
+        description: "Runs per test (2–20); the pass rate is over these (baseline, propose, try, promote)"
         type: number
         default: 3
       filter:
-        description: "Only tests whose name contains this (baseline, propose, promote; empty = the whole suite)"
+        description: "Only tests whose name contains this — overrides the suite above (empty = the whole suite)"
         type: string
         default: ""
       days:
@@ -112,7 +153,7 @@ on:
         type: number
         default: 14
       branch_id:
-        description: "promote only: the agent branch id from the propose run's summary"
+        description: "try and promote: the agent branch id (from a propose run's summary, or from the ElevenLabs dashboard)"
         type: string
         default: ""
   schedule:
@@ -143,11 +184,12 @@ jobs:
       # The committed test files are the generator's output for the
       # starter sheet; regenerate into a scratch directory and diff. The
       # generator never touches regressions/ (those are cut from field
-      # debriefs by loop.mjs), so that folder is left out of the diff.
+      # debriefs by loop.mjs) and situations/ is generated from the live
+      # rows at run time and gitignored, so both are left out of the diff.
       - name: Generated tests match the generator
         run: |
           node generate-tests.mjs --sheet --out "$RUNNER_TEMP/gen"
-          if ! diff -r --exclude=regressions "$RUNNER_TEMP/gen" test_configs; then
+          if ! diff -r --exclude=regressions --exclude=situations "$RUNNER_TEMP/gen" test_configs; then
             echo "::error::elevenlabs/test_configs/ no longer matches what generate-tests.mjs produces from the starter sheet — run 'node generate-tests.mjs' in elevenlabs/ and commit the result"
             exit 1
           fi
@@ -183,8 +225,14 @@ jobs:
       LOOP_TIMEOUT_MS: 4800000
       GH_TOKEN: ${{ github.token }}
       ACTION: ${{ inputs.action || 'baseline' }}
+      SUITE: ${{ inputs.suite || 'situations' }}
       REPEAT: ${{ inputs.repeat || 3 }}
-      FILTER: ${{ inputs.filter }}
+      # the plan step turns this into FILTER — the suite's own filter when
+      # the box was left empty. It is a different name on purpose: a
+      # value written to $GITHUB_ENV cannot override a job env of the
+      # same name, and the one the later steps read has to be the
+      # resolved one.
+      FILTER_INPUT: ${{ inputs.filter }}
       DAYS: ${{ inputs.days || 14 }}
       BRANCH_ID: ${{ inputs.branch_id }}
     steps:
@@ -194,8 +242,12 @@ jobs:
         with:
           node-version: 22
 
-      # Which button, and is the key there. A pressed button without the
-      # key fails with the instructions; the Monday run skips green.
+      # Which button, which suite, and is the key there. A pressed button
+      # without the key fails with the instructions; the Monday run skips
+      # green. The suite becomes the run's --filter unless the form gave
+      # one: the two suites live in one workspace and are told apart by
+      # the names the generator gives them ("Otto · situation #3 …",
+      # "Otto · #3 …"), so a filter is all it takes to run one of them.
       - name: Plan the run
         id: plan
         run: |
@@ -203,6 +255,16 @@ jobs:
           if ! [ "$REPEAT" -ge 2 ] 2>/dev/null || ! [ "$REPEAT" -le 20 ] 2>/dev/null; then
             echo "::error::repeat must be a whole number from 2 to 20, got '$REPEAT'"; exit 1
           fi
+          filter="$FILTER_INPUT"
+          if [ -z "$filter" ]; then
+            case "$SUITE" in
+              situations) filter="Otto · situation" ;;
+              triggers)   filter="Otto · #" ;;
+              all)        filter="" ;;
+              *) echo "::error::suite must be situations, triggers or all, got '$SUITE'"; exit 1 ;;
+            esac
+          fi
+          echo "FILTER=$filter" >> "$GITHUB_ENV"
           if [ -z "$ELEVENLABS_API_KEY" ]; then
             msg="ELEVENLABS_API_KEY is not set on this repository, so the loop cannot run. Add it under Settings → Secrets and variables → Actions → Secrets (and ELEVENLABS_AGENT_ID under Variables), then press Run again."
             echo "go=false" >> "$GITHUB_OUTPUT"
@@ -216,11 +278,11 @@ jobs:
           if [ "$ACTION" = "propose" ] && [ -z "$OPENAI_API_KEY" ]; then
             echo "::error::propose needs the OPENAI_API_KEY secret (the model that drafts the prompt diff) — add it under Settings → Secrets and variables → Actions → Secrets"; exit 1
           fi
-          if [ "$ACTION" = "promote" ] && [ -z "$BRANCH_ID" ]; then
-            echo "::error::promote needs branch_id — the agent branch id printed in the propose run's summary"; exit 1
+          if { [ "$ACTION" = "promote" ] || [ "$ACTION" = "try" ]; } && [ -z "$BRANCH_ID" ]; then
+            echo "::error::$ACTION needs branch_id — the agent branch id printed in the propose run's summary, or one made by hand in the ElevenLabs dashboard"; exit 1
           fi
           echo "go=true" >> "$GITHUB_OUTPUT"
-          echo "## agent-suite · $ACTION" >> "$GITHUB_STEP_SUMMARY"
+          echo "## agent-suite · $ACTION · $SUITE suite${filter:+ (filter \"$filter\")}" >> "$GITHUB_STEP_SUMMARY"
 
       # ---------- configure ----------
       - name: Configure the agent
@@ -230,9 +292,23 @@ jobs:
           { echo; echo '```'; cat "$RUNNER_TEMP/configure.txt"; echo '```'; echo
             echo "Next button: **baseline** — push the test files and run the suite on the live agent."; } >> "$GITHUB_STEP_SUMMARY"
 
+      # ---------- the situation tests, from the live rows ----------
+      # The situations are the dashboard's rows, not this repository's:
+      # a designer edits the SITUATIONS tab and presses a button, and
+      # the suite has to be what the tab says NOW. So the files are
+      # generated here, every run, straight from the table (the anon key
+      # by default, as everywhere else) and never committed —
+      # test_configs/situations/ is gitignored. A project without the
+      # table yet falls back to situations-starter.js and says so, so a
+      # button never comes back with nothing to run. The trigger tests
+      # are committed and need no step.
+      - name: Generate the situation tests from the live rows
+        if: steps.plan.outputs.go == 'true' && steps.plan.outputs.action != 'configure'
+        run: node generate-tests.mjs --situations
+
       # ---------- baseline ----------
       - name: Push the test files to ElevenLabs
-        if: steps.plan.outputs.go == 'true' && (steps.plan.outputs.action == 'baseline' || steps.plan.outputs.action == 'field' || steps.plan.outputs.action == 'propose')
+        if: steps.plan.outputs.go == 'true' && (steps.plan.outputs.action == 'baseline' || steps.plan.outputs.action == 'field' || steps.plan.outputs.action == 'propose' || steps.plan.outputs.action == 'try')
         run: node loop.mjs push-tests | tee "$RUNNER_TEMP/push-tests.txt"
 
       # The loop exits 0 once the suite has run, whatever the pass rates —
@@ -276,13 +352,16 @@ jobs:
             echo "Next button: **propose** — a prompt diff from these failures, tried on an agent branch." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      # ---------- propose ----------
+      # ---------- the branch runs: propose and try ----------
       # compare needs the suite's results on the live agent. The latest
       # baseline run left them in its "loop-baseline" artifact; without
       # one (a first run, or ninety days on) the suite is run here first.
+      # A baseline from another suite is no use to this one, but compare
+      # only lines up the tests both runs have, so a mismatch shows up as
+      # "nothing was failing on the base run" rather than a false ACCEPT.
       - name: Fetch the latest baseline
         id: baseline
-        if: steps.plan.outputs.go == 'true' && steps.plan.outputs.action == 'propose'
+        if: steps.plan.outputs.go == 'true' && (steps.plan.outputs.action == 'propose' || steps.plan.outputs.action == 'try')
         run: |
           have=false
           info="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=loop-baseline&per_page=1" --jq '.artifacts[0] | select(. != null) | [.workflow_run.id, .expired] | @tsv' 2>/dev/null || true)"
@@ -299,7 +378,7 @@ jobs:
           fi
 
       - name: Run the suite (no baseline on file)
-        if: steps.plan.outputs.go == 'true' && steps.plan.outputs.action == 'propose' && steps.baseline.outputs.have == 'false'
+        if: steps.plan.outputs.go == 'true' && (steps.plan.outputs.action == 'propose' || steps.plan.outputs.action == 'try') && steps.baseline.outputs.have == 'false'
         run: |
           args=(run --repeat "$REPEAT" --label main)
           if [ -n "$FILTER" ]; then args+=(--filter "$FILTER"); fi
@@ -316,16 +395,23 @@ jobs:
         id: propose
         if: steps.plan.outputs.go == 'true' && steps.plan.outputs.action == 'propose'
         run: |
+          # --quiet: propose prints how many characters changed and the
+          # name of the file it wrote, and nothing of the prompt, the
+          # diff or the note. The proposal stays in proposals/ on this
+          # runner — gitignored, and no artifact carries it — so the only
+          # place the new prompt exists after this job is the ElevenLabs
+          # branch that "branch" cuts from it, with the note as that
+          # branch's description (promote reads it back from there).
           before="$(ls -1 proposals/*.json 2>/dev/null | wc -l)"
-          node loop.mjs propose | tee "$RUNNER_TEMP/propose.txt"
+          node loop.mjs propose --quiet
           prop="$(ls -1 proposals/*.json 2>/dev/null | sort | tail -1 || true)"
           if [ -z "$prop" ] || [ "$(ls -1 proposals/*.json | wc -l)" -le "$before" ]; then
-            { echo; echo "### Nothing to propose"; echo; echo '```'; cat "$RUNNER_TEMP/propose.txt"; echo '```'; echo
-              echo "Every test passes and no debrief is graded bad — there is nothing for a prompt change to fix. Grade more debriefs on the dashboard, or add scenarios."; } >> "$GITHUB_STEP_SUMMARY"
+            { echo; echo "### Nothing to propose"; echo
+              echo "Every test passes and no debrief is graded bad — there is nothing for a prompt change to fix. Grade more debriefs on the dashboard, or add situations."; } >> "$GITHUB_STEP_SUMMARY"
             echo "verdict=none" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          node loop.mjs branch --proposal "$prop" | tee "$RUNNER_TEMP/branch.txt"
+          node loop.mjs branch --proposal "$prop"
           bid="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).branch.branch_id)' "$prop")"
           args=(run --branch "$bid" --repeat "$REPEAT" --label branch)
           if [ -n "$FILTER" ]; then args+=(--filter "$FILTER"); fi
@@ -339,45 +425,73 @@ jobs:
           if [ "$verdict" -eq 0 ]; then word=ACCEPT; else word=REJECT; fi
           echo "verdict=$word" >> "$GITHUB_OUTPUT"
           echo "branch_id=$bid" >> "$GITHUB_OUTPUT"
-          # the branch run goes on the dashboard with compare's word, its
-          # reason line ("ACCEPT — <reason>" in the compare output) and the
-          # proposal's note, so the designer sees what was tried and why it
-          # was or was not promoted
+          # the branch run goes on the dashboard with compare's word and
+          # its reason line ("ACCEPT — <reason>" in the compare output),
+          # so the designer sees what happened and why it was or was not
+          # promoted. What the prompt CHANGED is not part of that: the
+          # table is world-readable and publish has no --note.
           reason="$(grep -m1 -E '^(ACCEPT|REJECT) ' "$RUNNER_TEMP/compare.txt" | cut -d' ' -f3- || true)"
-          note="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).note || "")' "$prop")"
-          if node loop.mjs publish --results "$br" --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --verdict "$word" --reason "$reason" --note "$note" | tee "$RUNNER_TEMP/publish.txt"; then
+          if node loop.mjs publish --results "$br" --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --verdict "$word" --reason "$reason" | tee "$RUNNER_TEMP/publish.txt"; then
             published="Results are on the scenarios dashboard (dashboard.html), per scenario."
           else
             published="results not published — $(tail -n 1 "$RUNNER_TEMP/publish.txt")"
           fi
-          { echo; echo "### The proposal"; echo; echo '```'; cat "$RUNNER_TEMP/propose.txt" "$RUNNER_TEMP/branch.txt"; echo '```'
-            echo; echo "### The suite on the branch — ×$REPEAT${FILTER:+, filter \"$FILTER\"}"; echo; echo '```'; cat "$RUNNER_TEMP/suite-branch.txt"; echo '```'
+          { echo; echo "### The suite on the branch — ×$REPEAT${FILTER:+, filter \"$FILTER\"}"; echo; echo '```'; cat "$RUNNER_TEMP/suite-branch.txt"; echo '```'
             echo; echo "### $word"; echo; echo '```'; cat "$RUNNER_TEMP/compare.txt"; echo '```'; echo
             echo "$published"; echo
+            echo "The prompt that was tried, the diff and the note are not shown: they stay on the agent branch in ElevenLabs."; echo
             if [ "$word" = ACCEPT ]; then
               echo "Next button: **promote** with branch_id \`$bid\` — merges this prompt into the agent and runs a fresh baseline. The branch stays as it is until then."
             else
               echo "Not promoted. The branch \`$bid\` stays on the agent for a look in the ElevenLabs dashboard; grade more debriefs or adjust the tests, then press **propose** again."
             fi; } >> "$GITHUB_STEP_SUMMARY"
 
+      # ---------- try ----------
+      # The same second half as propose, on a branch that already exists:
+      # someone edited the prompt by hand in the ElevenLabs dashboard,
+      # cut a branch there, and wants to know what it does to the suite.
+      # No model, no OPENAI_API_KEY, no proposal — just the suite on that
+      # branch against the latest baseline, and ACCEPT or REJECT.
+      - name: Run the suite on an existing branch and compare
+        id: try
+        if: steps.plan.outputs.go == 'true' && steps.plan.outputs.action == 'try'
+        run: |
+          args=(run --branch "$BRANCH_ID" --repeat "$REPEAT" --label branch)
+          if [ -n "$FILTER" ]; then args+=(--filter "$FILTER"); fi
+          node loop.mjs "${args[@]}" | tee "$RUNNER_TEMP/suite-branch.txt"
+          base="$(ls -1 results/*-main.json | sort | tail -1)"
+          br="$(ls -1 results/*-branch.json | sort | tail -1)"
+          set +e
+          node loop.mjs compare --base "$base" --branch "$br" | tee "$RUNNER_TEMP/compare.txt"
+          verdict=${PIPESTATUS[0]}
+          set -e
+          if [ "$verdict" -eq 0 ]; then word=ACCEPT; else word=REJECT; fi
+          echo "verdict=$word" >> "$GITHUB_OUTPUT"
+          reason="$(grep -m1 -E '^(ACCEPT|REJECT) ' "$RUNNER_TEMP/compare.txt" | cut -d' ' -f3- || true)"
+          if node loop.mjs publish --results "$br" --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --verdict "$word" --reason "$reason" | tee "$RUNNER_TEMP/publish.txt"; then
+            published="Results are on the scenarios dashboard (dashboard.html), per scenario."
+          else
+            published="results not published — $(tail -n 1 "$RUNNER_TEMP/publish.txt")"
+          fi
+          { echo; echo "### The suite on branch \`$BRANCH_ID\` — ×$REPEAT${FILTER:+, filter \"$FILTER\"}"; echo; echo '```'; cat "$RUNNER_TEMP/suite-branch.txt"; echo '```'
+            echo; echo "### $word"; echo; echo '```'; cat "$RUNNER_TEMP/compare.txt"; echo '```'; echo
+            echo "$published"; echo
+            if [ "$word" = ACCEPT ]; then
+              echo "Next button: **promote** with branch_id \`$BRANCH_ID\` — merges this prompt into the agent and runs a fresh baseline."
+            else
+              echo "Not promoted. The branch \`$BRANCH_ID\` stays as it is; change it in the ElevenLabs dashboard and press **try** again."
+            fi; } >> "$GITHUB_STEP_SUMMARY"
+
       # ---------- promote ----------
       - name: Merge the branch into the agent, then a fresh baseline
         if: steps.plan.outputs.go == 'true' && steps.plan.outputs.action == 'promote'
         run: |
-          # the proposal that made this branch carries the version note
-          prop=""
-          info="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=loop-proposal&per_page=1" --jq '.artifacts[0] | select(. != null) | [.workflow_run.id, .expired] | @tsv' 2>/dev/null || true)"
-          if [ -n "$info" ] && [ "$(cut -f2 <<<"$info")" != "true" ] && gh run download "$(cut -f1 <<<"$info")" -n loop-proposal -D "$RUNNER_TEMP/proposal"; then
-            prop="$(node -e '
-              const fs = require("fs"), path = require("path");
-              const dir = path.join(process.argv[1], "proposals");
-              for (const f of (fs.existsSync(dir) ? fs.readdirSync(dir) : []).sort().reverse()) {
-                try { const p = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")); if (p.branch && p.branch.branch_id === process.argv[2]) { console.log(path.join(dir, f)); break; } } catch {}
-              }' "$RUNNER_TEMP/proposal" "$BRANCH_ID")"
-          fi
-          args=(promote --branch "$BRANCH_ID")
-          if [ -n "$prop" ]; then args+=(--proposal "$prop"); fi
-          node loop.mjs "${args[@]}" | tee "$RUNNER_TEMP/promote.txt"
+          # The version note is the branch's own description, and promote
+          # reads it from ElevenLabs — no proposal file has to be fetched
+          # from an artifact, which is why there is no proposal artifact
+          # at all. --quiet keeps the note out of this log and out of the
+          # summary: it says what the prompt changed.
+          node loop.mjs promote --branch "$BRANCH_ID" --quiet | tee "$RUNNER_TEMP/promote.txt"
           args=(run --repeat "$REPEAT" --label main)
           if [ -n "$FILTER" ]; then args+=(--filter "$FILTER"); fi
           node loop.mjs "${args[@]}" | tee "$RUNNER_TEMP/suite.txt"
@@ -427,12 +541,3 @@ jobs:
             elevenlabs/results/score-*.json
           if-no-files-found: warn
 
-      - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() && steps.plan.outputs.go == 'true' && steps.plan.outputs.action == 'propose' }}
-        with:
-          name: loop-proposal
-          path: |
-            elevenlabs/proposals/
-            elevenlabs/results/
-            elevenlabs/field/
-          if-no-files-found: warn

@@ -35,6 +35,20 @@ let destinations = [];
 const messagesByDest = {};
 const reportedIds = new Set();
 let current = null; // destination in the open card / Otto session
+/* The big REPORT button opened this debrief (openReport below), so it is
+ * a driver saying what they found — not a tester acting out a trigger
+ * scenario. Everything that talks to Otto reads this: no scenario, no
+ * run measurements, no first message of ours, and a briefing that says
+ * so. It also allows `current` to be null: a report made on the road
+ * belongs to no pin. Set by openOtto for the WHOLE debrief, save
+ * included — the row is still filed when the tester backs out of the
+ * screen, and by then the screen has closed. The next openOtto clears
+ * it. */
+let reporting = false;
+/* …and that report's row still has to land somewhere locally. No
+ * destination id can equal this, so the bucket stays out of every pin's
+ * message list while persistLocal still writes the row out. */
+const NO_STOP = '__no_stop__';
 /* the Delivered / Not delivered tap per route stop — the latest visit
  * row by destination id; the scan stand-in a tour is rebuilt from */
 let visitsByDest = {};
@@ -1239,28 +1253,49 @@ const map = FieldMap.mount({
 });
 
 /* ---------- Otto ---------- */
+/* The line the debrief opens with. In the REPORT flow the agent is
+ * handed nothing at all (agentGreeting below) — Otto opens in his own
+ * configured words — but the recorded fallback has no words of its own,
+ * so it still asks plainly, in the card's language. */
+const ottoGreeting = () => {
+  if (reporting) return LANG_TEXT[testLang].ask;
+  const s = scenarioOf(current);
+  /* the sheet's "Otto says" column IS the debrief opener — in the
+   * card's chosen language once the translation has landed */
+  if (s && s.otto_says) return questionFor(s).text;
+  return current ? LANG_TEXT[testLang].at(current) : LANG_TEXT[testLang].plain;
+};
+/* What rides along on every saved row: which pin (null for a report
+ * made on the road), where the phone was, and what it observed. */
+const debriefExtra = () => ({
+  destination_id: current ? current.id : null,
+  lat: LiveGeo.position ? LiveGeo.position.lat : null,
+  lng: LiveGeo.position ? LiveGeo.position.lng : null,
+  ...arExtras(),
+});
 /* The widget is remounted per debrief (the kit reads its demo script once
  * at mount), so the scripted demo can open with the scenario's own
  * question exactly like the live greeting does. */
 const voiceOpts = () => {
-  const sc = current && scenarioOf(current);
+  const sc = !reporting && current && scenarioOf(current);
   return {
     el: '#otto',
     assistant: 'Otto',
     context: () => {
-      if (!current) return 'this spot';
+      if (!current) return reporting ? 'a driver report, no stop nearby' : 'this spot';
       const base = current.title + (current.addr ? ' — ' + current.addr : '');
-      const s = scenarioOf(current);
+      /* a report is about the address, even at a pin that happens to
+       * carry a scenario — the scenario is not what happened here */
+      const s = reporting ? null : scenarioOf(current);
       return s ? `trigger scenario "${scenarioShort(s)}" at ${base}` : base;
     },
-    greeting: () => {
-      const s = scenarioOf(current);
-      /* the sheet's "Otto says" column IS the debrief opener — in the
-       * card's chosen language once the translation has landed */
-      if (s && s.otto_says) return questionFor(s).text;
-      return current ? LANG_TEXT[testLang].at(current) : LANG_TEXT[testLang].plain;
-    },
-    demo: sc && sc.otto_says ? [
+    greeting: ottoGreeting,
+    /* the REPORT flow, scripted: the driver says what they found, Otto
+     * asks one fitting follow-up and confirms the tip in a line */
+    demo: reporting ? [
+      { q: LANG_TEXT.en.ask, a: "The gate is locked and it wants a code — there's nothing on the label." },
+      { q: 'Did you get in in the end?', a: 'A resident let me in after five minutes, and the parcel went to the recipient.' },
+    ] : sc && sc.otto_says ? [
       { q: stripQuotes(sc.otto_says), a: 'Scripted demo answer — with the backend live you would answer by voice here.' },
       { q: 'Got it. Anything else the next driver should know?', a: "That's everything — end of the scripted demo." },
     ] : [
@@ -1268,35 +1303,38 @@ const voiceOpts = () => {
       { q: 'Got it. Can you still get through somehow?', a: "Yes — there's a side door on the left, maybe 20 metres on." },
       { q: 'Anything else worth noting?', a: "The scaffolding looks like it'll be up for weeks." },
     ],
-    demoFinal: sc
-      ? 'Saved — the dashboard now compares this with what the scenario expected.'
-      : 'Saved to the destination — your note is on the record.',
-    extra: () => ({
-      destination_id: current ? current.id : null,
-      lat: LiveGeo.position ? LiveGeo.position.lat : null,
-      lng: LiveGeo.position ? LiveGeo.position.lng : null,
-      ...arExtras(),
-    }),
+    demoFinal: reporting
+      ? 'Got it — the tip is on file for the next driver. Safe onwards.'
+      : sc
+        ? 'Saved — the dashboard now compares this with what the scenario expected.'
+        : 'Saved to the destination — your note is on the record.',
+    extra: debriefExtra,
     onSaved(res) {
       /* Otto's reply gets the same voice as his question — text-only
        * feedback goes unnoticed by someone watching the road. Scripted
        * demo replies stay silent: nothing was actually heard, and the
        * agent already said its piece in its own voice (res.spoken). */
       if (!res.demo && !res.spoken && res.reply) speakThen(String(res.reply), () => {});
-      if (!current) return;
-      recordMessage(current.id, {
+      const d = current; // null when a report was filed on the road
+      if (!d && !reporting) return;
+      recordMessage(d ? d.id : NO_STOP, {
         ...res.row,
-        /* the scripted demo bypasses extra() — stamp the observed activity here too */
-        ...(res.demo ? arExtras() : {}),
-        destination_id: current.id,
+        /* the scripted demo bypasses extra() — stamp position and the
+         * observed activity here too */
+        ...(res.demo ? debriefExtra() : {}),
+        destination_id: d ? d.id : null,
         demo: !!res.demo,
         created_at: (res.row && res.row.created_at) || new Date().toISOString(),
       });
       persistLocal();
-      map.refresh(); // the pin flips to reported
+      map.refresh(); // the pin flips to reported (a report with no pin flips nothing)
       /* debrief delivered for a fired trigger — that test run is complete */
-      if (tracking && tracking.fired && tracking.d.id === current.id) stopTracking();
-      if (!el('card').hidden) openCard(current); // the debrief lands in the card's list
+      if (d && tracking && tracking.fired && tracking.d.id === d.id) stopTracking();
+      /* A report is made from the map and goes back to it: the driver is
+       * standing in a doorway, not reading a card. Long enough to see
+       * Otto's "saved", short enough not to have to tap anything. */
+      if (reporting) { setTimeout(() => { if (reporting && !el('otto-screen').hidden) closeOtto(); }, 1800); return; }
+      if (d && !el('card').hidden) openCard(d); // the debrief lands in the card's list
     },
   };
 };
@@ -1315,8 +1353,13 @@ const voiceOpts = () => {
  * the two loops it can see, not about loops in general. */
 function agentVars() {
   const d = current;
-  const sc = d && scenarioOf(d);
-  const tr = tracking && d && tracking.d.id === d.id ? tracking : null;
+  /* A report is neither: the driver pressed REPORT, no scenario is
+   * being acted out and no run was measured. Blanking the pair here
+   * (rather than adding keys) leaves the report with exactly the
+   * destination, the language and trigger_fired 'no' — and the empty
+   * ones never go up at all (initPayload drops them). */
+  const sc = !reporting && d && scenarioOf(d);
+  const tr = !reporting && tracking && d && tracking.d.id === d.id ? tracking : null;
   const p = sc && sc.params;
   const v = {
     destination_title: d ? d.title : '',
@@ -1360,8 +1403,34 @@ function agentVars() {
   return v;
 }
 
+/* ---------- the report, as the agent hears it ----------
+ * The pilot has no triggers, so there is nothing to explain about one:
+ * a driver pressed REPORT and is about to say what they found. The
+ * briefing says where they are, what is on file for the stop, and what
+ * a good debrief does — nothing about scenarios, and nothing about a
+ * trigger that did not fire (there was none to fire). This is what the
+ * simulated conversations in elevenlabs/ put in front of the agent,
+ * word for word. */
+function reportBriefing(v) {
+  const lines = [];
+  const floor = String(v.destination_floor || '').trim();
+  const who = [];
+  if (v.destination_consignee) who.push('delivery for ' + v.destination_consignee);
+  if (floor) who.push(/^\d+$/.test(floor) ? 'floor ' + floor : floor);
+  const where = v.destination_address || v.destination_title;
+  lines.push(where
+    ? `You are Otto. A driver has just pressed REPORT after a stop at ${where}${who.length ? ' (' + who.join(', ') + ')' : ''}.`
+    : 'You are Otto. A driver has just pressed REPORT on the road, no stop nearby.');
+  if (v.destination_notes) lines.push(sentence(`The notes on file for this stop: ${v.destination_notes}`));
+  lines.push('Ask what happened, keep it to two or three questions, confirm the tip in one line, and let them go.');
+  /* belt to the language override's braces, exactly as below */
+  if (testLang === 'it') lines.push('This driver chose Italian: conduct the entire debrief in Italian — every question and reply.');
+  return lines.join(' ');
+}
+
 function agentBriefing() {
   const v = agentVars();
+  if (reporting) return reportBriefing(v);
   const lines = [];
   lines.push(`You are Otto, debriefing a field tester who has just acted out a trigger scenario at ${v.destination_title || 'a destination'}${v.destination_address ? ` (${v.destination_address})` : ''}.`);
   if (v.scenario_title) lines.push(`Scenario${v.scenario_num !== '' ? ' #' + v.scenario_num : ''}: ${sentence(v.scenario_title + ' (v' + v.scenario_version + ')')}`);
@@ -1394,10 +1463,18 @@ function agentBriefing() {
  * debrief otherwise — same mount seams either way (see otto-agent.js),
  * so everything below this line is written once. A conversation that
  * cannot be opened falls back in place rather than dead-ending. */
+/* What the agent is told to open with — nothing at all in the REPORT
+ * flow, so no first_message override goes up (otto-agent.js sends none
+ * for an empty greeting) and Otto opens in his own configured words,
+ * exactly as the simulated conversations in elevenlabs/ test him. The
+ * recorded fallback keeps its own plain question (ottoGreeting). */
+const agentGreeting = () => (reporting ? '' : ottoGreeting());
+
 function mountOtto(recorderOnly) {
   if (!recorderOnly && OttoAgent.available()) {
     return OttoAgent.mount({
       ...voiceOpts(),
+      greeting: agentGreeting,
       vars: agentVars,
       briefing: agentBriefing,
       language: () => testLang,
@@ -1416,8 +1493,11 @@ function mountOtto(recorderOnly) {
  * screen it belongs to. */
 let voice = VoiceNote.mount(voiceOpts());
 
-function openOtto(d) {
-  current = d;
+function openOtto(d, asReport) {
+  /* whose debrief this is, for as long as it lasts — every caller but
+   * openReport opens the destination's own */
+  reporting = !!asReport;
+  current = d || null; // a REPORT made on the road has no pin
   /* a pre-arrival reading must not talk over the debrief — the keyless
    * path cancels it itself (speakThen), the agent path would not */
   stopOttoAudio();
@@ -1427,10 +1507,14 @@ function openOtto(d) {
   } catch { /* optional */ }
   el('card').hidden = true;
   /* the flag rides along so mid-debrief there is no doubt which
-   * language this conversation was opened in */
+   * language this conversation was opened in — and a report says which
+   * door it will be filed against, or that it will be filed against none */
   el('otto-dest').textContent = (testLang === 'it' ? '🇮🇹 ' : '🇬🇧 ')
-    + (d.stop != null ? 'Stop ' + d.stop + ' · ' : '') + scenarioNumPrefix(d) + d.title;
+    + (reporting ? 'REPORT · ' : '')
+    + (d ? (d.stop != null ? 'Stop ' + d.stop + ' · ' : '') + scenarioNumPrefix(d) + d.title
+         : 'no stop nearby');
   el('otto-screen').hidden = false;
+  renderReport(); // the button stands down while Otto has the screen
   /* a manual "Report to Otto" tap never went through startTracking —
    * kick the translation off now; the connect handshake usually gives
    * it enough of a head start, and English is the harmless fallback */
@@ -1451,7 +1535,53 @@ function closeOtto() {
     if ('speechSynthesis' in window) speechSynthesis.cancel();
   } catch { /* optional */ }
   el('otto-screen').hidden = true;
-  if (current) openCard(current); // back to the card, now with the new message
+  /* back where the debrief came from: the card that opened it, or — for
+   * a REPORT — the map, which is where the button lives. `reporting` is
+   * left standing: the agent files what was said AFTER this returns. */
+  if (current && !reporting) openCard(current); // the card, now with the new message
+  renderReport();
+}
+
+/* ---------- the REPORT button ----------
+ * The pilot ships without triggers: the driver presses one big button
+ * and tells Otto what they found. So this is the map screen's whole
+ * job, and the tap itself is the user gesture the microphone and the
+ * audio output need — which is why the agent is mounted straight from
+ * it rather than from anything that happens later.
+ *
+ * What the report is ABOUT, in order: the stop the phone is standing
+ * at, the stop whose card is open, or nothing at all (a report made on
+ * the road, filed against no pin). */
+const REPORT_RADIUS = 150; // m — beyond this you are not at that door
+
+function reportContext() {
+  /* a cached fix could name a door from an hour ago — only a fresh one
+   * may pick the stop a report is filed against */
+  const pos = LiveGeo.stale ? null : LiveGeo.position;
+  let near = null;
+  if (pos) {
+    for (const d of visibleDestinations()) {
+      const m = distM(pos, d);
+      if (m <= REPORT_RADIUS && (!near || m < near.m)) near = { d, m };
+    }
+  }
+  if (near) return near.d;
+  return !el('card').hidden && current ? current : null;
+}
+
+function openReport() {
+  /* wake the output audio and get the microphone question answered
+   * inside this tap — a permission dialog raised later, mid-sentence,
+   * is a report lost */
+  OttoAgent.prime();
+  openOtto(reportContext(), true);
+}
+
+/* Always on the map, never over Otto — the one thing on this screen
+ * that must not be hidden. */
+function renderReport() {
+  const btn = el('report');
+  if (btn) btn.hidden = !el('otto-screen').hidden;
 }
 
 /* ---------- destination card ---------- */
@@ -1644,6 +1774,12 @@ el('build').onclick = async () => {
   out.push('ElevenLabs agent: ' + (OttoAgent.agentId()
     ? (OttoAgent.available() ? 'ON — ' + OttoAgent.agentId() : 'configured but UNUSABLE here')
     : 'not configured — recorded debrief'));
+  /* the flow the pilot actually runs: one button, Otto's own opening
+   * line, filed against the stop the phone is standing at */
+  out.push('REPORT button: ' + (OttoAgent.available()
+    ? 'the agent opens in his OWN words (no first-message override)'
+    : 'the recorded debrief asks "' + LANG_TEXT[testLang].ask + '"')
+    + ' · filed against the stop within ' + REPORT_RADIUS + ' m, else the open card, else no stop');
   /* the card's 🇬🇧/🇮🇹 pick — an Italian debrief that comes out English
    * usually means the agent declined the language override */
   out.push('debrief language: ' + (testLang === 'it'
@@ -1692,6 +1828,9 @@ el('sc-tab-story').onclick = () => setScTab('story');
 el('sc-tab-steps').onclick = () => setScTab('steps');
 el('card-otto').onclick = () => current && openOtto(current);
 el('card-remove').onclick = removeCurrent;
+/* the big one. Same index.html caveat as the block below: a phone still
+ * holding yesterday's page has no button, and app.js must still boot. */
+if (el('report')) { el('report').onclick = openReport; renderReport(); }
 /* A phone can hold yesterday's index.html next to today's app.js (a WebView
  * that skipped revalidation): the block may not exist yet. Never let that
  * stop the script — boot() still has to run below. */

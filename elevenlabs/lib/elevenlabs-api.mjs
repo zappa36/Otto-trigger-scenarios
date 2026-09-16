@@ -46,8 +46,12 @@ const IDEMPOTENT = new Set(['GET', 'PUT', 'PATCH', 'DELETE']);
 /* The fetch wrapper. `secrets` are the strings that must never reach
  * stdout; `log` is where a dry run prints. `retryDelayMs` is only
  * shortened by the tests. `retry` says whether a 5xx may be re-sent;
- * by default only an idempotent method is. */
-export function makeHttp({ dryRun = false, log = console.log, fetchImpl = globalThis.fetch, secrets = [], retryDelayMs = 1500 } = {}) {
+ * by default only an idempotent method is. `quiet` keeps a dry run's
+ * BODIES off stdout — the prompt travels in one of them (the proposer's
+ * input, a branch's conversation_config), and a public job log must
+ * never carry it; the method and path still print, so a dry run still
+ * shows what would be sent. */
+export function makeHttp({ dryRun = false, log = console.log, fetchImpl = globalThis.fetch, secrets = [], retryDelayMs = 1500, quiet = false } = {}) {
   const redact = s => secrets.filter(Boolean).reduce((acc, k) => acc.split(k).join('[redacted]'), String(s));
   let sent = 0;
 
@@ -55,7 +59,7 @@ export function makeHttp({ dryRun = false, log = console.log, fetchImpl = global
     const url = String(base).replace(/\/+$/, '') + withQuery(path, query);
     if (dryRun) {
       log(`  (dry run) ${method} ${redact(url)}${label ? '   ' + label : ''}`);
-      if (body !== undefined) log(redact(JSON.stringify(body, null, 2)).replace(/^/gm, '      '));
+      if (body !== undefined) log(quiet ? '      (body not shown — --quiet)' : redact(JSON.stringify(body, null, 2)).replace(/^/gm, '      '));
       return null;
     }
     for (let attempt = 0; ; attempt++) {
@@ -135,6 +139,13 @@ export function elevenLabs({ apiKey, base = DEFAULT_BASE, http }) {
     createBranch: (agentId, body) => call('POST', `/v1/convai/agents/${encodeURIComponent(agentId)}/branches`, { body }),
     /* https://elevenlabs.io/docs/api-reference/agents/branches/list -> { results: [] } */
     listBranches: (agentId, query = {}) => call('GET', `/v1/convai/agents/${encodeURIComponent(agentId)}/branches`, { query }),
+    /* https://elevenlabs.io/docs/eleven-agents/api-reference/agents/branches/get
+     * -> { id, name, agent_id, description, created_at, last_committed_at,
+     * is_archived, … }. `description` is the branch's own note — what the
+     * proposal said it changed. It lives here, in ElevenLabs, and not in
+     * the public repo, which is why promote reads it back instead of
+     * carrying a proposal file around. */
+    getBranch: (agentId, branchId) => call('GET', `/v1/convai/agents/${encodeURIComponent(agentId)}/branches/${encodeURIComponent(branchId)}`),
     /* https://elevenlabs.io/docs/api-reference/agents/branches/merge —
      * the target branch goes in the QUERY, the body holds
      * { archive_source_branch, force } */

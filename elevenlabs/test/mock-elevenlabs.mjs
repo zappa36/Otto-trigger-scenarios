@@ -1,9 +1,9 @@
 /*
  * An in-process stand-in for the three services the loop talks to —
  * the ElevenLabs API (tests, invocations, conversations, the agent,
- * branches), Supabase's REST (messages, scenarios, agent_runs) and the
- * proposer's chat-completions endpoint — on one port, fed from
- * test/fixture/.
+ * branches), Supabase's REST (messages, scenarios, situations,
+ * agent_runs) and the proposer's chat-completions endpoint — on one
+ * port, fed from test/fixture/.
  * It records every request it gets, which is how the tests check what
  * the loop sends (and that --dry-run sends nothing at all).
  *
@@ -30,6 +30,7 @@ export async function startMock(fixtureDir) {
     conversations: load(fixtureDir, 'conversations.json'),
     messages: load(fixtureDir, 'messages.json'),
     scenarios: load(fixtureDir, 'scenarios.json'),
+    situations: load(fixtureDir, 'situations.json'),
   };
   const state = {};
   const mock = { requests: [], state, fixture };
@@ -50,6 +51,13 @@ export async function startMock(fixtureDir) {
      * predates it, which PostgREST reports as a 404 (PGRST205) */
     state.agentRuns = [];
     state.agentRunsTable = true;
+    /* the dashboard's situation rows, and the same switch for them */
+    state.situations = JSON.parse(JSON.stringify(fixture.situations));
+    state.situationsTable = true;
+    /* what GET branch answers with, when a test wants another note */
+    state.branchDescription = null;
+    /* a status POST branches refuses with, its body quoting the prompt */
+    state.branchRefuses = 0;
     /* the workspace's tools: one client tool an agent may carry (the
      * suite mocks it), one system tool (never mocked); the fixture agent
      * carries neither until a test gives it tool_ids */
@@ -133,9 +141,24 @@ export async function startMock(fixtureDir) {
       return [200, state.agent];
     }],
     ['POST', /^\/v1\/convai\/agents\/([^/]+)\/branches$/, (m, q, body) => {
+      /* a validator that quotes the field it refused — which on this
+       * endpoint is the prompt itself. The loop must not print it. */
+      if (state.branchRefuses) return [state.branchRefuses, { detail: [{ loc: ['body', 'conversation_config', 'agent', 'prompt', 'prompt'], msg: 'string too long', input: ((((body.conversation_config || {}).agent || {}).prompt || {}).prompt) || '' }] }];
       if (!body.parent_version_id || !body.name || body.description == null) return [422, { detail: [{ loc: ['body'], msg: 'parent_version_id, name and description are required', type: 'value_error' }] }];
       state.branches.push(body);
       return [200, { created_branch_id: 'branch_loop1', created_version_id: 'agtvrsn_b1' }];
+    }],
+    /* the branch as GET branches/{id} answers it: `description` is the
+     * version note `branch` gave it, which is where promote reads it
+     * from now that no proposal file travels */
+    ['GET', /^\/v1\/convai\/agents\/([^/]+)\/branches\/([^/]+)$/, m => {
+      const made = state.branches[state.branches.length - 1];
+      if (m[2] === 'branch_missing') return [404, { detail: { status: 'branch_not_found', message: `No branch ${m[2]}` } }];
+      return [200, {
+        id: m[2], name: (made && made.name) || 'loop-branch', agent_id: m[1],
+        description: state.branchDescription != null ? state.branchDescription : ((made && made.description) || ''),
+        created_at: 1, last_committed_at: 2, is_archived: false,
+      }];
     }],
     ['POST', /^\/v1\/convai\/agents\/([^/]+)\/branches\/([^/]+)\/merge$/, (m, q, body) => {
       if (!q.target_branch_id) return [422, { detail: [{ loc: ['query', 'target_branch_id'], msg: 'field required', type: 'value_error.missing' }] }];
@@ -156,13 +179,22 @@ export async function startMock(fixtureDir) {
       return [200, [row]];
     }],
     ['GET', /^\/rest\/v1\/scenarios$/, () => [200, fixture.scenarios]],
-    ['GET', /^\/rest\/v1\/agent_runs$/, () => (state.agentRunsTable ? [200, state.agentRuns] : noTable())],
+    /* the situations tab's rows, which the generator turns into the
+     * situation suite at run time. The table can be switched off (a
+     * project whose schema.sql predates it) or emptied — both send the
+     * generator back to situations-starter.js */
+    ['GET', /^\/rest\/v1\/situations$/, (m, q) => {
+      if (!state.situationsTable) return noTable('situations');
+      const rows = q.active === 'eq.true' ? state.situations.filter(r => r.active !== false) : state.situations;
+      return [200, rows];
+    }],
+    ['GET', /^\/rest\/v1\/agent_runs$/, () => (state.agentRunsTable ? [200, state.agentRuns] : noTable('agent_runs'))],
     /* an insert the way PostgREST answers one: 201, the stored rows
      * (id and created_at filled in) only when the Prefer header asked
      * for the representation — a loop that forgot it would get nothing
      * back and not know its row's id */
     ['POST', /^\/rest\/v1\/agent_runs$/, (m, q, body, headers) => {
-      if (!state.agentRunsTable) return noTable();
+      if (!state.agentRunsTable) return noTable('agent_runs');
       const rows = (Array.isArray(body) ? body : [body]).map(r => ({
         id: `00000000-0000-4000-8000-${String(state.agentRuns.length + 1).padStart(12, '0')}`,
         ...r, created_at: new Date().toISOString(),
@@ -177,7 +209,7 @@ export async function startMock(fixtureDir) {
     }],
   ];
 
-  const noTable = () => [404, { code: 'PGRST205', details: null, hint: "Perhaps you meant the table 'public.runs'", message: "Could not find the table 'public.agent_runs' in the schema cache" }];
+  const noTable = name => [404, { code: 'PGRST205', details: null, hint: "Perhaps you meant the table 'public.runs'", message: `Could not find the table 'public.${name}' in the schema cache` }];
 
   function pendingRuns() {
     const runs = [];

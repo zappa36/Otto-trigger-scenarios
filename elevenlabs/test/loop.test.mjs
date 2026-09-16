@@ -183,7 +183,8 @@ test('publish posts the results file as one agent_runs row — the contract dash
   assert.equal(row.note, null);
   assert.equal(row.ran_at, results.at);
   assert.deepEqual(row.tests[0], {
-    name: T1, test_id: 'test_001', kind: 'scenario', scenario_num: 1, scenario_title: 'Parking loops — two slow passes and a stop', persona: 'cooperative', language: 'en',
+    name: T1, test_id: 'test_001', kind: 'scenario', scenario_num: 1, scenario_title: 'Parking loops — two slow passes and a stop',
+    situation_num: null, situation_title: null, persona: 'cooperative', language: 'en',
     runs: 3, passed: 2, pass_rate: 2 / 3,
     why: 'The agent asked four questions and never let the tester go. It opened correctly.',
     failure: {
@@ -192,18 +193,29 @@ test('publish posts the results file as one agent_runs row — the contract dash
       transcript: [{ role: 'agent', message: 'Is it hard to park here at this time? Where did you find a spot?' }],
     },
   });
-  assert.deepEqual(row.tests[1], { name: T8, test_id: 'test_pre8', kind: 'scenario', scenario_num: 8, scenario_title: 'Blocked route — turned round short of the address', persona: 'terse', language: 'en', runs: 3, passed: 3, pass_rate: 1, why: null, failure: null });
+  assert.deepEqual(row.tests[1], { name: T8, test_id: 'test_pre8', kind: 'scenario', scenario_num: 8, scenario_title: 'Blocked route — turned round short of the address', situation_num: null, situation_title: null, persona: 'terse', language: 'en', runs: 3, passed: 3, pass_rate: 1, why: null, failure: null });
   assert.deepEqual(row.summary, {
     tests: 2, tests_at_100: 1, runs: 6, passed: 5, pass_rate: 5 / 6,
     by_scenario: { 1: { tests: 1, runs: 3, passed: 2, pass_rate: 2 / 3 }, 8: { tests: 1, runs: 3, passed: 3, pass_rate: 1 } },
+    by_situation: {},
   });
   assert.equal(mock.state.agentRuns.length, 1, 'stored');
   assert.match(r.out, /5\/6 runs passed across 2 test\(s\) -> agent_runs/);
-  assert.match(r.out, /published agent_runs 00000000-0000-4000-8000-000000000001 \(2 scenario\(s\), main, https:\/\/github\.com\/o\/r\/actions\/runs\/42\) — dashboard\.html shows it per scenario/);
+  assert.match(r.out, /published agent_runs 00000000-0000-4000-8000-000000000001 \(2 scenario\(s\), 0 situation\(s\), main, https:\/\/github\.com\/o\/r\/actions\/runs\/42\) — dashboard\.html shows it per row/);
 
-  /* the branch run from propose: compare's verdict and the proposal's note ride along */
+  /* the note is gone: it said what the branch's prompt changed, and
+   * anyone can read this table with the anon key. The flag is refused
+   * by name rather than ignored, and nothing is sent. */
   mock.requests.length = 0;
   r = await loop(['publish', '--results', shared.branchResults, '--verdict', 'REJECT', '--reason', 'no previously failing test improved', '--note', 'Ask where they parked first'], dir);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /--note is gone: .*agent_runs is world-readable/);
+  assert.match(r.out, /stays on the ElevenLabs branch as its description/);
+  assert.equal(mock.requests.length, 0, 'nothing sent');
+
+  /* the branch run from propose: compare's verdict and reason ride along, the note never does */
+  mock.requests.length = 0;
+  r = await loop(['publish', '--results', shared.branchResults, '--verdict', 'REJECT', '--reason', 'no previously failing test improved'], dir);
   assert.equal(r.code, 0, r.out);
   const branchRow = sent('POST', /agent_runs$/)[0].body[0];
   assert.equal(branchRow.label, 'branch');
@@ -211,7 +223,7 @@ test('publish posts the results file as one agent_runs row — the contract dash
   assert.equal(branchRow.version_id, 'agtvrsn_b1');
   assert.equal(branchRow.verdict, 'reject', 'compare\'s word, whichever case it came in');
   assert.equal(branchRow.verdict_reason, 'no previously failing test improved');
-  assert.equal(branchRow.note, 'Ask where they parked first');
+  assert.equal(branchRow.note, null, 'the column stays, unused');
   assert.equal(branchRow.run_url, null, 'run by hand');
   assert.match(r.out, /, REJECT -> agent_runs/);
   assert.match(r.out, /published agent_runs 00000000-0000-4000-8000-000000000002/);
@@ -254,8 +266,8 @@ test('publish posts the results file as one agent_runs row — the contract dash
   const oldFile = path.join(dir, 'old.json');
   writeFileSync(oldFile, JSON.stringify(old));
   const oldRow = agentRunRow(old, { runUrl: '' });
-  assert.deepEqual(oldRow.tests[0], { name: 'Otto · regression · conv_old', test_id: 'test_9', kind: 'regression', scenario_num: null, scenario_title: null, persona: null, language: null, runs: 2, passed: 1, pass_rate: 0.5, why: 'Too long. Really.', failure: null });
-  assert.deepEqual(oldRow.summary, { tests: 1, tests_at_100: 0, runs: 2, passed: 1, pass_rate: 0.5, by_scenario: {} }, 'a test without a scenario counts in the totals and under no scenario');
+  assert.deepEqual(oldRow.tests[0], { name: 'Otto · regression · conv_old', test_id: 'test_9', kind: 'regression', scenario_num: null, scenario_title: null, situation_num: null, situation_title: null, persona: null, language: null, runs: 2, passed: 1, pass_rate: 0.5, why: 'Too long. Really.', failure: null });
+  assert.deepEqual(oldRow.summary, { tests: 1, tests_at_100: 0, runs: 2, passed: 1, pass_rate: 0.5, by_scenario: {}, by_situation: {} }, 'a test without a row counts in the totals and under no row');
   assert.equal(oldRow.version_id, null);
   assert.equal(oldRow.run_url, null, 'an empty --run-url is none');
   mock.requests.length = 0;
@@ -468,16 +480,35 @@ test('compare accepts an improvement without drops and rejects a drop or a stand
   assert.equal(r.code, 1);
 });
 
-test('promote merges the branch into the main branch', async () => {
+test('promote merges the branch into the main branch and takes the version note from the branch', async () => {
   const dir = shared.dir;
-  const r = await loop(['promote', '--branch', 'branch_loop1', '--proposal', shared.proposal], dir);
+  /* the branch carries its own note: `branch` put the proposal's note
+   * in its description, so nothing has to travel in a file */
+  mock.state.branchDescription = 'Ask where they parked first — two field debriefs never got the spot';
+  const r = await loop(['promote', '--branch', 'branch_loop1'], dir);
   assert.equal(r.code, 0, r.out);
+  const got = sent('GET', /\/branches\/branch_loop1$/)[0];
+  assert.ok(got, 'the branch was read for its description');
   const req = sent('POST', /\/branches\/branch_loop1\/merge$/)[0];
   assert.ok(req, 'merge posted');
   assert.equal(req.query.target_branch_id, 'branch_main', 'main_branch_id from GET agent');
   assert.deepEqual(req.body, { archive_source_branch: true, force: false });
-  assert.match(r.out, /elevenlabs agents pull --agent agent_test1/);
-  assert.match(r.out, /Ask where they parked first/);
+  assert.match(r.out, /version note, from the branch: Ask where they parked first — two field debriefs never got the spot/);
+  assert.doesNotMatch(r.out, /git add agent_configs/, 'the config never goes into this repository');
+
+  /* --quiet: the merge still happens, the note stays in ElevenLabs */
+  mock.requests.length = 0;
+  mock.state.branchDescription = 'Ask where they parked first — two field debriefs never got the spot';
+  const q = await loop(['promote', '--branch', 'branch_loop1', '--quiet'], dir);
+  assert.equal(q.code, 0, q.out);
+  assert.equal(sent('POST', /\/merge$/).length, 1, 'still merged');
+  assert.ok(!q.out.includes('Ask where they parked first'), 'the note is not printed under --quiet');
+  assert.match(q.out, /version note is not shown \(--quiet\)/);
+
+  /* the old way round is named, not silently ignored */
+  const old = await loop(['promote', '--branch', 'branch_loop1', '--proposal', shared.proposal], dir);
+  assert.equal(old.code, 1);
+  assert.match(old.out, /--proposal is gone: promote reads the version note from the branch itself/);
 });
 
 test('configure merges analysis.json over the agent\'s own settings and enables the overrides', async () => {
@@ -525,7 +556,7 @@ test('--dry-run prints every request and sends nothing, with no key in the envir
     ['configure'], ['push-tests'], ['run', '--repeat', '2'], ['pull'],
     ['cut', '--field', shared.field], ['propose', '--results', shared.results, '--field', shared.field],
     ['branch', '--proposal', proposal], ['promote', '--branch', 'branch_x'],
-    ['publish', '--results', shared.results, '--verdict', 'accept', '--reason', 'r', '--note', 'n'],
+    ['publish', '--results', shared.results, '--verdict', 'accept', '--reason', 'r'],
   ];
   for (const cmd of commands) {
     const r = await loop([...cmd, '--dry-run'], dir, noKeys);
@@ -620,6 +651,13 @@ test('aggregate, compareResults, scoreData and gradeSummary as pure functions', 
   const s = scoreData({ tests: [{ scenario_num: 3, scenario_title: 'T', runs: 2, passed: 1, rationales: ['Too long. Really.'] }] }, null);
   assert.equal(s[0].key, '#3');
   assert.equal(s[0].reasons[0].reason, 'too long');
+  /* both sheets number from one, so a situation row keys apart from the
+   * trigger scenario with the same number */
+  const both = scoreData({ tests: [
+    { scenario_num: 3, scenario_title: 'T', runs: 2, passed: 2 },
+    { kind: 'situation', situation_num: 3, situation_title: 'A dog at the door', runs: 2, passed: 1 },
+  ] }, null);
+  assert.deepEqual(both.map(x => [x.key, x.kind, x.title]).sort(), [['#3', 'scenario', 'T'], ['s#3', 'situation', 'A dog at the door']]);
   assert.equal(reasonKey('  The AGENT asked   four questions! Then more.'), 'the agent asked four questions');
 });
 
@@ -877,4 +915,129 @@ test('the why line names the failed criterion, not the verdict word', async () =
   assert.equal(whyOf({}), 'no rationale returned');
   const long = { rationale: { summary: 'Evaluation failed', messages: ['Criterion 2: ' + 'the agent never '.repeat(40)] } };
   assert.ok(whyOf(long).length <= 240 && whyOf(long).endsWith('…'));
+});
+
+/* ---------- the situation suite, and the prompt that must not leak ---------- */
+
+/* The prompt is confidential and the repository is public: a job log, a
+ * job summary, an artifact and the shared agent_runs table are all
+ * published the moment they are written. --quiet is the switch the
+ * buttons pass, and this is what it has to hold back. */
+test('propose --quiet prints counts and a file name — never the prompt, the diff or the note', async () => {
+  const dir = shared.dir;
+  const secret = mock.state.agent.conversation_config.agent.prompt.prompt;
+  const r = await loop(['propose', '--quiet', '--results', shared.results, '--field', shared.field], dir);
+  assert.equal(r.code, 0, r.out);
+  const written = filesIn(path.join(dir, 'proposals'));
+  const file = path.join(dir, 'proposals', written[written.length - 1]);
+  const p = readJson(file);
+  /* the proposal itself is whole — it stays on the runner, gitignored */
+  assert.match(p.prompt, /Ask where they parked before anything else\.$/);
+  assert.ok(p.diff.includes('Ask where they parked before anything else.'));
+  assert.equal(p.note, 'Ask where they parked first — two field debriefs never got the spot');
+  /* what was printed carries none of it */
+  for (const line of secret.split('\n')) assert.ok(!r.out.includes(line.trim()), `the prompt was printed: ${line.slice(0, 40)}`);
+  assert.ok(!r.out.includes('Ask where they parked'), 'the proposed line or the note was printed');
+  assert.doesNotMatch(r.out, /^[+-][^+-]/m, 'a diff line was printed');
+  assert.doesNotMatch(r.out, /^rationale:/m);
+  assert.match(r.out, /proposal written to .*\.json — not shown/);
+  assert.match(r.out, /\d+ chars in, \d+ out, \d+ changed line\(s\)/);
+  assert.match(r.out, /next: node loop\.mjs branch --proposal/);
+
+  /* a refusal says why, and keeps the model's own words to itself */
+  mock.state.openaiReply = () => ({ prompt: secret + '\n' + 'A new rule. '.repeat(60), note: 'much longer', rationale: 'because the prompt says X' });
+  const refused = await loop(['propose', '--quiet', '--results', shared.results, '--field', shared.field], dir);
+  assert.equal(refused.code, 1);
+  assert.match(refused.out, /refused: the proposal grows the prompt by \d+% \(limit 25%\)/);
+  assert.match(refused.out, /the model's note and rationale are not shown$/);
+  assert.ok(!refused.out.includes('much longer') && !refused.out.includes('because the prompt says X'));
+
+  /* a dry run prints the requests it would send, and no bodies: the
+   * proposer's body IS the prompt */
+  mock.reset();
+  const dry = await loop(['propose', '--quiet', '--dry-run', '--results', shared.results, '--field', shared.field, '--prompt', path.join(dir, 'prompt.txt')], dir);
+  assert.equal(dry.code, 0, dry.out);
+  assert.match(dry.out, /\(dry run\) POST .*\/chat\/completions/);
+  assert.match(dry.out, /\(body not shown — --quiet\)/);
+  assert.ok(!dry.out.includes('You are Otto'), 'the prompt travelled in the printed body');
+  assert.equal(mock.requests.length, 0, 'nothing sent');
+});
+
+/* branch is the one request that carries the prompt itself; what it
+ * prints is ids, and what a refusal prints is not the reply */
+test('branch prints ids only, and never what came back from the request that carries the prompt', async () => {
+  const dir = shared.dir;
+  const proposal = path.join(dir, 'proposals', 'quiet-branch.json');
+  writeFileSync(proposal, JSON.stringify({ prompt: 'You are Otto. The secret line nobody may read.', note: 'a note about the secret line' }));
+  const r = await loop(['branch', '--proposal', proposal, '--name', 'loop-quiet'], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.ok(!r.out.includes('secret line'), 'the prompt was printed');
+  assert.ok(!r.out.includes('a note about the secret line'), 'the note was printed');
+  assert.match(r.out, /branch "loop-quiet" created: branch_loop1 \(version agtvrsn_b1, from agtvrsn_v1\)/);
+  /* the note does reach ElevenLabs, as the branch's description — that
+   * is where promote reads it from */
+  assert.equal(sent('POST', /\/branches$/)[0].body.description, 'a note about the secret line');
+
+  mock.state.branchRefuses = 422;
+  const bad = await loop(['branch', '--proposal', proposal], dir);
+  assert.equal(bad.code, 1);
+  assert.match(bad.out, /422 from POST \/v1\/convai\/agents\/agent_test1\/branches — the reply is not shown/);
+  assert.ok(!bad.out.includes('secret line'));
+});
+
+/* the situation suite rides through the loop the way the trigger suite
+ * does: the _otto block on the test file becomes the meta on the
+ * results row, and the published row groups by situation as well as by
+ * scenario, so a situation card on the dashboard finds its own */
+test('a situation test carries its row through run, results and the agent_runs row', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'otto-sit-'));
+  const configs = path.join(dir, 'test_configs', 'situations');
+  mkdirSync(configs, { recursive: true });
+  const name = 'Otto · situation #2 A big dog at the door · vague';
+  writeFileSync(path.join(configs, 'situation-02-a-big-dog-at-the-door--vague.json'), JSON.stringify({
+    name,
+    type: 'simulation',
+    dynamic_variables: { destination_title: 'Knaackstraße 22', debrief_language: 'English', trigger_fired: 'no' },
+    simulation_scenario: 'You are a parcel-delivery driver …',
+    simulation_max_turns: 10,
+    success_conditions: ['RELEVANCE — …'],
+    _otto: { kind: 'situation', situation_num: 2, situation_title: 'A big dog at the door', persona: 'vague', language: 'en', scenario_num: null, scenario_title: null },
+  }, null, 2));
+
+  let r = await loop(['push-tests'], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(readJson(path.join(dir, 'tests.lock.json'))[name], 'test_001');
+  const posted = sent('POST', /agent-testing\/create$/)[0].body;
+  assert.equal(posted._otto, undefined, 'the _otto block is stripped before posting');
+  assert.ok(!('chat_history' in posted), 'a situation test lets the agent open with its own first message');
+
+  r = await loop(['run', '--repeat', '3'], dir);
+  assert.equal(r.code, 0, r.out);
+  const results = readJson(path.join(dir, 'results', filesIn(path.join(dir, 'results'))[0]));
+  const mine = results.tests.find(t => t.name === name);
+  assert.ok(mine, 'the situation test is in the results');
+  assert.equal(mine.kind, 'situation');
+  assert.equal(mine.situation_num, 2);
+  assert.equal(mine.situation_title, 'A big dog at the door');
+  assert.equal(mine.scenario_num, null);
+  assert.equal(mine.persona, 'vague');
+
+  mock.requests.length = 0;
+  r = await loop(['publish'], dir);
+  assert.equal(r.code, 0, r.out);
+  const row = sent('POST', /agent_runs$/)[0].body[0];
+  const published = row.tests.find(t => t.name === name);
+  assert.equal(published.kind, 'situation');
+  assert.equal(published.situation_num, 2);
+  assert.equal(published.situation_title, 'A big dog at the door');
+  assert.equal(published.scenario_num, null);
+  assert.equal(published.scenario_title, null);
+  assert.deepEqual(row.summary.by_situation, { 2: { tests: 1, runs: 3, passed: 2, pass_rate: 2 / 3 } });
+  assert.equal(row.note, null);
+  assert.match(r.out, /0 scenario\(s\), 1 situation\(s\)/);
+  /* a results file from before the situations, published by a name the
+   * suite gives them: still filed as one */
+  const guessed = agentRunRow({ agent_id: 'a', tests: [{ name, runs: 1, passed: 1 }] });
+  assert.equal(guessed.tests[0].kind, 'situation');
+  rmSync(dir, { recursive: true, force: true });
 });

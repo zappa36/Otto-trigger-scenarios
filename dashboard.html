@@ -196,6 +196,8 @@
   .badge-pass     { color: #7ce0b8; border-color: rgba(70,211,154,.45); background: rgba(70,211,154,.09); }
   .badge-partial  { color: #ffd95e; border-color: rgba(255,217,94,.45); background: rgba(255,217,94,.09); }
   .badge-fail     { color: #ffab8a; border-color: rgba(255,120,69,.5);  background: rgba(255,120,69,.1); }
+  /* a situation kept on file but left out of the next suite run */
+  .badge-out      { color: #8b97a8; border-color: rgba(140,165,200,.3); background: rgba(140,165,200,.06); }
 
   /* the row's own delete — quiet until hovered, so a list of 17 doesn't
    * read as a row of warnings; the same confirm guards it either way */
@@ -642,6 +644,41 @@
   }
   .mono-v { font-family: ui-monospace, monospace; font-size: 12px; letter-spacing: .03em; }
   .cmp-empty { font-size: 12.5px; color: #94a1b2; }
+  /* ---------- situations ----------
+   * The other sheet's card. It wears .sc for the chrome (header, body,
+   * badges) and adds only what is its own: the driver's opening line
+   * under the title, and the fields — because here the card IS the
+   * form, there is no separate sheet to open. */
+  .sit-says { color: #cfe9f2; font-style: italic; }
+  .sit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+  .sit-grid .full { grid-column: 1 / -1; }
+  .sit-grid label {
+    display: block;
+    margin-bottom: 3px;
+    font-family: ui-monospace, monospace;
+    font-size: 9.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: #8b97a8;
+  }
+  .sit-grid input, .sit-grid textarea, .sit-grid select {
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 9px;
+    border: 1px solid rgba(140,165,200,.25);
+    background: rgba(7,13,22,.7);
+    color: #eef2f7;
+    font-size: 12.5px;
+    font-family: inherit;
+    outline: none;
+  }
+  .sit-grid textarea { min-height: 54px; resize: vertical; line-height: 1.45; }
+  .sit-grid input:focus, .sit-grid textarea:focus, .sit-grid select:focus { border-color: rgba(60,192,224,.55); }
+  .sit-edit .fb-rec-foot { margin-top: 12px; }
+  .sit-restore { margin: 2px 0 0; text-align: center; }
+  @media (max-width: 640px) {
+    .sit-grid { grid-template-columns: 1fr; }
+  }
 
   /* verdict + row actions */
   .verdict-row {
@@ -1017,6 +1054,7 @@
     <button class="chip" id="route-chip" type="button" hidden></button>
     <button class="chip" id="import-open" type="button">⎘ PASTE FROM EXCEL</button>
     <button class="chip primary" id="new-open" type="button">+ NEW SCENARIO</button>
+    <button class="chip primary" id="new-situation" type="button" title="One more thing a driver reports — the card is the editor" hidden>+ NEW SITUATION</button>
     <a class="chip plain" href="index.html" target="_blank" rel="noopener">PHONE APP ↗</a>
     <a class="chip plain" href="parcelvox-dashboard.html" target="_blank" rel="noopener" title="ParcelVox route knowledge — the dispatcher's view of tips, routes and stops">DISPATCHER ↗</a>
   </div>
@@ -1130,6 +1168,7 @@
 <script src="geolocate.js"></script>
 <script src="field-map.js"></script>
 <script src="trigger-scenarios.js"></script>
+<script src="situations-starter.js"></script>
 <script src="route-schoeneberg.js"></script>
 <script src="route-kollwitz.js"></script>
 <script src="dashboard.js"></script>

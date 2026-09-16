@@ -2,3 +2,7 @@ results/
 field/
 proposals/
 node_modules/
+# the agent's own config — the prompt is confidential and this repo is public
+agent_configs/
+# generated from the live situation rows on every run, never committed
+test_configs/situations/
