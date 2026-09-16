@@ -127,6 +127,44 @@ alter table public.scenarios add column if not exists feedback jsonb;
 
 create index if not exists scenarios_dest_idx on public.scenarios (destination_id);
 
+-- One row per thing a driver REPORTS. A trigger scenario (above) is
+-- about WHEN Otto speaks: a rule, a detector, a pin to act it out at.
+-- A situation is about what happens AFTER the driver presses the big
+-- REPORT button on the app and says what they found — the road was
+-- closed, a dog at the door, the bell does nothing. There is no rule
+-- and no trigger here; the pilot has neither. What is tested is the
+-- CONVERSATION: does Otto's follow-up fit THAT report (a closed road
+-- wants "how long, is there a way round"; a dog wants "was anyone with
+-- it, where can the next one go"), does he sound like a colleague, and
+-- does he end by confirming the one-line tip the next driver needs.
+-- So a row carries the driver's first words, what the driver knows if
+-- asked (and only then), what a fitting follow-up is about, what would
+-- be off topic here, and that tip — the material a simulated driver is
+-- acted out from (elevenlabs/generate-tests.mjs --situations, four
+-- personas per row) and the yardstick the run is judged against.
+-- `stop` is the Kollwitzkiez stop (route-kollwitz.js) the situation is
+-- set at, so driver and Otto share an address, a consignee and the
+-- notes on file; null means any stop will do. The dashboard's
+-- SITUATIONS tab edits these rows, and the suite is generated from
+-- them at run time — situations-starter.js is only the first twenty.
+create table if not exists public.situations (
+  id uuid primary key default gen_random_uuid(),
+  num integer,                      -- '#' column, for ordering and the test file name
+  title text not null,              -- what the situation is, short ("A big dog at the door")
+  category text check (category is null or category in ('access', 'parking', 'gate_code', 'recipient', 'address', 'hazard', 'other')),
+  stop integer,                     -- the Kollwitzkiez stop it is set at; null = the suite picks one
+  driver_says text,                 -- the driver's first words after pressing REPORT
+  driver_knows text,                -- what the driver can tell, if Otto asks — and only then
+  follow_up jsonb,                  -- what a fitting follow-up asks about: ["how long the closure lasts", …]
+  off_topic jsonb,                  -- what would not fit here: ["gate codes", "parking"]
+  tip text,                         -- the one line Otto should end up confirming
+  active boolean not null default true,  -- false = kept, not run (the suite reads the active rows)
+  created_at timestamptz not null default now()
+);
+
+-- the suite reads the active rows in sheet order
+create index if not exists situations_num_idx on public.situations (num);
+
 -- Every tracked test run, fired or not — the dashboard's run log. A run
 -- where nothing happened used to leave no data at all, and those are
 -- exactly the runs debugging a trigger needs: which stage (pass / stop /
@@ -195,7 +233,7 @@ create index if not exists visits_dest_idx on public.visits (destination_id, cre
 create index if not exists visits_route_idx on public.visits (route, delivered_at desc);
 
 -- Every run of the agent suite (elevenlabs/loop.mjs run — the ElevenLabs
--- simulation tests cut from the scenario sheet), published by
+-- simulation tests cut from the scenario and situation sheets), published by
 -- `loop.mjs publish`: the agent-suite workflow does it after every
 -- suite it runs, a terminal can too. The suite's results used to live
 -- only in a job summary and an artifact on GitHub, while the designer
@@ -205,8 +243,11 @@ create index if not exists visits_route_idx on public.visits (route, delivered_a
 -- runs per test, and per test how many passed with the FIRST failed
 -- run whole (the evaluator's rationale and the turns it judged), so a
 -- card can show which turn went wrong rather than only that one did.
--- A branch run from `propose` also carries compare's word and the
--- proposal's note: what was tried, and why it was or was not promoted.
+-- A branch run from `propose` also carries compare's word and reason:
+-- whether it was promoted, and why. What the branch's prompt actually
+-- says, and the one-line note the proposal gave it, never reach this
+-- table — anyone can read it with the anon key, and the prompt is the
+-- confidential part of the work.
 create table if not exists public.agent_runs (
   id uuid primary key default gen_random_uuid(),
   agent_id text not null,           -- the ElevenLabs agent the suite ran against
@@ -218,9 +259,9 @@ create table if not exists public.agent_runs (
   run_url text,                     -- the GitHub Actions run page; null when run by hand
   verdict text check (verdict in ('accept', 'reject')),  -- compare's word, on a branch run from propose; null otherwise
   verdict_reason text,              -- compare's reason line
-  note text,                        -- the proposal's one-line note: what the branch's prompt changed
-  tests jsonb not null,             -- per test: [{name,test_id,kind,scenario_num,scenario_title,persona,language,runs,passed,pass_rate,why,failure:{test_run_id,rationale,transcript:[{role,message}]}|null}]
-  summary jsonb,                    -- {tests,tests_at_100,runs,passed,pass_rate,by_scenario:{"<num>":{tests,runs,passed,pass_rate}}}
+  note text,                        -- unused, and always null: the prompt is confidential and this table is world-readable, so what a branch changed stays in ElevenLabs (the branch's own description)
+  tests jsonb not null,             -- per test: [{name,test_id,kind,scenario_num,scenario_title,situation_num,situation_title,persona,language,runs,passed,pass_rate,why,failure:{test_run_id,rationale,transcript:[{role,message}]}|null}]
+  summary jsonb,                    -- {tests,tests_at_100,runs,passed,pass_rate,by_scenario:{"<num>":{…}},by_situation:{"<num>":{tests,runs,passed,pass_rate}}}
   ran_at timestamptz not null,      -- when the suite ran (the results file's stamp)
   created_at timestamptz not null default now()
 );
@@ -231,6 +272,7 @@ create index if not exists agent_runs_agent_idx on public.agent_runs (agent_id, 
 alter table public.destinations enable row level security;
 alter table public.messages enable row level security;
 alter table public.scenarios enable row level security;
+alter table public.situations enable row level security;
 alter table public.runs enable row level security;
 alter table public.visits enable row level security;
 alter table public.agent_runs enable row level security;
@@ -293,6 +335,24 @@ create policy "anyone updates scenarios" on public.scenarios
 
 drop policy if exists "anyone deletes scenarios" on public.scenarios;
 create policy "anyone deletes scenarios" on public.scenarios
+  for delete to anon, authenticated using (true);
+
+-- the situations sheet is edited on the dashboard the way the trigger
+-- sheet is: added, reworded, deactivated, thrown away
+drop policy if exists "anyone reads situations" on public.situations;
+create policy "anyone reads situations" on public.situations
+  for select to anon, authenticated using (true);
+
+drop policy if exists "anyone adds situations" on public.situations;
+create policy "anyone adds situations" on public.situations
+  for insert to anon, authenticated with check (true);
+
+drop policy if exists "anyone updates situations" on public.situations;
+create policy "anyone updates situations" on public.situations
+  for update to anon, authenticated using (true) with check (true);
+
+drop policy if exists "anyone deletes situations" on public.situations;
+create policy "anyone deletes situations" on public.situations
   for delete to anon, authenticated using (true);
 
 drop policy if exists "anyone reads runs" on public.runs;

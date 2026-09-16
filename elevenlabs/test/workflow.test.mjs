@@ -16,7 +16,16 @@
  * The same job is where a suite's results reach the dashboard: every
  * step that runs the suite publishes it (loop.mjs publish) — a step
  * that ran and did not would leave a run the designer never sees, and
- * the four run sites are far enough apart in the file to lose one.
+ * the five run sites are far enough apart in the file to lose one.
+ *
+ * And it is where the prompt could leak. The prompt is confidential and
+ * this repository is public: a job log, a job summary, an artifact and
+ * the agent_runs table are all readable by anyone the moment they are
+ * written. The rules that keep it out of them are spread over a dozen
+ * lines of bash — --quiet on propose and promote, no proposal artifact,
+ * no --note on publish, no propose/branch output pasted into a summary
+ * — and every one of them is one careless edit from being undone, so
+ * they are checked here as well.
  *
  *   node --test            (from elevenlabs/)
  */
@@ -75,8 +84,70 @@ test('every step of the live suite that runs the suite publishes it for the dash
     assert.match(s.text, /Results are on the scenarios dashboard \(dashboard\.html\), per scenario\./, `"${s.name}" does not point the summary at the dashboard`);
     assert.match(s.text, /publish .*--run-url "\$GITHUB_SERVER_URL\/\$GITHUB_REPOSITORY\/actions\/runs\/\$GITHUB_RUN_ID"/, `"${s.name}" publishes without the run's page`);
   }
-  /* the branch run carries compare's word and the proposal's note */
-  const propose = runners.find(s => /--label branch/.test(s.text));
-  assert.ok(propose, 'no step runs the suite on the branch');
-  assert.match(propose.text, /publish --results "\$br" .*--verdict "\$word" --reason "\$reason" --note "\$note"/);
+  /* a branch run carries compare's word and its reason — and not the
+   * note, which would say what the prompt changed */
+  const branchRuns = runners.filter(s => /--label branch/.test(s.text));
+  assert.equal(branchRuns.length, 2, 'the branch runs are propose and try');
+  for (const s of branchRuns) {
+    assert.match(s.text, /publish --results "\$br" .*--verdict "\$word" --reason "\$reason"/, s.name);
+    assert.doesNotMatch(s.text, /loop\.mjs publish[^\n]*--note/, `"${s.name}" publishes the proposal's note into a world-readable table`);
+  }
+});
+
+/* The situation tests are the dashboard's rows, not this repository's:
+ * they are gitignored and generated at the start of every run. A path
+ * that pushed tests without generating them first would run whatever
+ * the last run happened to leave on the runner — or nothing at all. */
+test('every suite the buttons run generates the situation tests from the live rows first', () => {
+  const live = job(readFileSync(WORKFLOW, 'utf8'), 'live-suite');
+  const all = steps(live);
+  const gen = all.findIndex(s => /node generate-tests\.mjs --situations/.test(s.text));
+  assert.ok(gen >= 0, 'no step generates the situation tests');
+  assert.match(all[gen].text, /if: steps\.plan\.outputs\.go == 'true' && steps\.plan\.outputs\.action != 'configure'/, 'the generate step skips only configure');
+  const push = all.findIndex(s => /node loop\.mjs push-tests/.test(s.text));
+  assert.ok(push > gen, 'push-tests runs before the situation tests are generated');
+  for (const action of ['baseline', 'field', 'propose', 'try']) {
+    assert.ok(all[push].text.includes(`action == '${action}'`), `push-tests skips the ${action} button`);
+  }
+});
+
+/* The prompt is confidential and every one of these surfaces is public
+ * the moment it is written. */
+test('nothing the buttons write can carry the prompt, its diff or its note', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8');
+  const live = job(yaml, 'live-suite');
+  /* proposals/ never leaves the runner: no artifact carries it */
+  const artifacts = live.split(/^      - uses: actions\/upload-artifact/m).slice(1);
+  assert.ok(artifacts.length >= 2, 'the baseline and field artifacts are still uploaded');
+  artifacts.forEach(a => assert.doesNotMatch(a, /proposals/, 'an artifact carries proposals/'));
+  assert.doesNotMatch(live, /loop-proposal/, 'the proposal artifact is gone, and nothing downloads one');
+  /* and no summary line pastes the output of propose or branch */
+  const summaryLines = live.split('\n').filter(l => /GITHUB_STEP_SUMMARY|^\s+echo .*```/.test(l));
+  summaryLines.forEach(l => assert.doesNotMatch(l, /TEMP\/(propose|branch)\.txt|proposals\//, `a summary line carries ${l.trim().slice(0, 60)}`));
+  assert.doesNotMatch(live, /TEMP\/(propose|branch)\.txt/, 'propose and branch output is not captured at all');
+  /* the two commands that can print it are asked not to */
+  assert.match(live, /node loop\.mjs propose --quiet/);
+  assert.match(live, /node loop\.mjs promote --branch "\$BRANCH_ID" --quiet/);
+});
+
+/* The two suites live in one ElevenLabs workspace and are told apart by
+ * the names the generator gives them; `suite` is the button for that. */
+test('the suite input picks the filter, situations by default', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8');
+  const input = yaml.match(/^      suite:\n([\s\S]*?)(?=^      \S)/m);
+  assert.ok(input, 'no suite input on the form');
+  assert.match(input[1], /^\s+default: situations$/m, 'the pilot runs the situations, so they are the default');
+  ['situations', 'triggers', 'all'].forEach(o => assert.match(input[1], new RegExp(`^\\s+- ${o}$`, 'm')));
+  const live = job(yaml, 'live-suite');
+  const plan = steps(live).find(s => /Plan the run/.test(s.name));
+  assert.match(plan.text, /situations\) filter="Otto · situation"/);
+  assert.match(plan.text, /triggers\)\s+filter="Otto · #"/);
+  assert.match(plan.text, /all\)\s+filter=""/);
+  assert.match(plan.text, /echo "FILTER=\$filter" >> "\$GITHUB_ENV"/);
+  /* the form's own filter still wins, and the resolved one is what the
+   * steps read — the job env must not shadow it */
+  assert.match(plan.text, /filter="\$FILTER_INPUT"/);
+  assert.doesNotMatch(live, /^      FILTER: /m, 'a job-level FILTER would override the one the plan step resolved');
+  /* try needs a branch to run on */
+  assert.match(plan.text, /\[ "\$ACTION" = "try" \].*\[ -z "\$BRANCH_ID" \]/);
 });

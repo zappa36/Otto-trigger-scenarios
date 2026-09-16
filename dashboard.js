@@ -26,6 +26,7 @@ const LS_DEST = 'od_destinations';
 const LS_MSGS = 'od_messages';
 const LS_SCEN = 'od_scenarios';
 const LS_RUNS = 'od_runs';
+const LS_SITU = 'od_situations';
 
 let scenarios = [];
 let destinations = [];
@@ -42,6 +43,18 @@ let agentRuns = [];
 let agentRunsMissing = false;
 let agentRunsError = '';
 let expandedId = null;
+
+/* ---------- the situations ----------
+ * The pilot's other sheet, in its own list tab: what a driver REPORTS
+ * when they press the big button, and what a follow-up that fits THAT
+ * asks about. No pin, no rule, no sliders — a situation is acted out
+ * in a conversation, so the only results it has are the agent suite's.
+ * One open card is one editor: every field is edited in place against
+ * a draft (sitEdit), saved or cancelled like a debrief's reword. */
+let situations = [];
+let situationsMissing = false;  // the table is not in the database yet
+let expandedSitId = null;
+let sitEdit = null;             // { id, ...form values } — the open card's unsaved edits
 
 /* in-flight UI state for the tuning loop — all per one scenario at a time */
 let tune = null;         // { id, params } — slider values not yet saved as a version
@@ -86,7 +99,7 @@ const notesEditing = () => {
  * live. The state itself is kept (it lives JS-side), so flipping back to
  * TESTING restores drags, drafts and proposals exactly as left. */
 const uiBusy = () => !!proposalBusy
-  || (cardView !== 'demo' && !!(tune || fbRec || proposal || msgEdit || gradeBusy()))
+  || (cardView !== 'demo' && !!(tune || fbRec || proposal || msgEdit || gradeBusy() || sitDirty()))
   || !el('form-sheet').hidden || !el('stop-sheet').hidden || notesEditing();
 
 const persistLocal = () => {
@@ -94,6 +107,7 @@ const persistLocal = () => {
   try {
     localStorage.setItem(LS_SCEN, JSON.stringify(scenarios));
     localStorage.setItem(LS_DEST, JSON.stringify(destinations));
+    localStorage.setItem(LS_SITU, JSON.stringify(situations));
   } catch { /* private mode */ }
 };
 
@@ -466,14 +480,22 @@ function agentSuite() {
 }
 /* A test belongs to the card by the sheet number it was generated for,
  * or by title when the numbers do not meet — a starter row renumbered
- * on load (loadSheet) still finds its tests. */
-function agentTestsFor(run, sc) {
-  if (!run || !sc) return [];
-  const num = sc.num == null || sc.num === '' ? null : +sc.num;
-  const title = normTitle(sc.title);
-  return agentRunTests(run).filter(t =>
-    (num != null && t.scenario_num != null && +t.scenario_num === num)
-    || (!!title && normTitle(t.scenario_title) === title));
+ * on load (loadSheet) still finds its tests. Two sheets share the run
+ * now, so the kind decides which fields are read: a situation's tests
+ * carry kind 'situation' and situation_num / situation_title, and must
+ * never land on a trigger scenario's card (or the other way round). */
+function agentTestsFor(run, row, kind) {
+  if (!run || !row) return [];
+  const situ = kind === 'situation';
+  const num = row.num == null || row.num === '' ? null : +row.num;
+  const title = normTitle(row.title);
+  return agentRunTests(run).filter(t => {
+    if (situ !== (t.kind === 'situation')) return false;
+    const tNum = situ ? t.situation_num : t.scenario_num;
+    const tTitle = situ ? t.situation_title : t.scenario_title;
+    return (num != null && tNum != null && +tNum === num)
+      || (!!title && normTitle(tTitle) === title);
+  });
 }
 const agentTally = tests => tests.reduce(
   (a, t) => ({ runs: a.runs + (+t.runs || 0), passed: a.passed + (+t.passed || 0) }), { runs: 0, passed: 0 });
@@ -485,7 +507,7 @@ const agentCls = t => { const r = agentRate(t); return r >= 1 ? 'ok' : r >= 0.5 
  * debrief named as such — then passed/runs. Ordered for the eye, not
  * worst-first like the loop prints: personas in the order
  * personas.json lists them, Italian after English, regressions last. */
-const PERSONA_ORDER = ['cooperative', 'terse', 'sidetracked'];
+const PERSONA_ORDER = ['cooperative', 'terse', 'sidetracked', 'vague'];
 const agentWho = t => {
   const parts = [];
   if (t.persona) parts.push(String(t.persona));
@@ -618,6 +640,17 @@ async function loadAll() {
       });
       pruneGrades();
     } catch (e) { warn(e); }
+    /* the situations ride their own request: they have no pin and no
+     * debriefs, and a database still missing the table must cost the
+     * scenarios nothing — the SITUATIONS tab says what to re-run */
+    try {
+      situations = (await Backend.listSituations()) || [];
+      situationsMissing = false;
+    } catch (e) {
+      warn(e);
+      situationsMissing = /\b404\b|PGRST205|42P01|schema cache/i.test(String((e && e.message) || ''));
+      situations = [];
+    }
     try {
       scenarios = (await Backend.listScenarios()) || [];
     } catch (e) {
@@ -658,6 +691,7 @@ async function loadAll() {
   } else {
     try { scenarios = JSON.parse(localStorage.getItem(LS_SCEN) || '[]'); } catch { scenarios = []; }
     try { destinations = JSON.parse(localStorage.getItem(LS_DEST) || '[]'); } catch { destinations = []; }
+    try { situations = JSON.parse(localStorage.getItem(LS_SITU) || '[]'); } catch { situations = []; }
     messagesByDest = {};
     try {
       (JSON.parse(localStorage.getItem(LS_MSGS) || '[]')).forEach(m => {
@@ -678,6 +712,18 @@ async function loadAll() {
     list.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))));
   scenarios.sort((a, b) =>
     ((a.num == null ? 1e9 : a.num) - (b.num == null ? 1e9 : b.num))
+    || String(a.created_at || '').localeCompare(String(b.created_at || '')));
+  sortSituations();
+  /* a draft whose row is gone (deleted elsewhere, or a reload that no
+   * longer carries it) has nothing left to save onto */
+  if (sitEdit && !situations.some(s => s.id === sitEdit.id)) sitEdit = null;
+}
+
+/* the order the backend already returns — kept here too, so a row added
+ * keyless or by hand lands where its number says, not last */
+function sortSituations() {
+  situations.sort((a, b) =>
+    ((a.num == null ? 1e9 : +a.num) - (b.num == null ? 1e9 : +b.num))
     || String(a.created_at || '').localeCompare(String(b.created_at || '')));
 }
 
@@ -700,23 +746,22 @@ function fmtAgo(iso) {
 }
 
 function renderStats() {
-  const by = { nopin: 0, ready: 0, debriefed: 0, pass: 0, partial: 0, fail: 0 };
-  scenarios.forEach(sc => { by[statusOf(sc).key]++; });
-  const parts = [`${scenarios.length} scenario${scenarios.length === 1 ? '' : 's'}`];
-  if (by.nopin) parts.push(`${by.nopin} need an address`);
-  if (by.ready) parts.push(`${by.ready} awaiting test`);
-  if (by.debriefed) parts.push(`${by.debriefed} debriefed`);
-  /* agent debriefs still waiting for a grade are the agent loop's backlog
-   * — counted over the scenarios' pins only, the ones a grade can be
-   * given on (a route stop's agent debrief has no card to grade it in) */
-  const agentMsgs = [...new Set([].concat(...scenarios.map(msgsOf)))].filter(m => m && m.via === 'elevenlabs');
-  if (agentMsgs.length) {
-    const graded = agentMsgs.filter(m => gradeSummary(gradeOf(m)).graded).length;
-    parts.push(`${graded}/${agentMsgs.length} agent debrief${agentMsgs.length === 1 ? '' : 's'} graded`);
+  /* the line counts what the list is showing: on the SITUATIONS tab the
+   * scenarios' pins and debriefs are not the subject, the situations and
+   * how many of them the suite has results for are */
+  const suite = agentSuite();
+  const parts = [];
+  if (sitTabOn()) {
+    parts.push(`${situations.length} situation${situations.length === 1 ? '' : 's'}`);
+    const withResults = situations.filter(s => agentTestsFor(suite.main, s, 'situation').length).length;
+    if (withResults) parts.push(`${withResults} with results`);
+    const out = situations.filter(s => s.active === false).length;
+    if (out) parts.push(`${out} out of the suite`);
+  } else {
+    renderScenarioStats(parts);
   }
   /* the agent suite's latest baseline, rolled up — the simulated
    * testers' side of the same backlog; nothing until it has run */
-  const suite = agentSuite();
   const sm = suite.main && agentRunSummary(suite.main);
   if (sm) {
     const rate = sm.pass_rate != null && isFinite(+sm.pass_rate) ? Math.round(+sm.pass_rate * 100)
@@ -730,13 +775,7 @@ function renderStats() {
       + (suite.branch ? ` · a proposed prompt ran on branch ${suite.branch.branch_id} since` : '');
     parts.push({ html: `<span class="stats-suite" title="${esc(title)}">${esc(text)}</span>` });
   }
-  const verdicts = [];
-  if (by.pass) verdicts.push(`${by.pass} pass`);
-  if (by.partial) verdicts.push(`${by.partial} partial`);
-  if (by.fail) verdicts.push(`${by.fail} fail`);
-  if (verdicts.length) parts.push(verdicts.join(' / '));
-  const fs = scenarios.filter(fromSheet).length;
-  if (fs && fs < scenarios.length) parts.push(`${fs} from the starter sheet`);
+  if (!sitTabOn()) renderScenarioVerdicts(parts);
   for (const r of loadedRoutes()) {
     const rt = routeStops(r);
     const noted = rt.filter(d => dispatchNotesOf(d).length).length;
@@ -747,6 +786,37 @@ function renderStats() {
   /* every part is data (route names, the suite's numbers) and goes
    * through esc(); the suite part alone carries a tooltip, hence HTML */
   el('stats').innerHTML = parts.map(p => (typeof p === 'string' ? esc(p) : p.html)).join(' · ');
+}
+
+/* the scenarios' half of the line, in two pieces — the roll-up above
+ * sits between them and is about both sheets, so it stays in place */
+function renderScenarioStats(parts) {
+  const by = { nopin: 0, ready: 0, debriefed: 0, pass: 0, partial: 0, fail: 0 };
+  scenarios.forEach(sc => { by[statusOf(sc).key]++; });
+  parts.push(`${scenarios.length} scenario${scenarios.length === 1 ? '' : 's'}`);
+  if (by.nopin) parts.push(`${by.nopin} need an address`);
+  if (by.ready) parts.push(`${by.ready} awaiting test`);
+  if (by.debriefed) parts.push(`${by.debriefed} debriefed`);
+  /* agent debriefs still waiting for a grade are the agent loop's backlog
+   * — counted over the scenarios' pins only, the ones a grade can be
+   * given on (a route stop's agent debrief has no card to grade it in) */
+  const agentMsgs = [...new Set([].concat(...scenarios.map(msgsOf)))].filter(m => m && m.via === 'elevenlabs');
+  if (agentMsgs.length) {
+    const graded = agentMsgs.filter(m => gradeSummary(gradeOf(m)).graded).length;
+    parts.push(`${graded}/${agentMsgs.length} agent debrief${agentMsgs.length === 1 ? '' : 's'} graded`);
+  }
+}
+
+function renderScenarioVerdicts(parts) {
+  const by = { pass: 0, partial: 0, fail: 0 };
+  scenarios.forEach(sc => { const k = statusOf(sc).key; if (by[k] != null) by[k]++; });
+  const verdicts = [];
+  if (by.pass) verdicts.push(`${by.pass} pass`);
+  if (by.partial) verdicts.push(`${by.partial} partial`);
+  if (by.fail) verdicts.push(`${by.fail} fail`);
+  if (verdicts.length) parts.push(verdicts.join(' / '));
+  const fs = scenarios.filter(fromSheet).length;
+  if (fs && fs < scenarios.length) parts.push(`${fs} from the starter sheet`);
 }
 
 function defCell(label, value) {
@@ -1045,8 +1115,15 @@ function renderRuns(sc) {
  * the grade widget: only the TESTING body renders it. Every state the
  * data can be in says what to do next, because the suite runs
  * elsewhere (GitHub Actions) and this block is where its absence gets
- * noticed. */
-function renderAgentBlock(sc) {
+ * noticed.
+ *
+ * One block, two sheets: `kind` says whether the row is a trigger
+ * scenario or a situation. What differs is what a run's tests are
+ * matched on, what the empty states tell you to press, and the field
+ * line — a situation has no pin, so it has no debriefs to roll up. */
+function renderAgentBlock(row, kind) {
+  const situ = kind === 'situation';
+  const noun = situ ? 'situation' : 'scenario';
   const box = inner => `
           <div class="agent-block">${inner}</div>`;
   const head = (rest, title, link) => `
@@ -1065,13 +1142,15 @@ function renderAgentBlock(sc) {
     return box(head() + note(`Could not read the suite\'s runs — ${esc(agentRunsError)}. ↻ REFRESH to try again.`));
   }
   if (!agentRuns.length) {
-    return box(head() + note('The suite has not run yet — Actions → agent-suite → Run workflow → baseline. Its results land here: one chip per test, the failing conversations under them.'));
+    return box(head() + note(situ
+      ? 'The suite has not run yet — Actions → agent-suite → Run workflow → baseline (suite: situations). Its results land here: one chip per voice, the failing conversations under them.'
+      : 'The suite has not run yet — Actions → agent-suite → Run workflow → baseline. Its results land here: one chip per test, the failing conversations under them.'));
   }
   const { agentId, main, prev, branch } = agentSuite();
   if (!main && !branch) {
     return box(head() + note(`The runs on file are for another agent than this dashboard is configured for (${esc(agentId)}) — a baseline on this agent lands here.`));
   }
-  const tests = agentTestsFor(main, sc).sort(agentTestOrder);
+  const tests = agentTestsFor(main, row, kind).sort(agentTestOrder);
   const tally = agentTally(tests);
 
   /* the header line: how fresh, how many runs passed, and the trend
@@ -1081,7 +1160,7 @@ function renderAgentBlock(sc) {
   let headTitle = '';
   if (main) {
     let trend = '';
-    const pt = agentTestsFor(prev, sc);
+    const pt = agentTestsFor(prev, row, kind);
     if (prev && pt.length && tests.length) {
       const pTally = agentTally(pt);
       const d = tally.passed - pTally.passed;
@@ -1118,16 +1197,17 @@ function renderAgentBlock(sc) {
             </div>`;
   }).join('');
 
-  /* a proposed prompt that ran on a branch since the baseline: the
-   * note, this scenario before → after, the loop's verdict — and, on
-   * ACCEPT, where the promote button is and the id it asks for */
+  /* a proposed prompt that ran on a branch since the baseline: which
+   * branch, this row before → after, the loop's verdict — and, on
+   * ACCEPT, where the promote button is and the id it asks for. The
+   * prompt itself is confidential and the proposal's note with it, so
+   * the branch id is all the line can say about WHAT was tried. */
   let branchLine = '';
   if (branch) {
-    const bt = agentTestsFor(branch, sc);
+    const bt = agentTestsFor(branch, row, kind);
     const bTally = agentTally(bt);
-    const parts = ['PROPOSED PROMPT on branch'];
-    if (branch.note) parts.push(esc(branch.note));
-    if (bt.length) parts.push(`this scenario ${tests.length ? tally.passed + '/' + tally.runs : '—'} → ${bTally.passed}/${bTally.runs}`);
+    const parts = ['PROPOSED PROMPT on branch ' + esc(branch.branch_id || '?')];
+    if (bt.length) parts.push(`this ${noun} ${tests.length ? tally.passed + '/' + tally.runs : '—'} → ${bTally.passed}/${bTally.runs}`);
     if (branch.verdict) {
       const ok = branch.verdict === 'accept';
       parts.push(`<b class="${ok ? 'ok' : 'bad'}">${esc(String(branch.verdict).toUpperCase())}</b>`
@@ -1139,22 +1219,30 @@ function renderAgentBlock(sc) {
   }
 
   /* the field half, from the grades on this card: a debrief counts as
-   * ok when it was graded and nothing on it was marked ✗ */
-  const agentMsgs = msgsOf(sc).filter(m => m && m.via === 'elevenlabs');
-  const grades = agentMsgs.map(m => gradeSummary(gradeOf(m))).filter(g => g.graded);
-  const ok = grades.filter(g => !g.bad).length;
-  const n = agentMsgs.length;
-  const field = !n ? 'field: no agent debriefs on this card yet'
-    : !grades.length ? `field: ${n} agent debrief${n === 1 ? '' : 's'} filed, none graded yet`
-    : `field: ${ok}/${grades.length} agent debrief${grades.length === 1 ? '' : 's'} graded ✓${n > grades.length ? ` · ${n - grades.length} still to grade` : ''}`;
+   * ok when it was graded and nothing on it was marked ✗. A situation
+   * has no pin and therefore no field debriefs — no line at all there,
+   * rather than one that says "none" forever. */
+  let fieldLine = '';
+  if (!situ) {
+    const agentMsgs = msgsOf(row).filter(m => m && m.via === 'elevenlabs');
+    const grades = agentMsgs.map(m => gradeSummary(gradeOf(m))).filter(g => g.graded);
+    const ok = grades.filter(g => !g.bad).length;
+    const n = agentMsgs.length;
+    const field = !n ? 'field: no agent debriefs on this card yet'
+      : !grades.length ? `field: ${n} agent debrief${n === 1 ? '' : 's'} filed, none graded yet`
+      : `field: ${ok}/${grades.length} agent debrief${grades.length === 1 ? '' : 's'} graded ✓${n > grades.length ? ` · ${n - grades.length} still to grade` : ''}`;
+    fieldLine = `
+            <p class="agent-field" title="From the grades on this card's ◆ AGENT debriefs — the field half of the same evidence">${esc(field)}</p>`;
+  }
 
   const body = !main
     ? note('No baseline on the live prompt yet — Actions → agent-suite → baseline. A proposed prompt has run meanwhile:')
     : !tests.length
-      ? note('No test for this scenario yet — generate the tests from your rows (cd elevenlabs &amp;&amp; node generate-tests.mjs --supabase), push them, then baseline again.')
+      ? note(situ
+        ? 'No test for this situation in the latest run — it is generated from these rows at run time; press baseline again.'
+        : 'No test for this scenario yet — generate the tests from your rows (cd elevenlabs &amp;&amp; node generate-tests.mjs --supabase), push them, then baseline again.')
       : chips + fails;
-  return box(head(headLine, headTitle, runLink(main, 'The GitHub Actions run that produced this baseline')) + body + branchLine + `
-            <p class="agent-field" title="From the grades on this card's ◆ AGENT debriefs — the field half of the same evidence">${esc(field)}</p>`);
+  return box(head(headLine, headTitle, runLink(main, 'The GitHub Actions run that produced this baseline')) + body + branchLine + fieldLine);
 }
 
 /* ---------- DEMO / TESTING — the two faces of an open card ----------
@@ -1375,7 +1463,7 @@ function renderScenario(sc) {
         <div class="cmp-col cmp-heard">
           <h4>WHAT OTTO UNDERSTOOD</h4>
           ${renderMessages(sc)}
-          ${renderAgentBlock(sc)}
+          ${renderAgentBlock(sc, 'scenario')}
           ${renderRuns(sc)}
         </div>
       </div>
@@ -1414,12 +1502,236 @@ function renderScenario(sc) {
     </article>`;
 }
 
+/* ---------- the situation card ----------
+ * Collapsed it is the driver's opening line under the title — that is
+ * what the whole row is about. Open it is the row itself, every field
+ * an input: there is no separate form, because a situation IS its text
+ * and editing it next to the suite's verdict is the work. The suite's
+ * results sit underneath, the same block a scenario card carries.
+ *
+ * The starter sheet's seven categories, in the order the contract with
+ * the generator fixes them — the select never offers an eighth, so a
+ * typo can never reach the table's check constraint. */
+const SIT_CATEGORIES = ['access', 'parking', 'gate_code', 'recipient', 'address', 'hazard', 'other'];
+const SIT_COLS = ['num', 'title', 'category', 'stop', 'driver_says', 'driver_knows', 'follow_up', 'off_topic', 'tip', 'active'];
+/* jsonb from Supabase, a plain array keyless, a string if hand-fed */
+const sitList = v => { const a = jsonOf(v); return Array.isArray(a) ? a.map(x => String(x == null ? '' : x).trim()).filter(Boolean) : []; };
+const sitLines = t => String(t == null ? '' : t).split('\n').map(x => x.trim()).filter(Boolean);
+/* only the table's own columns travel — an insert carrying anything
+ * else is a 400 from PostgREST, and the lists are copied so an edit
+ * can never reach back into the shipped sheet */
+const sitRow = r => {
+  const o = {};
+  SIT_COLS.forEach(k => {
+    if (r[k] === undefined) return;
+    o[k] = (k === 'follow_up' || k === 'off_topic') ? sitList(r[k]) : r[k];
+  });
+  return o;
+};
+const sitCat = c => (SIT_CATEGORIES.includes(c) ? c : 'other');
+/* the situations are set at the Kollwitzkiez stops — the same route the
+ * phone walks, so the simulated driver and Otto share an address and a
+ * consignee. No route file loaded: a plain number, which is all the
+ * column holds anyway. */
+const sitRoute = () => ROUTES.find(r => r.id === 'kollwitz-01') || null;
+
+/* The draft is FORM values — strings as typed, the lists one item per
+ * line — so a half-typed line never has to survive a round trip
+ * through the row's shape. sitPatch turns it back into columns. */
+function sitDraftOf(s) {
+  return {
+    id: s.id,
+    title: String(s.title == null ? '' : s.title),
+    category: sitCat(s.category),
+    stop: s.stop == null || s.stop === '' ? '' : String(s.stop),
+    driver_says: String(s.driver_says == null ? '' : s.driver_says),
+    driver_knows: String(s.driver_knows == null ? '' : s.driver_knows),
+    follow_up: sitList(s.follow_up).join('\n'),
+    off_topic: sitList(s.off_topic).join('\n'),
+    tip: String(s.tip == null ? '' : s.tip),
+    active: s.active !== false,
+  };
+}
+const sitDraft = s => (sitEdit && sitEdit.id === s.id ? sitEdit : sitDraftOf(s));
+/* typing opens the draft — before that the inputs render straight from
+ * the row, so a card can be opened and closed without dirtying anything */
+function openSitEdit(s) {
+  if (!sitEdit || sitEdit.id !== s.id) sitEdit = sitDraftOf(s);
+  return sitEdit;
+}
+/* what would be written: only the columns that actually changed, so a
+ * save never touches a field the designer did not look at */
+function sitPatch(s, d) {
+  const now = {
+    title: String(d.title || '').trim() || 'Untitled situation',
+    category: sitCat(d.category),
+    stop: d.stop === '' || d.stop == null || !isFinite(+d.stop) ? null : Math.round(+d.stop),
+    driver_says: String(d.driver_says || '').trim() || null,
+    driver_knows: String(d.driver_knows || '').trim() || null,
+    follow_up: sitLines(d.follow_up),
+    off_topic: sitLines(d.off_topic),
+    tip: String(d.tip || '').trim() || null,
+    active: !!d.active,
+  };
+  const was = {
+    title: String(s.title == null ? '' : s.title).trim() || 'Untitled situation',
+    category: sitCat(s.category),
+    stop: s.stop == null || s.stop === '' || !isFinite(+s.stop) ? null : Math.round(+s.stop),
+    driver_says: String(s.driver_says == null ? '' : s.driver_says).trim() || null,
+    driver_knows: String(s.driver_knows == null ? '' : s.driver_knows).trim() || null,
+    follow_up: sitList(s.follow_up),
+    off_topic: sitList(s.off_topic),
+    tip: String(s.tip == null ? '' : s.tip).trim() || null,
+    active: s.active !== false,
+  };
+  const patch = {};
+  Object.keys(now).forEach(k => {
+    if (JSON.stringify(was[k]) !== JSON.stringify(now[k])) patch[k] = now[k];
+  });
+  return patch;
+}
+/* an open draft with real changes in it — the auto-refresh must not
+ * repaint over it, and the header says so while it is unsaved */
+function sitDirty() {
+  if (!sitEdit) return false;
+  const s = situations.find(x => x.id === sitEdit.id);
+  return !!s && Object.keys(sitPatch(s, sitEdit)).length > 0;
+}
+
+function renderSituation(s) {
+  const open = expandedSitId === s.id;
+  const d = sitDraft(s);
+  const dirty = sitEdit && sitEdit.id === s.id && sitDirty();
+  const active = open ? d.active : s.active !== false;
+  const says = String(s.driver_says || '').trim();
+  const route = sitRoute();
+  const stopField = route
+    ? `<select data-sit-field="stop">
+            <option value=""${d.stop === '' ? ' selected' : ''}>— no stop</option>
+            ${route.stops.map(st => `<option value="${esc(st.stop)}"${String(st.stop) === d.stop ? ' selected' : ''}>${esc(st.stop)} · ${esc(st.title)}${st.consignee ? ' — ' + esc(st.consignee) : ''}</option>`).join('')}
+          </select>`
+    : `<input type="number" min="1" step="1" data-sit-field="stop" value="${esc(d.stop)}" placeholder="stop #">`;
+
+  const body = !open ? '' : `
+    <div class="sc-body">
+      <div class="sit-edit">
+        <div class="sit-grid">
+          <div class="full">
+            <label>Situation</label>
+            <input type="text" data-sit-field="title" value="${esc(d.title)}" placeholder="What happened, in a few words">
+          </div>
+          <div>
+            <label>Category</label>
+            <select data-sit-field="category">
+              ${SIT_CATEGORIES.map(c => `<option value="${esc(c)}"${c === d.category ? ' selected' : ''}>${esc(c)}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label>Stop it is set at <span class="pe-sub">— the address Otto and the driver share</span></label>
+            ${stopField}
+          </div>
+          <div class="full">
+            <label>What the driver says first</label>
+            <textarea data-sit-field="driver_says" placeholder="&ldquo;I couldn't get to the address at all — the road is closed off.&rdquo;">${esc(d.driver_says)}</textarea>
+          </div>
+          <div class="full">
+            <label>What the driver knows if asked <span class="pe-sub">— and only then; the simulated driver never volunteers it</span></label>
+            <textarea data-sit-field="driver_knows">${esc(d.driver_knows)}</textarea>
+          </div>
+          <div class="full">
+            <label>A relevant follow-up asks about <span class="pe-sub">— one per line</span></label>
+            <textarea data-sit-field="follow_up" placeholder="how long the closure lasts&#10;whether there is a way round">${esc(d.follow_up)}</textarea>
+          </div>
+          <div class="full">
+            <label>Off topic here <span class="pe-sub">— one per line; asking these is a fail</span></label>
+            <textarea data-sit-field="off_topic" placeholder="gate codes&#10;the recipient">${esc(d.off_topic)}</textarea>
+          </div>
+          <div class="full">
+            <label>The tip Otto should confirm</label>
+            <input type="text" data-sit-field="tip" value="${esc(d.tip)}" placeholder="The one line the next driver gets to hear">
+          </div>
+        </div>
+        <div class="fb-rec-foot">
+          <button class="mini-btn${active ? ' accent' : ''}" type="button" data-sit-act="active"
+            title="${esc(active ? 'In the suite — the next baseline acts this situation out' : 'Out of the suite — kept here, but no test is generated for it')}">${active ? '✓ in the suite' : '✗ out of the suite'}</button>
+          <span class="fb-hint">${dirty ? 'Unsaved changes' : 'Edited here; the suite is generated from these rows at run time.'}</span>
+          <button class="mini-btn accent" type="button" data-sit-act="save">Save</button>
+          <button class="mini-btn" type="button" data-sit-act="cancel">Cancel</button>
+          <span class="row-links"><button class="row-link danger" type="button" data-sit-act="del">Delete</button></span>
+        </div>
+      </div>
+      ${renderAgentBlock(s, 'situation')}
+    </div>`;
+
+  return `
+    <article class="sc sit" data-sit="${esc(s.id)}">
+      <header class="sc-header">
+        <span class="sc-num">${s.num != null && s.num !== '' ? '#' + esc(s.num) : '·'}</span>
+        <div class="sc-head">
+          <h3>${esc(s.title || 'Untitled situation')}</h3>
+          ${says ? `<div class="sc-addr-line sit-says">&ldquo;${esc(says)}&rdquo;</div>` : '<div class="sc-addr-line warn">⚠ Nothing for the driver to say yet — open the row and write the first line</div>'}
+        </div>
+        <span class="tip-chip" title="What the tip that comes out of this is about">${esc(sitCat(s.category))}</span>
+        ${dirty ? '<span class="badge badge-nopin" title="Edited but not saved">UNSAVED</span>' : ''}
+        ${active ? '' : '<span class="badge badge-out" title="Kept here, but the suite generates no test for it">OUT OF THE SUITE</span>'}
+        <button class="sc-del" type="button" data-sit-act="del" title="Delete situation" aria-label="Delete situation">×</button>
+      </header>
+      ${body}
+    </article>`;
+}
+
+function renderSituationsEmpty() {
+  const n = SIT_SHEET ? SIT_SHEET.situations.length : 0;
+  return `
+      <div class="empty">
+        <b>No situations yet</b>
+        <p>A situation is one thing a driver reports when they press REPORT on the phone — what they say first, what they know if Otto asks, what would be off topic, and the tip Otto should end up confirming. The suite acts each one out in four voices.</p>
+        ${situationsMissing ? '<p class="cmp-empty">No situations table in the backend yet — re-run supabase/schema.sql once, then ↻ REFRESH.</p>' : ''}
+        <div class="top-actions">
+          <button class="chip primary" type="button" data-sit-empty="new">+ NEW SITUATION</button>
+          ${n ? `<button class="chip" type="button" data-sit-empty="sheet">⇩ LOAD THE STARTER SITUATIONS · ${n}</button>` : ''}
+        </div>
+      </div>`;
+}
+
+/* The list's tabs. The two scenario tabs only split a MIXED list (one
+ * kind of row needs no tab of its own), but SITUATIONS is a top-level
+ * tab: the other sheet is always there, empty or not, because loading
+ * it is the first thing done on it. */
+function renderTabs() {
+  const own = scenarios.filter(sc => !fromSheet(sc)).length;
+  const sit = cardView === 'demo' ? '' : `
+      <button class="tab${sitTabOn() ? ' on' : ''}" type="button" data-tab="situations"
+        title="What a driver reports when they press REPORT — the pilot's other sheet, tested by the agent suite in four voices">SITUATIONS · ${situations.length}</button>`;
+  const scen = !scenarios.length ? '' : !listMixed()
+    ? `<button class="tab${sitTabOn() ? '' : ' on'}" type="button" data-tab="${scenarios.every(fromSheet) ? 'sheet' : 'own'}"
+        title="The trigger scenarios — when Otto speaks, and what he asks">${scenarios.every(fromSheet) ? '⇩ STARTER SHEET' : 'YOUR SCENARIOS'} · ${scenarios.length}</button>`
+    : `<button class="tab${!sitTabOn() && listTab !== 'sheet' ? ' on' : ''}" type="button" data-tab="own"
+        title="Rows made on this dashboard">YOUR SCENARIOS · ${own}</button>
+      <button class="tab${!sitTabOn() && listTab === 'sheet' ? ' on' : ''}" type="button" data-tab="sheet"
+        title="Rows loaded from the shipped starter sheet — rename one and it moves to your tab">⇩ STARTER SHEET · ${scenarios.length - own}</button>`;
+  return !scen && !sit ? '' : `
+    <div class="tabs">${scen}${sit}</div>`;
+}
+
 function render() {
   renderStats();
   renderRouteToggle();
+  /* the top bar follows the tab: a situation has no pin to import, no
+   * spec to export and no Excel sheet behind it */
+  const sit = sitTabOn();
+  el('new-situation').hidden = !sit;
+  el('new-open').hidden = sit;
+  el('import-open').hidden = sit;
+  el('spec-all').hidden = sit;
   const box = el('list');
+  if (sit) {
+    box.innerHTML = renderTabs()
+      + (situations.length ? situations.map(renderSituation).join('') + renderSitSheetLink() : renderSituationsEmpty());
+    return;
+  }
   if (!scenarios.length) {
-    box.innerHTML = `
+    box.innerHTML = renderTabs() + `
       <div class="empty">
         <b>No trigger scenarios yet</b>
         <p>Define what the tester should act out and what Otto should understand — then pin each scenario to a real address.</p>
@@ -1432,22 +1744,19 @@ function render() {
       </div>`;
     return;
   }
-  const own = scenarios.filter(sc => !fromSheet(sc)).length;
-  const tabs = !listMixed() ? '' : `
-    <div class="tabs">
-      <button class="tab${listTab === 'own' ? ' on' : ''}" type="button" data-tab="own"
-        title="Rows made on this dashboard">YOUR SCENARIOS · ${own}</button>
-      <button class="tab${listTab === 'sheet' ? ' on' : ''}" type="button" data-tab="sheet"
-        title="Rows loaded from the shipped starter sheet — rename one and it moves to your tab">⇩ STARTER SHEET · ${scenarios.length - own}</button>
-    </div>`;
-  box.innerHTML = tabs + scenarios.filter(inTab).map(renderScenario).join('');
+  box.innerHTML = renderTabs() + scenarios.filter(inTab).map(renderScenario).join('');
 }
 
 function scrollToScenario(id) {
-  /* revealing a row that lives in the other tab switches there first */
+  /* revealing a row that lives in another tab switches there first */
   const sc = scenarios.find(x => x.id === id);
-  if (sc && listMixed() && !inTab(sc)) { setListTab(fromSheet(sc) ? 'sheet' : 'own'); render(); }
+  if (sc && !inTab(sc)) { setListTab(fromSheet(sc) ? 'sheet' : 'own'); render(); }
   const node = el('list').querySelector(`[data-id="${CSS.escape(id)}"]`);
+  if (node) node.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function scrollToSituation(id) {
+  const node = el('list').querySelector(`[data-sit="${CSS.escape(id)}"]`);
   if (node) node.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -2143,7 +2452,7 @@ function specOf(sc) {
      * the spec carries both halves of the evidence */
     agent_suite: (() => {
       const { main } = agentSuite();
-      const tests = agentTestsFor(main, sc);
+      const tests = agentTestsFor(main, sc, 'scenario');
       return main && tests.length ? {
         ran_at: agentRanAt(main),
         label: main.label || null,
@@ -2433,18 +2742,25 @@ const SHEET_TITLES = new Set(SHEET ? SHEET.scenarios.map(r => normTitle(r.title)
  * loader offers the original row back. One identity rule, two faces. */
 const fromSheet = sc => SHEET_TITLES.has(normTitle(sc.title));
 
-/* Two tabs when the list is mixed — the dashboard's own rows and the
- * starter sheet's. A view choice per browser, like the ROUTE chip: the
- * map keeps every pin, the header stats keep the full roll-up, and
- * revealing a row that lives in the other tab (a pin click, a load, a
- * paste) switches there first. One kind of row only → no tabs at all. */
+/* Three tabs: the dashboard's own scenario rows, the starter sheet's
+ * (those two only when the list is actually mixed — one kind of row
+ * needs no tab of its own), and the situations. A view choice per
+ * browser, like the ROUTE chip: the map keeps every pin, and revealing
+ * a row that lives in another tab (a pin click, a load, a paste)
+ * switches there first.
+ *
+ * SITUATIONS is workshop chrome like the grade widget, so the DEMO view
+ * does not carry it — the choice is kept, not cleared, and flipping
+ * back to TESTING lands on it again. */
 const LS_TAB = 'od_scen_tab';
+const LIST_TABS = ['own', 'sheet', 'situations'];
 let listTab = 'own';
-try { listTab = localStorage.getItem(LS_TAB) === 'sheet' ? 'sheet' : 'own'; } catch { /* private mode */ }
+try { const t = localStorage.getItem(LS_TAB); if (LIST_TABS.includes(t)) listTab = t; } catch { /* private mode */ }
+const sitTabOn = () => listTab === 'situations' && cardView !== 'demo';
 const listMixed = () => scenarios.some(fromSheet) && scenarios.some(sc => !fromSheet(sc));
-const inTab = sc => !listMixed() || ((listTab === 'sheet') === fromSheet(sc));
+const inTab = sc => !sitTabOn() && (!listMixed() || ((listTab === 'sheet') === fromSheet(sc)));
 function setListTab(t) {
-  listTab = t === 'sheet' ? 'sheet' : 'own';
+  listTab = LIST_TABS.includes(t) ? t : 'own';
   try { localStorage.setItem(LS_TAB, listTab); } catch { /* private mode */ }
 }
 
@@ -2499,6 +2815,114 @@ async function loadSheet() {
   render();
   map.refresh();
   if (added[0]) scrollToScenario(added[0].id);
+}
+
+/* ---------- the starter situations ----------
+ * situations-starter.js ships twenty things a driver reports, from a
+ * closed road to a normal delivery with nothing to note. Loaded the
+ * same way as the trigger sheet — idempotent by title, so a deleted row
+ * comes back by loading again and the sheet's numbering is kept while
+ * it is free. Keyless that lands in localStorage, live it is one
+ * insert: twenty requests are twenty chances to half-load a sheet. */
+const SIT_SHEET = window.SITUATIONS_SHEET || null;
+const sitSheetMissing = () => {
+  if (!SIT_SHEET) return [];
+  const have = new Set(situations.map(s => normTitle(s.title)));
+  return SIT_SHEET.situations.filter(r => !have.has(normTitle(r.title)));
+};
+
+/* under a non-empty list: the way back to the rows that were deleted */
+function renderSitSheetLink() {
+  const n = sitSheetMissing().length;
+  return n ? `
+    <p class="sit-restore"><button class="link-btn" type="button" data-sit-restore>…or restore the ${n} starter situation${n === 1 ? '' : 's'} not in the list</button></p>` : '';
+}
+
+async function loadSituationSheet() {
+  const missing = sitSheetMissing();
+  if (!missing.length) return;
+  const taken = new Set(situations.map(s => s.num).filter(n => n != null));
+  let next = Math.max(0, ...situations.map(s => +s.num || 0));
+  const clash = missing.some(r => taken.has(r.num));
+  const rows = missing.map(r => sitRow({ ...r, num: clash ? ++next : r.num, active: true }));
+  let added = [];
+  if (Backend.enabled) {
+    try { added = (await Backend.insertSituations(rows)) || []; } catch (e) { schemaHint(e); }
+  }
+  if (!added.length) {
+    added = rows.map(r => ({ ...r, id: localId('q'), created_at: new Date().toISOString() }));
+  }
+  situations.push(...added);
+  sortSituations();
+  persistLocal();
+  render();
+  if (added[0]) scrollToSituation(added[0].id);
+}
+
+/* ---------- situation CRUD ----------
+ * A new situation is a real row from the first click: the card IS the
+ * editor, so there is nothing to fill in before it exists. */
+async function newSituation() {
+  const row = sitRow({
+    num: Math.max(0, ...situations.map(s => +s.num || 0)) + 1,
+    title: 'New situation',
+    category: 'other',
+    stop: null,
+    driver_says: null,
+    driver_knows: null,
+    follow_up: [],
+    off_topic: [],
+    tip: null,
+    active: true,
+  });
+  let saved = null;
+  if (Backend.enabled) {
+    try {
+      const out = await Backend.insertSituations([row]);
+      if (Array.isArray(out) && out[0]) saved = out[0];
+    } catch (e) { schemaHint(e); }
+  }
+  if (!saved) saved = { ...row, id: localId('q'), created_at: new Date().toISOString() };
+  situations.push(saved);
+  sortSituations();
+  expandedSitId = saved.id;
+  sitEdit = sitDraftOf(saved);
+  persistLocal();
+  render();
+  scrollToSituation(saved.id);
+}
+
+/* one writer for both the input and the change event — true when the
+ * event was a situation field's and the draft has taken it */
+function onSitFieldInput(e) {
+  const k = e.target.getAttribute && e.target.getAttribute('data-sit-field');
+  if (!k) return false;
+  const card = e.target.closest('.sit');
+  const s = card && situations.find(x => x.id === card.dataset.sit);
+  if (s) openSitEdit(s)[k] = e.target.value;
+  return true;
+}
+
+async function saveSituation(s) {
+  const d = sitEdit && sitEdit.id === s.id ? sitEdit : null;
+  const patch = d ? sitPatch(s, d) : {};
+  sitEdit = null;
+  if (Object.keys(patch).length) {
+    Object.assign(s, patch);
+    if (Backend.enabled) Backend.updateSituation(s.id, patch).catch(schemaHint);
+    persistLocal();
+  }
+  render();
+}
+
+async function deleteSituation(s) {
+  if (!confirm(`Delete this situation?\n\n#${s.num || '·'} ${s.title}`)) return;
+  situations = situations.filter(x => x !== s);
+  if (Backend.enabled) Backend.deleteSituation(s.id).catch(warn);
+  if (expandedSitId === s.id) expandedSitId = null;
+  if (sitEdit && sitEdit.id === s.id) sitEdit = null;
+  persistLocal();
+  render();
 }
 
 /* ---------- the demo route ----------
@@ -2750,6 +3174,38 @@ el('list').addEventListener('click', e => {
   }
   const tab = e.target.closest('[data-tab]');
   if (tab) { setListTab(tab.dataset.tab); render(); return; }
+
+  /* ---- the situations tab ---- */
+  const sitEmpty = e.target.closest('[data-sit-empty]');
+  if (sitEmpty) {
+    if (sitEmpty.dataset.sitEmpty === 'new') newSituation(); else loadSituationSheet();
+    return;
+  }
+  if (e.target.closest('[data-sit-restore]')) { loadSituationSheet(); return; }
+  /* a situation card wears .sc for the chrome, so it must be asked
+   * about FIRST — .sit is the one that carries the row */
+  const sitCard = e.target.closest('.sit');
+  if (sitCard) {
+    const s = situations.find(x => x.id === sitCard.dataset.sit);
+    if (!s) return;
+    const sa = e.target.closest('[data-sit-act]');
+    if (sa) {
+      const a = sa.dataset.sitAct;
+      if (a === 'save') saveSituation(s);
+      else if (a === 'cancel') { sitEdit = null; render(); }
+      else if (a === 'del') deleteSituation(s);
+      else if (a === 'active') { const d = openSitEdit(s); d.active = !d.active; render(); }
+      return;
+    }
+    if (e.target.closest('a')) return;
+    /* a click on an input must not fold the card back up */
+    if (e.target.closest('.sc-header')) {
+      expandedSitId = expandedSitId === s.id ? null : s.id;
+      render();
+    }
+    return;
+  }
+
   const card = e.target.closest('.sc');
   if (!card) return;
   const sc = scenarios.find(x => x.id === card.dataset.id);
@@ -2823,6 +3279,9 @@ el('list').addEventListener('click', e => {
 /* sliders, the feedback textarea and the proposal edits all live inside
  * the list — one delegated input handler, no re-render mid-typing */
 el('list').addEventListener('input', e => {
+  /* the situation card's fields write straight into the draft — no
+   * repaint, so a cursor mid-word stays where it is */
+  if (onSitFieldInput(e)) return;
   const card = e.target.closest('.sc');
   if (!card) return;
   const sc = scenarios.find(x => x.id === card.dataset.id);
@@ -2854,6 +3313,9 @@ el('list').addEventListener('input', e => {
 /* consignee / floor save on change (blur or Enter) — the value already
  * sits in the input exactly as typed, so no repaint is needed */
 el('list').addEventListener('change', e => {
+  /* a <select> is the one field that can change without an input event
+   * on every browser — the same writer, once more on change */
+  if (onSitFieldInput(e)) return;
   const k = e.target.getAttribute && e.target.getAttribute('data-note-field');
   if (!k) return;
   const card = e.target.closest('.sc');
@@ -2875,6 +3337,7 @@ el('list').addEventListener('keydown', e => {
 });
 
 el('new-open').onclick = () => openForm(null);
+el('new-situation').onclick = newSituation;
 el('form-cancel').onclick = () => { el('form-sheet').hidden = true; };
 el('form-save').onclick = submitForm;
 el('f-draft').onclick = runDraft;
@@ -2973,7 +3436,7 @@ document.addEventListener('keydown', e => {
     /* local demo mode: the phone app in another tab writes the same
      * localStorage — the storage event keeps this page live */
     window.addEventListener('storage', async e => {
-      if (e.key && ![LS_DEST, LS_MSGS, LS_SCEN, LS_RUNS].includes(e.key)) return;
+      if (e.key && ![LS_DEST, LS_MSGS, LS_SCEN, LS_RUNS, LS_SITU].includes(e.key)) return;
       if (uiBusy()) return;
       await loadAll();
       render();

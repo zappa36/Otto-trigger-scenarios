@@ -7,6 +7,7 @@
   "scripts": {
     "test": "node --test",
     "generate": "node generate-tests.mjs",
+    "generate:situations": "node generate-tests.mjs --situations",
     "loop": "node loop.mjs"
   },
   "engines": { "node": ">=20" }

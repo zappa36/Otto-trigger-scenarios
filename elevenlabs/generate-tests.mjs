@@ -23,10 +23,28 @@
  * and the briefing the phone would have sent as a contextual update,
  * for a loop that wants to prepend it to the prompt under test).
  *
+ * The SECOND suite in here is the one the pilot actually runs. In the
+ * pilot nothing triggers: the driver presses the big REPORT button and
+ * says what they found, so there is no rule, no measurement and no
+ * "Otto says" line to open with — Otto opens with his own first message
+ * and everything after that is the conversation. A situation row
+ * (situations-starter.js, and the situations table the dashboard
+ * edits) carries the driver's first words, what the driver knows if
+ * asked, what a fitting follow-up is about, what would be off topic,
+ * and the one-line tip Otto should end up confirming. --situations
+ * turns each row into four simulated drivers (the personas, vague
+ * included) and six yes/no conditions on Otto's side of it: relevance,
+ * no repetition, natural speech, no invention, length, and the close.
+ * Those files are generated from the LIVE rows at run time and are not
+ * committed (test_configs/situations/ is gitignored) — the dashboard's
+ * rows are the sheet, not this repository.
+ *
  *   node generate-tests.mjs                      # the starter sheet, en + it
  *   node generate-tests.mjs --supabase           # a designer's own rows
  *   node generate-tests.mjs --supabase URL KEY   # …in another project
  *   node generate-tests.mjs --lang en --scenario 8 --out /tmp/t
+ *   node generate-tests.mjs --situations         # the situation suite, from the live rows
+ *   node generate-tests.mjs --situations --sheet # …from situations-starter.js
  *
  * Deterministic on purpose: stable ordering, no timestamps, the same
  * sheet always produces byte-identical files, so test_configs/ can be
@@ -37,14 +55,23 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
-import { loadSheet, loadRoute, loadSupabase } from './lib/sheet.mjs';
+import { loadSheet, loadSituationsSheet, loadRoute, loadSupabase, loadSituationsSupabase } from './lib/sheet.mjs';
 import {
   agentVars, agentBriefing, agentGreeting, initDynamicVariables, scenarioShape, measuredBits, sentence,
 } from './lib/scenario-vars.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_OUT = path.join(HERE, 'test_configs');
+/* generated from the live rows on every run, so never committed */
+export const DEFAULT_SITUATION_OUT = path.join(DEFAULT_OUT, 'situations');
 export const PERSONAS = JSON.parse(readFileSync(path.join(HERE, 'personas.json'), 'utf8')).personas;
+/* a persona says which suites it is cut for; no `suites` means both.
+ * The vague driver only makes sense where the DRIVER opens the
+ * conversation — a trigger scenario opens with Otto's own question and
+ * there is nothing vague left to be. */
+const forSuite = suite => PERSONAS.filter(p => !Array.isArray(p.suites) || p.suites.includes(suite));
+export const TRIGGER_PERSONAS = forSuite('triggers');
+export const SITUATION_PERSONAS = forSuite('situations');
 
 /* The analytics API's report categories — what Otto files a debrief
  * under, and the words the sheet's "What Otto learns" column leads with */
@@ -292,7 +319,7 @@ export function buildTest({ sc, persona, lang, stops }) {
 
 /* every test for a list of rows — pure, so the tests can call it twice
  * and compare */
-export function buildTests(scenarios, { langs = ['en', 'it'], only = null, personas = PERSONAS, stops = null } = {}) {
+export function buildTests(scenarios, { langs = ['en', 'it'], only = null, personas = TRIGGER_PERSONAS, stops = null } = {}) {
   stops = stops || loadRoute('route-kollwitz.js').stops;
   const rows = scenarios
     .filter(sc => sc && String(sc.title || '').trim())
@@ -310,11 +337,15 @@ export function buildTests(scenarios, { langs = ['en', 'it'], only = null, perso
 }
 
 /* A file this run would have produced, had the row still existed: same
- * kind, a language this run generated, a scenario this run selected. */
-const inScope = (body, { langs, only }) => body && body._otto && body._otto.kind === 'scenario'
-  && langs.includes(body._otto.language) && (only == null || Number(body._otto.scenario_num) === Number(only));
+ * kind, a language this run generated, a row this run selected. */
+const inScope = (body, { langs, only, kind }) => {
+  const o = body && body._otto;
+  if (!o || o.kind !== kind) return false;
+  if (kind === 'situation') return only == null || Number(o.situation_num) === Number(only);
+  return langs.includes(o.language) && (only == null || Number(o.scenario_num) === Number(only));
+};
 
-export function writeTests(tests, outDir, { langs = ['en', 'it'], only = null } = {}) {
+export function writeTests(tests, outDir, { langs = ['en', 'it'], only = null, kind = 'scenario' } = {}) {
   mkdirSync(outDir, { recursive: true });
   const written = new Set();
   tests.forEach(t => {
@@ -322,65 +353,293 @@ export function writeTests(tests, outDir, { langs = ['en', 'it'], only = null } 
     written.add(t.file);
   });
   const removed = [];
-  readdirSync(outDir).filter(f => /^scenario-.*\.json$/.test(f) && !written.has(f)).forEach(f => {
+  const mine = new RegExp(`^${kind}-.*\\.json$`);
+  readdirSync(outDir).filter(f => mine.test(f) && !written.has(f)).forEach(f => {
     let body = null;
     try { body = JSON.parse(readFileSync(path.join(outDir, f), 'utf8')); } catch { body = null; }
-    if (inScope(body, { langs, only })) { unlinkSync(path.join(outDir, f)); removed.push(f); }
+    if (inScope(body, { langs, only, kind })) { unlinkSync(path.join(outDir, f)); removed.push(f); }
   });
   return { written: [...written], removed };
 }
 
+/* ============================================================
+ * The situation suite — what the driver reports, and what Otto asks back
+ * ============================================================ */
+
+/* The turn cap. Eight turns is a whole situation debrief with room to
+ * spare: Otto's opener, the report, two or three questions with their
+ * answers, the tip, a goodbye. The vague driver spends the first
+ * exchange saying nothing in particular, so that one gets two more
+ * rather than a rushed close — which would fail the close condition for
+ * a reason that is the test's fault, not the prompt's. */
+const situationTurns = persona => (persona.id === 'vague' ? 10 : 8);
+
+/* follow_up / off_topic are jsonb lists from Supabase, plain arrays
+ * from the starter sheet, and a string when someone hand-feeds a row */
+export function listOf(x) {
+  let v = x;
+  if (typeof v === 'string') {
+    const t = v.trim();
+    if (!t) return [];
+    if (t.startsWith('[')) { try { v = JSON.parse(t); } catch { return [t]; } } else return [t];
+  }
+  return Array.isArray(v) ? v.map(s => String(s == null ? '' : s).trim()).filter(Boolean) : [];
+}
+
+/* The control row: its follow_up column says a follow-up is not wanted
+ * here (the delivery was ordinary). The three conditions that demand
+ * one would contradict the row itself, so they are replaced — a suite
+ * that never accepts "nothing happened" teaches the prompt to invent
+ * problems, which is the one failure mode a driver would notice. */
+export const needsNoFollowUp = row => {
+  const items = listOf(row && row.follow_up);
+  return !items.length || (items.length === 1 && /^(nothing|none|no follow)\b/i.test(items[0]));
+};
+
+/* the stop the situation is set at: the row's own, else one of the
+ * twelve by position, so a sheet of rows without stops still spreads
+ * across the route instead of piling onto the first door */
+function situationStop(row, stops, index) {
+  const want = Number(row && row.stop);
+  const found = Number.isFinite(want) ? stops.find(s => s.stop === want) : null;
+  if (found) return found;
+  const n = Number(row && row.num);
+  const i = Number.isFinite(n) && n > 0 ? n - 1 : index;
+  return stops[((i % stops.length) + stops.length) % stops.length];
+}
+
+/* What the phone sends when the driver presses REPORT and no scenario
+ * and no trigger are involved: the stop it is standing at, the
+ * language, and trigger_fired "no". agentVars with a null scenario and
+ * a null run already produces exactly this — everything else comes out
+ * '' and initDynamicVariables drops it, the way initPayload does on the
+ * phone — but the list is spelled out, because it is the contract the
+ * test asserts and a new variable on the phone must not leak into a
+ * suite that is meant to run without one. */
+export const SITUATION_VARS = [
+  'destination_title', 'destination_address', 'destination_lat', 'destination_lng',
+  'destination_consignee', 'destination_floor', 'destination_notes', 'debrief_language', 'trigger_fired',
+];
+function situationVars(d) {
+  const v = agentVars({ scenario: null, destination: d, run: null, activity: null, lang: 'en' });
+  return initDynamicVariables(Object.fromEntries(SITUATION_VARS.map(k => [k, v[k]])));
+}
+
+/* The driver, in the first person. Everything the simulated driver may
+ * say comes from the row: the opening line it reports with, and the
+ * facts it is allowed to give up — only when asked, or the test grades
+ * nothing about Otto's questions. */
+function situationScenario({ row, d, persona }) {
+  const lines = [];
+  const who = d.consignee ? `, the delivery for ${d.consignee}${d.floor ? ', ' + floorText(d.floor) : ''}` : '';
+  lines.push(`You are a parcel-delivery driver on a round in Berlin. You have just finished at ${d.title}${d.addr ? ` (${d.addr})` : ''}${who}, and you have pressed the big REPORT button in the app to tell the office what you found there. Otto, the voice from the office, answers.`);
+  lines.push(`Otto speaks first. If he asks what happened, that is when you say it; if he only greets you, say it straight away. The first thing you say about this stop is “${String(row.driver_says || '').trim()}” — in your own words is fine.`);
+  lines.push(`What you know if Otto asks, and only when he asks: ${sentence(row.driver_knows)}`);
+  lines.push(`How you talk: ${sentence(persona.style)}`);
+  lines.push('You speak English.');
+  lines.push('Ground rules: stay in character as the driver; never mention being simulated or that this is a test; '
+    + `do not volunteer anything beyond your first line until Otto asks for it${persona.id === 'cooperative' ? ' — you may add one useful detail of your own to an answer, no more' : ''}; `
+    + 'never invent facts beyond what is above; when Otto confirms a tip that matches what you said, agree in a few words; when his tip gets it wrong, correct it briefly; when Otto lets you go, say a short goodbye and stop.');
+  return lines.join(' ');
+}
+
+/* Six yes/no prompts (seven for the vague driver), each self-contained:
+ * the evaluator sees one at a time and merges them, so each one has to
+ * carry its own situation. In this order — relevance first, because a
+ * follow-up that fits THAT report is the whole point, and the close
+ * last, because it is what the next driver ends up reading. */
+function situationConditions({ row, d, persona }) {
+  const says = `“${String(row.driver_says || '').trim()}”`;
+  const followUp = listOf(row.follow_up);
+  const offTopic = listOf(row.off_topic);
+  const control = needsNoFollowUp(row);
+  const where = d.title || 'this address';
+  const c = [];
+  c.push(control
+    ? `RELEVANCE — the driver reported ${says}: nothing went wrong at this stop. Otto asks at most one short question to confirm that and does not go looking for a problem (for example ${offTopic.join(', ')}). Probing for something that was not there fails.`
+    : `RELEVANCE — Otto's first follow-up question is about what the driver reported (${says}) and asks about at least one of these: ${followUp.join('; ')}. A first follow-up about something else (for example ${offTopic.join(', ')}), or a generic question that could follow any report at all ("anything else?", "how did it go?"), fails.`);
+  c.push(`NO REPETITION — Otto never asks the driver for something the driver has already said in this conversation; every question adds something the driver has not given yet. Asking again for a detail that was already in the driver's own words — reworded, or as a check — fails.`);
+  c.push('NATURAL — Otto sounds like a colleague on the phone: a short, natural acknowledgement of what the driver just said before the next question, plain spoken language, one thing at a time. Lecturing the driver about procedure, form-filling phrasing ("please state the nature of…", "can you confirm the following"), or reading the whole report back in the middle of the conversation fails.');
+  c.push(`NO INVENTION — Otto states no fact the driver did not say: no invented times, names, distances, reasons or outcomes, and nothing about ${where} that came from neither the driver nor the notes on file. Asking about any of that is fine; asserting it is not.`);
+  c.push(control
+    ? 'LENGTH — after his opening message Otto asks at most one question, then closes. Two or more questions fails.'
+    : 'LENGTH — Otto asks two or three questions in the whole conversation, his opening question included if his first message is one (two questions in one turn count as two), and then he closes. Four or more fails.');
+  c.push(control
+    ? `CLOSE — Otto ends by confirming that there is nothing to note about ${where} and lets the driver go with a short goodbye. Inventing a tip for a stop where nothing happened fails.`
+    : `CLOSE — Otto ends by confirming the tip in one line — what the next driver should know about ${where} — and it is consistent with what the driver said (for this situation something like: “${noStop(row.tip)}”; equivalent wording is fine, the facts are what count). Then he lets the driver go with a short goodbye.`);
+  if (persona.id === 'vague') {
+    c.push('OPEN QUESTION FIRST — the driver\'s first words do not say what happened, so before asking anything specific Otto asks one open question to find out ("What happened?", "What did you run into?"). Guessing at a problem, or asking a specific question about something the driver has not described yet, fails.');
+  }
+  return c;
+}
+
+export function buildSituationTest({ row, persona, stops, index = 0 }) {
+  const d = destinationOf(situationStop(row, stops, index));
+  const num = row.num != null && row.num !== '' ? Number(row.num) : null;
+  const short = scenarioShort(row) || 'untitled';
+  const name = `Otto · situation ${num != null ? '#' + num + ' ' : ''}${short} · ${persona.id}`;
+  const file = `situation-${pad2(num != null ? num : 0)}-${slug(num != null ? short : row.title) || 'untitled'}--${persona.id}.json`;
+  const body = {
+    name,
+    type: 'simulation',
+    dynamic_variables: situationVars(d),
+    /* No chat_history on purpose: in the pilot the driver presses
+     * REPORT and Otto opens with his own first message from the agent
+     * config. A chat_history here would put words in his mouth that the
+     * button flow never does, and the opener is part of what the suite
+     * is judging. */
+    simulation_scenario: situationScenario({ row, d, persona }),
+    simulation_max_turns: situationTurns(persona),
+    success_conditions: situationConditions({ row, d, persona }),
+    _otto: {
+      kind: 'situation',
+      situation_num: num,
+      situation_title: String(row.title || ''),
+      persona: persona.id,
+      language: 'en',
+      scenario_num: null,
+      scenario_title: null,
+    },
+  };
+  return { file, body };
+}
+
+/* every situation test for a list of rows — pure, so the tests can call
+ * it twice and compare */
+export function buildSituationTests(rows, { only = null, personas = SITUATION_PERSONAS, stops = null } = {}) {
+  stops = stops || loadRoute('route-kollwitz.js').stops;
+  const chosen = (rows || [])
+    .filter(r => r && String(r.title || '').trim() && r.active !== false)
+    .filter(r => only == null || Number(r.num) === Number(only))
+    .slice()
+    .sort((a, b) => (a.num == null) - (b.num == null) || (Number(a.num) || 0) - (Number(b.num) || 0) || String(a.title).localeCompare(String(b.title)));
+  const out = [];
+  chosen.forEach((row, i) => personas.forEach(persona => out.push(buildSituationTest({ row, persona, stops, index: i }))));
+  return out;
+}
+
 function parseArgs(argv) {
-  const o = { source: 'sheet', url: null, key: null, out: DEFAULT_OUT, langs: ['en', 'it'], only: null, help: false };
+  const o = { situations: false, source: null, url: null, key: null, file: null, out: null, langs: ['en', 'it'], only: null, help: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => { if (i + 1 >= argv.length) throw new Error(`${a} needs a value`); return argv[++i]; };
-    if (a === '--sheet') o.source = 'sheet';
+    if (a === '--situations') o.situations = true;
+    else if (a === '--sheet') o.source = 'sheet';
     else if (a === '--supabase') {
       o.source = 'supabase';
       if (argv[i + 1] && !argv[i + 1].startsWith('--')) o.url = argv[++i];
       if (argv[i + 1] && !argv[i + 1].startsWith('--')) o.key = argv[++i];
-    } else if (a === '--out') o.out = path.resolve(next());
-    else if (a === '--lang') o.langs = next().split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-    else if (a === '--scenario') { o.only = Number(next()); if (!Number.isFinite(o.only)) throw new Error('--scenario needs a number'); }
+    } else if (a === '--file') { o.source = 'file'; o.file = path.resolve(next()); }
+    else if (a === '--out') o.out = path.resolve(next());
+    else if (a === '--lang') { o.langs = next().split(',').map(s => s.trim().toLowerCase()).filter(Boolean); o.langGiven = true; }
+    else if (a === '--scenario') { o.only = Number(next()); o.onlyFlag = a; if (!Number.isFinite(o.only)) throw new Error('--scenario needs a number'); }
+    else if (a === '--situation') { o.only = Number(next()); o.onlyFlag = a; if (!Number.isFinite(o.only)) throw new Error('--situation needs a number'); }
     else if (a === '-h' || a === '--help') o.help = true;
     else throw new Error(`unknown argument ${a}`);
   }
   const bad = o.langs.find(l => l !== 'en' && l !== 'it');
   if (bad) throw new Error(`--lang takes en and/or it, not ${bad}`);
+  /* the two suites take different rows from different places; a flag
+   * from the other one is a mistake worth naming, not one to guess at */
+  if (o.situations && o.langGiven) throw new Error('the situation suite is English only — the pilot is; drop --lang');
+  if (o.situations && o.onlyFlag === '--scenario') throw new Error('--scenario picks a trigger row; with --situations use --situation N');
+  if (!o.situations && o.onlyFlag === '--situation') throw new Error('--situation picks a situation row; without --situations use --scenario N');
+  if (!o.situations && o.source === 'file') throw new Error('--file is the situation suite\'s (a JSON list of rows); the trigger suite reads --sheet or --supabase');
+  /* triggers come from the committed sheet unless asked otherwise;
+   * situations come from the live rows the dashboard edits, because
+   * the sheet is only their starting twenty */
+  o.source = o.source || (o.situations ? 'supabase' : 'sheet');
+  o.out = o.out || (o.situations ? DEFAULT_SITUATION_OUT : DEFAULT_OUT);
   return o;
 }
 
 const USAGE = `usage: node generate-tests.mjs [--sheet | --supabase [URL KEY]] [--out DIR] [--lang en,it] [--scenario N]
+       node generate-tests.mjs --situations [--supabase [URL KEY] | --sheet | --file JSON] [--out DIR] [--situation N]
 
-  --sheet         the starter sheet, trigger-scenarios.js (default)
+  --situations    the SITUATION suite: what a driver reports after pressing REPORT, ${SITUATION_PERSONAS.length} personas per row.
+                  Its rows come from the situations table (default), falling back to situations-starter.js
+                  when that project has no such table yet or no active row in it
+  --sheet         the starter sheet: trigger-scenarios.js (the trigger default), situations-starter.js with --situations
   --supabase      a designer's own rows; URL KEY, else SUPABASE_URL / SUPABASE_ANON_KEY, else the kit's project
-  --out DIR       where the test files go (default: elevenlabs/test_configs)
-  --lang en,it    languages to generate (Italian variants exist for row #${[...IT_ROWS].join(', #')} only)
-  --scenario N    one row only
+  --file JSON     situation rows from a file: a list, or {"situations": [ … ]}
+  --out DIR       where the test files go (default: elevenlabs/test_configs, …/situations with --situations)
+  --lang en,it    languages to generate (triggers only; Italian variants exist for row #${[...IT_ROWS].join(', #')})
+  --scenario N    one trigger row only
+  --situation N   one situation row only
 `;
 
-export async function main(argv = process.argv.slice(2)) {
-  const o = parseArgs(argv);
-  if (o.help) { process.stdout.write(USAGE); return 0; }
+const col = (s, w) => (String(s).length > w ? String(s).slice(0, w - 1) + '…' : String(s).padEnd(w));
+function printTests(tests) {
+  console.log(`${col('file', 56)} ${col('name', 52)} turns cond`);
+  tests.forEach(t => console.log(`${col(t.file, 56)} ${col(t.body.name, 52)} ${String(t.body.simulation_max_turns).padStart(5)} ${String(t.body.success_conditions.length).padStart(4)}`));
+}
+function printWrote(out, written, removed) {
+  const rel = path.relative(process.cwd(), out);
+  const shown = !rel ? '.' : rel.startsWith('..') ? out : rel;
+  console.log(`\nwrote ${written.length} file(s) to ${shown}; ${removed.length} stale removed${removed.length ? ' (' + removed.join(', ') + ')' : ''}`);
+}
+const supabaseName = o => `Supabase (${o.url || process.env.SUPABASE_URL || 'the kit\'s project'})`;
+
+async function generateScenarios(o) {
   const scenarios = o.source === 'supabase' ? await loadSupabase(o.url, o.key) : loadSheet();
   const tests = buildTests(scenarios, { langs: o.langs, only: o.only });
   const { written, removed } = writeTests(tests, o.out, { langs: o.langs, only: o.only });
   const rows = new Set(tests.map(t => t.body._otto.scenario_title)).size;
-  const from = o.source === 'supabase' ? `Supabase (${o.url || process.env.SUPABASE_URL || 'the kit\'s project'})` : 'the starter sheet';
-  console.log(`\nGENERATE — ${rows} scenario(s) from ${from} × ${PERSONAS.length} persona(s) → ${tests.length} test(s)\n`);
-  const col = (s, w) => (String(s).length > w ? String(s).slice(0, w - 1) + '…' : String(s).padEnd(w));
-  console.log(`${col('file', 56)} ${col('name', 52)} turns cond`);
-  tests.forEach(t => console.log(`${col(t.file, 56)} ${col(t.body.name, 52)} ${String(t.body.simulation_max_turns).padStart(5)} ${String(t.body.success_conditions.length).padStart(4)}`));
+  const from = o.source === 'supabase' ? supabaseName(o) : 'the starter sheet';
+  console.log(`\nGENERATE — ${rows} scenario(s) from ${from} × ${TRIGGER_PERSONAS.length} persona(s) → ${tests.length} test(s)\n`);
+  printTests(tests);
   /* a row with an empty "Otto says" cell is not an error — the phone
    * runs it — but the designer should know its tests grade nothing
    * about the row's own question */
   const noSays = [...new Set(tests.filter(t => !('scenario_question' in t.body.dynamic_variables)).map(t => t.body._otto.scenario_title))];
   noSays.forEach(title => console.log(`note: "${title}" has no Otto says line — its tests open with the app's own greeting, as the phone would`));
-  const rel = path.relative(process.cwd(), o.out);
-  const shown = !rel ? '.' : rel.startsWith('..') ? o.out : rel;
-  console.log(`\nwrote ${written.length} file(s) to ${shown}; ${removed.length} stale removed${removed.length ? ' (' + removed.join(', ') + ')' : ''}`);
+  printWrote(o.out, written, removed);
   return 0;
+}
+
+/* Where the situation rows come from. The live table is the default,
+ * because the dashboard is where they are written — but a project whose
+ * schema.sql predates the table (404) or whose tab is still empty must
+ * not leave a button with nothing to run, so the starter twenty stand
+ * in, and the run says which of the two it used. */
+async function situationRows(o) {
+  if (o.source === 'sheet') return { rows: loadSituationsSheet(), from: 'the starter sheet' };
+  if (o.source === 'file') {
+    const raw = JSON.parse(readFileSync(o.file, 'utf8'));
+    const rows = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.situations) ? raw.situations : null);
+    if (!rows) throw new Error(`${o.file} carries no situation rows (a list, or {"situations": [ … ]})`);
+    return { rows, from: o.file };
+  }
+  try {
+    const rows = await loadSituationsSupabase(o.url, o.key);
+    if (rows.length) return { rows, from: supabaseName(o) };
+    console.log(`the situations table on ${supabaseName(o)} has no active row — generating from situations-starter.js instead`);
+  } catch (e) {
+    if (e.status !== 404) throw e;
+    console.log(`${supabaseName(o)} has no situations table yet — generating from situations-starter.js instead (run supabase/schema.sql there to get one)`);
+  }
+  return { rows: loadSituationsSheet(), from: 'the starter sheet' };
+}
+
+async function generateSituations(o) {
+  const { rows, from } = await situationRows(o);
+  const tests = buildSituationTests(rows, { only: o.only });
+  const { written, removed } = writeTests(tests, o.out, { only: o.only, kind: 'situation' });
+  const count = new Set(tests.map(t => t.body._otto.situation_title)).size;
+  console.log(`\nGENERATE — ${count} situation(s) from ${from} × ${SITUATION_PERSONAS.length} persona(s) → ${tests.length} test(s)\n`);
+  printTests(tests);
+  /* a row that says a follow-up is not wanted grades the opposite way
+   * round (Otto must NOT probe), which is easy to miss in a sheet */
+  const controls = [...new Set(tests.filter(t => needsNoFollowUp(rows.find(r => String(r.title || '') === t.body._otto.situation_title) || {})).map(t => t.body._otto.situation_title))];
+  controls.forEach(title => console.log(`note: "${title}" asks for no follow-up — its tests grade Otto for NOT probing, and for closing after at most one question`));
+  printWrote(o.out, written, removed);
+  return 0;
+}
+
+export async function main(argv = process.argv.slice(2)) {
+  const o = parseArgs(argv);
+  if (o.help) { process.stdout.write(USAGE); return 0; }
+  return o.situations ? generateSituations(o) : generateScenarios(o);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

@@ -4,6 +4,14 @@ One loop: **pin a real address on a live map → walk over → tell Otto what
 you found.** Otto transcribes and structures the voice message, files it
 against the destination, and the pin flips to reported.
 
+For the **first pilot** there is no trigger at all: the phone's main
+element is one big **REPORT** button. The driver presses it after a
+stop, says what they found — the road was closed, a dog at the door,
+the bell does nothing — and Otto asks two or three questions that fit
+*that* report and confirms the tip in one line. What makes or breaks
+that is the agent's prompt, so it gets a suite of its own: [the
+situations](#the-situations--what-a-driver-reports-and-what-otto-asks-back).
+
 On top of that loop sits a second surface,
 [`dashboard.html`](dashboard.html): define **Otto trigger scenarios**
 (straight out of the deck's "Otto triggers" sheet), give each one a clear
@@ -491,6 +499,75 @@ nagged every week. The rates are the signal, not a red job: a simulated
 tester is not deterministic, so the loop exits 0 once the suite has run,
 whatever the rates, and a step fails only when the loop itself does.
 
+## The situations — what a driver reports, and what Otto asks back
+
+A trigger scenario asks *when* Otto should speak. A **situation** asks
+what he should say once the driver has spoken. In the pilot the driver
+presses **REPORT** on the phone and reports in their own words, and the
+whole of Otto's usefulness is whether the follow-up fits: "the road is
+closed" wants *how long, is there a way round*; "there was a big dog at
+the door" wants *was anyone with it, where can the next driver leave the
+parcel*. One question that belongs to the wrong situation, and the
+driver stops answering.
+
+So the dashboard grows a third tab — **SITUATIONS**, kept apart from the
+trigger rows — and each row is one thing a driver reports:
+
+| Field | What it is for |
+|---|---|
+| what the driver says first | the opening line the simulated driver gives, in character |
+| what the driver knows if asked | the facts behind it — revealed only when Otto asks, never volunteered |
+| a relevant follow-up asks about | what a fitting first follow-up covers; anything else fails the test |
+| off topic here | the questions that prove Otto answered the wrong situation |
+| the tip Otto should confirm | the one line the next driver at this address needs |
+| the stop | which door on the Kollwitzkiez route it happens at, so Otto and the driver share an address |
+
+[`situations-starter.js`](situations-starter.js) ships twenty of them —
+road closed, dog at the door, dead doorbell, gate code, broken intercom,
+wrong pin, neighbour took it, nobody home, dark stairwell, scaffolding,
+no parking, reception hours, closed on Mondays, someone aggressive at
+the entrance, a stale gate code, two buildings with one number, an icy
+ramp, too big for the box, a broken lift, and one ordinary delivery as
+the control — loadable in one tap, idempotent by title, editable in
+place. The suite is generated from the *rows*, not from the file, so an
+edit on the dashboard is in the next run.
+
+Each row becomes four simulation tests, one per voice: **cooperative**
+(answers fully), **terse** (three to six words, the detail only comes
+out when Otto asks for it), **sidetracked** (opens with something else
+and keeps chatting if Otto takes the bait) and **vague** ("it didn't
+really work out at that one" — and nothing more until Otto asks what
+happened). No first message is sent: Otto opens out of your prompt,
+exactly as the phone will. Six things are judged, and all of them have
+to hold:
+
+1. **Relevance** — the first follow-up is about what the driver
+   reported, and asks about something on the row's list. A question from
+   the off-topic list, or one that could follow any report at all, fails.
+2. **No repetition** — nothing is asked that the driver already said.
+3. **Natural** — a colleague on the phone: a short acknowledgement, plain
+   words, no lecturing, no form-filling, no reading the report back.
+4. **No invention** — no fact the driver did not give.
+5. **Length** — two or three questions in the whole conversation.
+6. **Close** — the tip confirmed in one line, then the driver let go.
+
+The control row swaps the first, fifth and sixth for "accept that there
+is nothing to report and let them go"; the vague voice adds a seventh —
+one open question first, because the driver's opening line did not say
+what happened. The run, the pass rates and the failing conversations
+land on the situation's own card, the same way the trigger suite's do.
+
+**Your prompt never leaves ElevenLabs.** This repository is public, so
+the loop prints no prompt, no diff and no proposal note — not in a job
+summary, not in a log, not in an artifact, not in the shared database.
+What the public side carries is the pass rates, the simulated
+conversations and the test ids. You read the prompt itself in the
+ElevenLabs dashboard. That also makes the **try** button the plain way
+to work: write a prompt version by hand on an agent branch in
+ElevenLabs, press *try* with its branch id, and the twenty situations
+run against it and come back as a table with ACCEPT or REJECT — no
+model, no OpenAI key, nothing written down.
+
 ## Otto as your ElevenLabs agent
 
 A one-shot voice note cannot ask a follow-up, and a trigger scenario is
@@ -543,12 +620,15 @@ works whether or not the agent's prompt was written for this app:
 2. **A contextual update** — the same briefing in plain sentences, sent
    as the conversation opens, so an agent whose prompt names none of
    those variables still knows which test just fired.
-3. **The first message** — the sheet's "Otto says" column, verbatim.
-   This is the *only* override sent: your prompt, voice, tools and
-   knowledge base are left exactly as you built them. (It needs
-   "first message" enabled under the agent's security → overrides
-   settings; if it is not, the session reconnects once without it and
-   the agent opens in its own words.)
+3. **The first message** — the sheet's "Otto says" column, verbatim,
+   on a *trigger* debrief. A **REPORT** press sends no first message at
+   all: the driver pressed a button, not a trigger, so Otto opens in
+   his own words, out of your prompt. Either way nothing else is
+   overridden — your prompt, voice, tools and knowledge base are left
+   exactly as you built them (plus the language when the card's 🇮🇹 is
+   picked). The override needs "first message" enabled under the
+   agent's security → overrides settings; if it is not, the session
+   reconnects once without it and the agent opens in its own words.
 
 ### The debrief language — 🇬🇧 EN / 🇮🇹 IT on the card
 
@@ -912,6 +992,14 @@ keeps a seam open for the real one:
 
 ## On your phone
 
+The main element is the big **REPORT** button at the bottom of the map.
+A press opens Otto for the nearest stop within 150 m of a fresh fix —
+the open card's stop when there is no fresh fix, and no stop at all when
+neither applies, which is a valid report ("on the road"). Otto opens in
+his own words, the driver says what they found, and the debrief is filed
+against that stop the way any other is. The test-tracking path from a
+scenario card is untouched for anyone still acting out triggers.
+
 GPS and the microphone both require **https** (or localhost). There is
 no build step, so any static host serves the repo as-is.
 
@@ -1111,11 +1199,12 @@ The composition happens entirely through the kits' public seams:
 
 | File | Purpose |
 |---|---|
-| `index.html` | Phone shell: map, HUD, card, Otto screen (pins come from the dashboard) |
-| `app.js` | Destinations, messages, the card (incl. the Delivered tap on route stops), Otto wiring |
+| `index.html` | Phone shell: the REPORT button, map, HUD, card, Otto screen (pins come from the dashboard) |
+| `app.js` | Destinations, messages, the card (incl. the Delivered tap on route stops), the REPORT flow, Otto wiring |
 | `otto-agent.js` | Otto as a live ElevenLabs agent conversation — the kit's mount seams over a WebSocket, with the scenario as its context |
 | `dashboard.html` | Desktop shell: scenario list, map, form / address / import sheets |
-| `dashboard.js` | Trigger scenarios: CRUD, describe→draft, tunable-value sliders, voice feedback → proposed versions, history, spec export, Excel paste-import, address pinning, compare + verdict — and loading the starter sheet / demo route |
+| `dashboard.js` | Trigger scenarios and situations (their own tab): CRUD, describe→draft, tunable-value sliders, voice feedback → proposed versions, history, spec export, Excel paste-import, address pinning, compare + verdict — and loading the starter sheet / demo route |
+| `situations-starter.js` | The starter situations: twenty things a driver reports after pressing REPORT — the driver's first words, what they know if asked, what a fitting follow-up covers, what is off topic, the tip to confirm; loadable in one tap into the dashboard's SITUATIONS tab |
 | `trigger-scenarios.js` | The starter sheet: ten finished "Otto triggers" rows — the deck's worked example, eight more situations, the clean-run control — loadable in one tap, idempotent by title |
 | `parcelvox-dashboard.html`, `parcelvox-dashboard/` | The ParcelVox dispatcher dashboard — map and pre-arrival notes wired to the same shared store (localStorage or Supabase), report counts and hotspots from the analytics API; the rest labelled sample data |
 | `mock-api/` | A mock of the Parcelvox Analytics API contract: the store's real rows reshaped into places, reports, guidance, tours and outreach, plus invented history; no dependencies, `node server.mjs` |

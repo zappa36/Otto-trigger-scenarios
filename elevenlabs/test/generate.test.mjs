@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { loadSheet, loadRoute, loadSupabase } from '../lib/sheet.mjs';
 import { agentVars, agentBriefing, agentGreeting, LANG_TEXT, fillParams, initDynamicVariables, questionFor, stripQuotes } from '../lib/scenario-vars.mjs';
-import { buildTests, buildTest, tipCategory, PERSONAS, IT_ROWS, DEFAULT_OUT } from '../generate-tests.mjs';
+import { buildTests, buildTest, tipCategory, PERSONAS, TRIGGER_PERSONAS, IT_ROWS, DEFAULT_OUT } from '../generate-tests.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
@@ -74,6 +74,12 @@ test('the sheet loads without a browser: ten rows, numbered 1..10', () => {
   assert.deepEqual(sheet.map(s => s.num), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   assert.ok(sheet.every(s => s.title && s.otto_says && Array.isArray(s.params)));
   assert.equal(stops.length, 12);
+  /* personas.json carries the situation suite's fourth voice as well; a
+   * trigger scenario opens with Otto's own question, so a driver who
+   * says nothing in particular has nothing to be vague about there —
+   * the trigger suite keeps its three, and its files must not move */
+  assert.deepEqual(TRIGGER_PERSONAS.map(p => p.id), ['cooperative', 'terse', 'sidetracked']);
+  assert.ok(PERSONAS.length > TRIGGER_PERSONAS.length, 'personas.json lost the situation-only persona');
 });
 
 test('agentVars mirrors app.js: same key set, read out of the source at test time', () => {
@@ -160,7 +166,7 @@ function validate(body, file) {
   assert.equal(o.kind, 'scenario');
   assert.ok(o.scenario_num === null || Number.isInteger(o.scenario_num), at + '_otto.scenario_num');
   assert.equal(typeof o.scenario_title, 'string');
-  assert.ok(PERSONAS.some(p => p.id === o.persona), at + '_otto.persona');
+  assert.ok(TRIGGER_PERSONAS.some(p => p.id === o.persona), at + '_otto.persona');
   assert.ok(o.language === 'en' || o.language === 'it', at + '_otto.language');
   assert.match(o.briefing, /^You are Otto, debriefing/);
   assert.match(file, /^scenario-\d\d-[a-z0-9-]+--(cooperative|terse|sidetracked)(-it)?\.json$/, at + 'file name per C4');
@@ -169,7 +175,7 @@ function validate(body, file) {
 const built = buildTests(sheet);
 
 test('the starter sheet yields 10 rows × 3 personas in English + 3 Italian variants, all valid', () => {
-  assert.equal(built.length, 10 * PERSONAS.length + IT_ROWS.size * PERSONAS.length);
+  assert.equal(built.length, 10 * TRIGGER_PERSONAS.length + IT_ROWS.size * TRIGGER_PERSONAS.length);
   built.forEach(t => validate(t.body, t.file));
   /* every starter row has an Otto says line, so every test opens with it */
   built.forEach(t => assert.ok('scenario_question' in t.body.dynamic_variables, t.file + ' lost its scenario question'));
@@ -186,7 +192,7 @@ test('the starter sheet yields 10 rows × 3 personas in English + 3 Italian vari
 
 test('scenario 8 never fired: trigger_fired is "no" and nothing was measured', () => {
   const eight = built.filter(t => t.body._otto.scenario_num === 8);
-  assert.equal(eight.length, PERSONAS.length);
+  assert.equal(eight.length, TRIGGER_PERSONAS.length);
   eight.forEach(t => {
     assert.equal(t.body.dynamic_variables.trigger_fired, 'no');
     for (const k of ['trigger_passes', 'trigger_stopped', 'park_distance_m', 'walk_m', 'activity_summary']) assert.ok(!(k in t.body.dynamic_variables), k);
@@ -197,7 +203,7 @@ test('scenario 8 never fired: trigger_fired is "no" and nothing was measured', (
 
 test('the park-and-walk row sends what parkWalkStep measures: distances, no stop, no passes', () => {
   const two = built.filter(t => t.body._otto.scenario_num === 2);
-  assert.equal(two.length, PERSONAS.length);
+  assert.equal(two.length, TRIGGER_PERSONAS.length);
   two.forEach(t => {
     const dv = t.body.dynamic_variables;
     assert.equal(dv.trigger_fired, 'yes');
@@ -215,13 +221,13 @@ test('the park-and-walk row sends what parkWalkStep measures: distances, no stop
   });
   /* a designer's own park-and-walk row: the generic fixture measures
    * the same way, even when the row also carries a passes_needed knob */
-  const pw = buildTest({ sc: { title: 'Far park', otto_says: 'Where did you leave the van?', learns: 'parking', params: [{ key: 'arrival_radius', value: 25 }, { key: 'passes_needed', value: 3 }] }, persona: PERSONAS[0], lang: 'en', stops });
+  const pw = buildTest({ sc: { title: 'Far park', otto_says: 'Where did you leave the van?', learns: 'parking', params: [{ key: 'arrival_radius', value: 25 }, { key: 'passes_needed', value: 3 }] }, persona: TRIGGER_PERSONAS[0], lang: 'en', stops });
   assert.equal(pw.body.dynamic_variables.trigger_stopped, 'no');
   assert.equal(pw.body.dynamic_variables.trigger_passes, 0);
   assert.equal(pw.body.dynamic_variables.park_distance_m, 250);
   assert.equal(pw.body.dynamic_variables.walk_m, 220);
   /* …while a pass/stop row stops, with the passes its params ask for */
-  const ps = buildTest({ sc: { title: 'Loops', otto_says: 'Hard to park?', learns: 'parking', params: [{ key: 'passes_needed', value: 3 }] }, persona: PERSONAS[0], lang: 'en', stops });
+  const ps = buildTest({ sc: { title: 'Loops', otto_says: 'Hard to park?', learns: 'parking', params: [{ key: 'passes_needed', value: 3 }] }, persona: TRIGGER_PERSONAS[0], lang: 'en', stops });
   assert.equal(ps.body.dynamic_variables.trigger_stopped, 'yes');
   assert.equal(ps.body.dynamic_variables.trigger_passes, 3);
   assert.ok(!('park_distance_m' in ps.body.dynamic_variables));
@@ -240,7 +246,7 @@ test('a row without an Otto says line opens with the app\'s greeting, as the pho
   /* and a generated test carries it, not the keyless recorder's "What did you find?" */
   const row = { num: 12, title: 'Silent row — no opener on the sheet', otto_says: '', learns: 'access', params: [] };
   for (const lang of ['en', 'it']) {
-    const t = buildTest({ sc: row, persona: PERSONAS[0], lang, stops });
+    const t = buildTest({ sc: row, persona: TRIGGER_PERSONAS[0], lang, stops });
     validate(t.body, t.file);
     const dv = t.body.dynamic_variables;
     assert.ok(!('scenario_question' in dv), 'no scenario_question without an Otto says line');
@@ -254,7 +260,7 @@ test('a row without an Otto says line opens with the app\'s greeting, as the pho
 
 test('Italian variants exist for #1 only, and say so in the variables', () => {
   const it = built.filter(t => t.body._otto.language === 'it');
-  assert.equal(it.length, PERSONAS.length);
+  assert.equal(it.length, TRIGGER_PERSONAS.length);
   it.forEach(t => {
     assert.equal(t.body._otto.scenario_num, 1);
     assert.equal(t.body.dynamic_variables.debrief_language, 'Italian');
@@ -265,8 +271,8 @@ test('Italian variants exist for #1 only, and say so in the variables', () => {
     assert.match(t.body._otto.briefing, /entire debrief in Italian/);
   });
   built.filter(t => t.body._otto.language === 'en').forEach(t => assert.equal(t.body.dynamic_variables.debrief_language, 'English'));
-  assert.equal(buildTests(sheet, { langs: ['it'] }).length, PERSONAS.length);
-  assert.equal(buildTests(sheet, { langs: ['en'], only: 4 }).length, PERSONAS.length);
+  assert.equal(buildTests(sheet, { langs: ['it'] }).length, TRIGGER_PERSONAS.length);
+  assert.equal(buildTests(sheet, { langs: ['en'], only: 4 }).length, TRIGGER_PERSONAS.length);
 });
 
 test('the tip category is the word the "learns" column leads with', () => {
@@ -281,7 +287,7 @@ test('the tip category is the word the "learns" column leads with', () => {
 
 test('a designer\'s own row without a number still gets a valid test', () => {
   const row = { title: 'Courtyard gate — the code changes weekly', rule: 'Stop within {r} m', otto_says: '“Did the gate code work?”', learns: 'gate_code — the current code', test_steps: 'Go to the gate', params: [{ key: 'r', value: 40 }] };
-  const t = buildTest({ sc: row, persona: PERSONAS[1], lang: 'en', stops });
+  const t = buildTest({ sc: row, persona: TRIGGER_PERSONAS[1], lang: 'en', stops });
   validate(t.body, t.file);
   assert.equal(t.body.name, 'Otto · Courtyard gate · terse');
   assert.equal(t.file, 'scenario-00-courtyard-gate-the-code-changes-weekly--terse.json');
@@ -343,9 +349,9 @@ test('--supabase reads the scenarios table with the anon key, the way tune_trigg
     assert.deepEqual(got, rows);
     assert.deepEqual(seen[0], { url: '/rest/v1/scenarios?select=*&order=num.asc.nullslast', apikey: 'anon-key', auth: 'Bearer anon-key' });
     const tests = buildTests(got, { langs: ['en'], stops });
-    assert.equal(tests.length, 3 * PERSONAS.length);
+    assert.equal(tests.length, 3 * TRIGGER_PERSONAS.length);
     assert.equal(tests[0].body._otto.scenario_num, 3);
-    assert.equal(tests[2 * PERSONAS.length].body._otto.scenario_num, null, 'unnumbered rows sort last');
+    assert.equal(tests[2 * TRIGGER_PERSONAS.length].body._otto.scenario_num, null, 'unnumbered rows sort last');
     tests.forEach(t => validate(t.body, t.file));
     /* the CLI, end to end through the same server: the row with the
      * empty cell is generated, and the designer is told what it opens

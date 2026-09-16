@@ -5,13 +5,25 @@
  *
  * The trigger loop has recorded runs to replay; the agent loop has two
  * things instead: a suite of ElevenLabs simulation tests cut from the
- * sheet (generate-tests.mjs — a simulated tester per scenario row and
- * persona, the SAME dynamic variables a phone sends), and the real
- * conversations the agent had in the field, joined to the grade the
- * designer gave each one on the dashboard. Both are scored, a model is
- * asked for the smallest prompt edit the evidence supports, the edit
- * goes on an agent BRANCH, the suite runs there, and a human merges —
- * nothing here changes the live agent's prompt on its own.
+ * sheets (generate-tests.mjs — a simulated driver per row and persona,
+ * the SAME dynamic variables a phone sends; the SITUATION rows are the
+ * pilot's suite, the trigger scenarios the one for when triggers come
+ * back), and the real conversations the agent had in the field, joined
+ * to the grade the designer gave each one on the dashboard. Both are
+ * scored, a model is asked for the smallest prompt edit the evidence
+ * supports, the edit goes on an agent BRANCH, the suite runs there, and
+ * a human merges — nothing here changes the live agent's prompt on its
+ * own.
+ *
+ * The prompt is CONFIDENTIAL and this repository is PUBLIC. So nothing
+ * that shows it leaves this process: --quiet (the buttons pass it) keeps
+ * the prompt, its diff and a branch's note off stdout, the note a
+ * proposal wrote lives on the ElevenLabs branch as its description and
+ * is read back from there by `promote`, `publish` has no --note and the
+ * agent_runs row's note is always null, and the one request that
+ * carries the prompt (POST branches) never prints what came back. What
+ * the repository does carry: pass rates, the transcripts of SIMULATED
+ * conversations, and tests.lock.json.
  *
  *   configure    the evaluation criteria + data collection ElevenLabs
  *                grades EVERY real call with (analysis.json), and the
@@ -25,13 +37,15 @@
  *                failures grouped by reason
  *   cut          a debrief graded bad -> a next-reply regression test
  *   propose      the smallest prompt diff the evidence supports
- *   branch       that diff on an agent branch
+ *   branch       that diff on an agent branch, its note the branch's
+ *                own description
  *   compare      base results vs branch results -> ACCEPT / REJECT
- *   promote      merge the branch into main
+ *   promote      merge the branch into main, the version note read back
+ *                from the branch
  *   publish      a results file as a row of the agent_runs table, for
- *                the dashboard to show next to each scenario
+ *                the dashboard to show next to each row
  *
- *   node loop.mjs <command> [--dry-run] [--dir DIR] [flags]
+ *   node loop.mjs <command> [--dry-run] [--quiet] [--dir DIR] [flags]
  *
  * Secrets: ELEVENLABS_API_KEY (never in browser code, never logged,
  * never committed) and OPENAI_API_KEY for the proposer. Every live
@@ -131,13 +145,19 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 function context(flags, env, log) {
   const dir = path.resolve(flags.dir || env.LOOP_DIR || HERE);
   const dryRun = !!flags.dryRun;
+  /* --quiet is the confidentiality switch: the prompt, its diff and a
+   * branch's note never reach stdout. The buttons pass it, because a
+   * job log and a job summary on a public repository are published the
+   * moment they are written. It takes nothing else away — counts, ids,
+   * pass rates and the simulated transcripts still print. */
+  const quiet = !!flags.quiet;
   const http = makeHttp({
-    dryRun, log,
+    dryRun, log, quiet,
     secrets: [env.ELEVENLABS_API_KEY, env.OPENAI_API_KEY],
     retryDelayMs: Number(env.LOOP_RETRY_MS) || 1500,
   });
   return {
-    dir, dryRun, env, log, http,
+    dir, dryRun, quiet, env, log, http,
     p: {
       configs: path.join(dir, 'test_configs'),
       lock: path.join(dir, 'tests.lock.json'),
@@ -447,12 +467,23 @@ export function aggregate(inv, { idToName = {}, meta = {} } = {}) {
 }
 
 /* the _otto block of every test file, by test name — so a results row
- * knows its scenario and persona without another lookup */
+ * knows which row it came from, and which sheet, without another
+ * lookup. A test belongs to one of the two suites: a trigger scenario
+ * carries scenario_num, a situation carries situation_num, and a
+ * regression cut from a real debrief carries whichever the join could
+ * place. All four fields ride along either way, so a reader (the
+ * dashboard, agentRunRow) never has to guess which sheet a run is
+ * about. */
 function metaByName(ctx) {
   const meta = {};
+  const num = x => (x == null || x === '' ? null : x);
   for (const { body } of listConfigs(ctx.p.configs, () => {})) {
     const o = body._otto || {};
-    meta[body.name] = { scenario_num: o.scenario_num == null ? null : o.scenario_num, scenario_title: o.scenario_title || '', persona: o.persona || '', kind: o.kind || '', language: o.language || '' };
+    meta[body.name] = {
+      scenario_num: num(o.scenario_num), scenario_title: o.scenario_title || '',
+      situation_num: num(o.situation_num), situation_title: o.situation_title || '',
+      persona: o.persona || '', kind: o.kind || '', language: o.language || '',
+    };
   }
   return meta;
 }
@@ -597,13 +628,19 @@ async function pull(ctx, flags) {
 
 /* ---------- score ---------- */
 
-const scenarioKey = (num, title) => (num != null && num !== '' ? `#${num}` : (title ? String(title).slice(0, 40) : '(no scenario)'));
+/* the row a score line is about, short enough for a column: "#3" is
+ * trigger scenario 3, "s#3" situation 3 — the two sheets number from
+ * one each, so a shared key would add them up */
+const scenarioKey = (num, title, kind) => {
+  const mark = kind === 'situation' ? 's#' : '#';
+  return num != null && num !== '' ? `${mark}${num}` : (title ? String(title).slice(0, 40) : `(no ${kind === 'situation' ? 'situation' : 'scenario'})`);
+};
 
 export function scoreData(results, field) {
   const rows = new Map();
-  const row = (num, title) => {
-    const k = scenarioKey(num, title);
-    if (!rows.has(k)) rows.set(k, { key: k, num: num ?? null, title: title || '', tests: 0, runs: 0, passed: 0, conversations: 0, graded: 0, good: 0, bad: 0, checks: {}, reasons: new Map() });
+  const row = (num, title, kind = 'scenario') => {
+    const k = scenarioKey(num, title, kind);
+    if (!rows.has(k)) rows.set(k, { key: k, kind, num: num ?? null, title: title || '', tests: 0, runs: 0, passed: 0, conversations: 0, graded: 0, good: 0, bad: 0, checks: {}, reasons: new Map() });
     const r = rows.get(k);
     if (!r.title && title) r.title = title;
     return r;
@@ -615,7 +652,10 @@ export function scoreData(results, field) {
     r.reasons.set(key, e);
   };
   for (const t of (results && results.tests) || []) {
-    const r = row(t.scenario_num, t.scenario_title);
+    /* a situation test belongs to the situation sheet, and a field
+     * conversation to whichever scenario the join placed it under */
+    const sit = t.kind === 'situation' || t.situation_num != null;
+    const r = sit ? row(t.situation_num, t.situation_title, 'situation') : row(t.scenario_num, t.scenario_title);
     r.tests++; r.runs += t.runs || 0; r.passed += t.passed || 0;
     for (const why of t.rationales || []) bump(r, reasonKey(why), why);
   }
@@ -649,7 +689,7 @@ async function score(ctx, flags) {
   const rows = scoreData(results, field);
   log(`score — suite: ${resultsFile ? path.basename(resultsFile) : 'none'} · field: ${fieldFile ? path.basename(fieldFile) : 'none'}\n`);
   log(table(rows, [
-    { key: 'key', label: 'scenario', width: 6 }, { key: 'title', label: '', width: 34 },
+    { key: 'key', label: 'row', width: 6 }, { key: 'title', label: '', width: 34 },
     { get: r => (r.tests ? `${r.passed}/${r.runs}` : '—'), label: 'suite', width: 7, right: true },
     { get: r => pct(r.suite_pass_rate), label: 'rate', width: 5, right: true },
     { get: r => (r.conversations ? `${r.graded}/${r.conversations}` : '—'), label: 'graded', width: 7, right: true },
@@ -927,12 +967,23 @@ async function propose(ctx, flags) {
    * JSON-escaped prose, and the cap is what one completion can write */
   const maxTokens = Math.min(16000, Math.ceil(base.length / 3) + 1500);
   const ai = openai({ apiKey: key || '', base: ctx.env.OPENAI_BASE_URL || 'https://api.openai.com/v1', http: ctx.http });
-  const out = await ai.json({ model, system: PROPOSE_SYSTEM, user: JSON.stringify({ current_prompt: base, ...fit.evidence }), maxTokens });
+  let out;
+  try {
+    out = await ai.json({ model, system: PROPOSE_SYSTEM, user: JSON.stringify({ current_prompt: base, ...fit.evidence }), maxTokens });
+  } catch (e) {
+    /* the proposer's own message quotes what came back, and what comes
+     * back is the prompt with an edit in it */
+    if (!ctx.quiet) throw e;
+    throw new Error('the proposer failed and its message is not shown under --quiet: a reply, or a provider\'s error echoing the request, carries the prompt. Re-run without --quiet at a terminal to read it');
+  }
   if (!out) return 0;
   const next = String(out.prompt || '').trim();
   const note = String(out.note || '').replace(/\s+/g, ' ').trim().slice(0, 120);
   const rationale = String(out.rationale || '').trim();
-  const refuse = why => { log(`refused: ${why}\n  note: ${note || '—'}\n  rationale: ${rationale || '—'}`); return 1; };
+  /* the note and the rationale describe the edit, which is the prompt
+   * seen from the side; under --quiet the reason for the refusal is all
+   * that goes out */
+  const refuse = why => { log(ctx.quiet ? `refused: ${why} — the model's note and rationale are not shown` : `refused: ${why}\n  note: ${note || '—'}\n  rationale: ${rationale || '—'}`); return 1; };
   if (!next) return refuse('the model returned no prompt');
   if (next === base) return refuse('the model proposed no change (the evidence was too thin, by its own account)');
   const growth = next.length / Math.max(1, base.length) - 1;
@@ -944,7 +995,8 @@ async function propose(ctx, flags) {
     prompt: next, note, rationale, diff,
     evidence: { results: resultsFile, field: fieldFile, failing_tests: evidence.failing_tests.length, bad_debriefs: evidence.bad_debriefs.length },
   });
-  log(`\nnote: ${note}\nrationale: ${rationale}\n\n${diff}\n\nwrote ${file}\nnext: node loop.mjs branch --proposal ${file}`);
+  if (ctx.quiet) log(`\n${base.length} chars in, ${next.length} out, ${diff.split('\n').filter(l => /^[+-][^+-]/.test(l)).length} changed line(s)\nproposal written to ${file} — not shown\nnext: node loop.mjs branch --proposal ${file}`);
+  else log(`\nnote: ${note}\nrationale: ${rationale}\n\n${diff}\n\nwrote ${file}\nnext: node loop.mjs branch --proposal ${file}`);
   return 0;
 }
 
@@ -965,11 +1017,25 @@ async function branch(ctx, flags) {
   const body = {
     parent_version_id: parent,
     name,
+    /* the branch's description IS the version note from here on:
+     * ElevenLabs keeps it next to the prompt it belongs to, and
+     * `promote` reads it back rather than passing a proposal file
+     * around a public runner */
     description: p.note || 'prompt proposal from the agent loop',
     conversation_config: { agent: { prompt: { prompt: p.prompt } } },
   };
-  const res = await api.createBranch(agentId, body);
+  let res;
+  try {
+    res = await api.createBranch(agentId, body);
+  } catch (e) {
+    /* this is the one request that carries the prompt, and a 4xx from a
+     * validator likes to quote the field it refused — which would be
+     * the prompt, in the log of a public run */
+    throw new Error(`${e.status || 'no reply'} from POST /v1/convai/agents/${agentId}/branches — the reply is not shown: it can quote the prompt back. Re-send it by hand if you need to read it`);
+  }
   if (!res) return 0;
+  /* ids and the branch name only: what the branch CHANGED is the prompt
+   * described, and this line ends up in a job summary */
   log(`branch "${name}" created: ${res.created_branch_id} (version ${res.created_version_id}, from ${parent})`);
   writeJson(flags.proposal, { ...p, branch: { branch_id: res.created_branch_id, version_id: res.created_version_id, parent_version_id: parent, name, at: new Date().toISOString() } });
   log(`next: node loop.mjs run --branch ${res.created_branch_id} --label branch\n      node loop.mjs compare --base results/<main>.json --branch results/<branch>.json`);
@@ -1024,21 +1090,33 @@ async function compare(ctx, flags) {
 
 /* ---------- promote ---------- */
 
+/* The version note comes from the branch itself — GET
+ * /v1/convai/agents/{id}/branches/{branch_id} answers with the
+ * description `branch` gave it (checked against the reference; the
+ * merge endpoint takes no note of its own, only target_branch_id,
+ * archive_source_branch and force). That is the whole point: the note
+ * describes the prompt change, so it stays inside ElevenLabs instead of
+ * riding to a runner in a proposal file — and it is printed only when
+ * this is not a run whose log is published. */
 async function promote(ctx, flags) {
   const { log } = ctx;
   if (!flags.branch) throw new UsageError('--branch ID is required (created_branch_id from "branch")');
+  if (flags.proposal) throw new UsageError('--proposal is gone: promote reads the version note from the branch itself (its description), so no file carrying the prompt has to travel; pass --branch ID alone');
   const { api, agentId } = needEleven(ctx);
   const agent = await api.getAgent(agentId);
   const target = flags.target || (agent ? agent.main_branch_id : '<main_branch_id from GET agent>');
   if (agent && !target) throw new Error(`GET agent ${agentId} returned no main_branch_id — pass --target BRANCH_ID`);
-  const note = flags.proposal && existsSync(flags.proposal) ? (readJson(flags.proposal).note || '') : '';
+  const branchInfo = await api.getBranch(agentId, flags.branch);
+  const note = branchInfo ? String(branchInfo.description || '').trim() : '';
   const res = await api.mergeBranch(agentId, flags.branch, target, { force: !!flags.force });
   if (res === null) return 0;
   log(`merged ${flags.branch} into ${target}${flags.force ? ' (forced)' : ''}; the source branch is archived.`);
-  log('next: pull the agent config into git and commit it with the note as the version description —\n' +
-    `      elevenlabs agents pull --agent ${agentId}\n` +
-    `      git add agent_configs && git commit -m ${JSON.stringify(note || 'Otto prompt: <the note from the proposal>')}\n` +
-    '      node loop.mjs run --label main     # the new baseline');
+  log(ctx.quiet
+    ? '      the branch\'s version note is not shown (--quiet): it says what the prompt changed, and it stays in ElevenLabs'
+    : `      version note, from the branch: ${note || '—'}`);
+  log('next: node loop.mjs run --label main     # the new baseline\n' +
+    '      node loop.mjs publish\n' +
+    '      the prompt itself stays in ElevenLabs — agent_configs/ is gitignored, and this repository is public');
   return 0;
 }
 
@@ -1055,20 +1133,25 @@ async function promote(ctx, flags) {
  * could not place) counts in the totals and under no scenario. Fields
  * the results file has as '' (metaByName's empties) go as null: the row
  * is JSON for a reader that asks "is there one", not "is it empty". */
-export function agentRunRow(results, { runUrl = null, verdict = null, reason = null, note = null } = {}) {
+export function agentRunRow(results, { runUrl = null, verdict = null, reason = null } = {}) {
   const text = x => (x == null || String(x).trim() === '' ? null : String(x));
   const numOf = x => (x == null || x === '' || Number.isNaN(Number(x)) ? null : Number(x));
   const rate = (passed, runs) => (runs ? passed / runs : 0);
   const tests = ((results && results.tests) || []).map(t => {
     const runs = t.runs || 0, passed = t.passed || 0;
+    const name = String(t.name || t.test_id || '');
     return {
-      name: String(t.name || t.test_id || ''),
+      name,
       test_id: text(t.test_id),
       /* a results file from before `kind` rode along: the regressions
-       * are the tests cut names that way */
-      kind: t.kind === 'regression' || t.kind === 'scenario' ? t.kind : (/^Otto · regression · /.test(String(t.name || '')) ? 'regression' : 'scenario'),
+       * and the situations are the tests named that way */
+      kind: ['regression', 'scenario', 'situation'].includes(t.kind) ? t.kind
+        : /^Otto · regression · /.test(name) ? 'regression'
+          : /^Otto · situation /.test(name) ? 'situation' : 'scenario',
       scenario_num: numOf(t.scenario_num),
       scenario_title: text(t.scenario_title),
+      situation_num: numOf(t.situation_num),
+      situation_title: text(t.situation_title),
       persona: text(t.persona),
       language: t.language === 'it' || t.language === 'en' ? t.language : null,
       runs, passed, pass_rate: rate(passed, runs),
@@ -1083,7 +1166,10 @@ export function agentRunRow(results, { runUrl = null, verdict = null, reason = n
   };
   const perScenario = new Map();
   for (const t of tests) if (t.scenario_num != null) perScenario.set(t.scenario_num, [...(perScenario.get(t.scenario_num) || []), t]);
+  const perSituation = new Map();
+  for (const t of tests) if (t.situation_num != null) perSituation.set(t.situation_num, [...(perSituation.get(t.situation_num) || []), t]);
   const all = tally(tests);
+  const byNum = m => Object.fromEntries([...m.entries()].sort((a, b) => a[0] - b[0]).map(([num, list]) => [String(num), tally(list)]));
   return {
     agent_id: results.agent_id,
     label: text(results.label),
@@ -1096,13 +1182,19 @@ export function agentRunRow(results, { runUrl = null, verdict = null, reason = n
     run_url: text(runUrl),
     verdict: verdict || null,
     verdict_reason: text(reason),
-    note: text(note),
+    /* Always null, and the column stays for the rows that carry one
+     * from before. A branch's note says what its prompt changed, which
+     * is the prompt by implication — and this table is world-readable
+     * with the anon key. The note lives on the ElevenLabs branch
+     * (promote reads it back from there) and travels no further. */
+    note: null,
     tests,
     summary: {
       tests: all.tests,
       tests_at_100: tests.filter(t => t.runs && t.passed === t.runs).length,
       runs: all.runs, passed: all.passed, pass_rate: all.pass_rate,
-      by_scenario: Object.fromEntries([...perScenario.entries()].sort((a, b) => a[0] - b[0]).map(([num, list]) => [String(num), tally(list)])),
+      by_scenario: byNum(perScenario),
+      by_situation: byNum(perSituation),
     },
     ran_at: results.at || new Date().toISOString(),
   };
@@ -1138,7 +1230,12 @@ async function publish(ctx, flags) {
     verdict = String(flags.verdict).trim().toLowerCase();
     if (verdict !== 'accept' && verdict !== 'reject') throw new UsageError(`--verdict is accept or reject (the word compare printed), not "${flags.verdict}"`);
   }
-  const row = agentRunRow(results, { runUrl: flags.runUrl, verdict, reason: flags.reason, note: flags.note });
+  /* --note is gone on purpose: it carried the proposal's one-line
+   * summary of what the branch's prompt changed into a table anyone can
+   * read with the anon key. Naming the flag beats ignoring it — the
+   * runbook and old scripts still have it in their fingers. */
+  if (flags.note != null) throw new UsageError('--note is gone: what a branch changed says what the prompt says, and agent_runs is world-readable (open pilot policies). The note stays on the ElevenLabs branch as its description, where "promote" reads it back; publish the verdict and the reason instead');
+  const row = agentRunRow(results, { runUrl: flags.runUrl, verdict, reason: flags.reason });
   const db = needDb(ctx);
   log(`publish — ${path.basename(resultsFile)}: ${row.summary.passed}/${row.summary.runs} runs passed across ${row.summary.tests} test(s)${row.verdict ? ', ' + row.verdict.toUpperCase() : ''} -> agent_runs`);
   let stored;
@@ -1154,14 +1251,18 @@ async function publish(ctx, flags) {
   if (ctx.dryRun) { log('  (dry run) nothing published'); return 0; }
   const id = stored[0] && stored[0].id;
   if (!id) { log('agent_runs stored nothing — the insert matched no policy (re-run supabase/schema.sql)'); return 1; }
-  log(`published agent_runs ${id} (${Object.keys(row.summary.by_scenario).length} scenario(s), ${row.label || 'no label'}${row.run_url ? ', ' + row.run_url : ''}) — dashboard.html shows it per scenario`);
+  const rows = [
+    `${Object.keys(row.summary.by_scenario).length} scenario(s)`,
+    `${Object.keys(row.summary.by_situation).length} situation(s)`,
+  ].join(', ');
+  log(`published agent_runs ${id} (${rows}, ${row.label || 'no label'}${row.run_url ? ', ' + row.run_url : ''}) — dashboard.html shows it per row`);
   return 0;
 }
 
 /* ---------- the command line ---------- */
 
 const COMMANDS = { configure, 'push-tests': pushTests, run, pull, score, cut, propose, branch, compare, promote, publish };
-const BOOLEAN_FLAGS = new Set(['dry-run', 'agent', 'no-stamp', 'force', 'help', 'no-mock-tools']);
+const BOOLEAN_FLAGS = new Set(['dry-run', 'agent', 'no-stamp', 'force', 'help', 'no-mock-tools', 'quiet']);
 
 export function parseArgs(argv) {
   const out = { cmd: null, flags: {}, rest: [] };
@@ -1189,11 +1290,14 @@ const USAGE = `usage: node loop.mjs <command> [--dry-run] [--dir DIR] [flags]
   pull       [--since ISO | --days N=14] [--no-stamp]
   score      [--results FILE] [--field FILE]
   cut        [--field FILE]
-  propose    [--results FILE] [--field FILE] [--prompt FILE | --agent]
+  propose    [--results FILE] [--field FILE] [--prompt FILE | --agent] [--quiet]
   branch     --proposal FILE [--name TEXT]
   compare    --base FILE --branch FILE [--margin 0.1]
-  promote    --branch ID [--target BRANCH_ID] [--proposal FILE] [--force]
-  publish    [--results FILE] [--run-url URL] [--verdict accept|reject] [--reason TEXT] [--note TEXT]
+  promote    --branch ID [--target BRANCH_ID] [--force] [--quiet]
+  publish    [--results FILE] [--run-url URL] [--verdict accept|reject] [--reason TEXT]
+
+--quiet keeps the prompt, its diff and a branch's version note off stdout — for a run whose log is
+        published (the buttons pass it). Counts, ids, pass rates and the simulated transcripts still print.
 
 env: ELEVENLABS_API_KEY (secret) ELEVENLABS_AGENT_ID OPENAI_API_KEY (secret) LOOP_MODEL=gpt-4o
      SUPABASE_URL / SUPABASE_ANON_KEY (default: the kit's project; pull reads it, publish writes it) LOOP_DIR (same as --dir)
