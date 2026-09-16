@@ -60,7 +60,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { makeHttp, elevenLabs, openai, DEFAULT_BASE } from './lib/elevenlabs-api.mjs';
-import { supabase, agentMessages, scenarioRows, DEFAULT_URL, DEFAULT_KEY } from './lib/supabase.mjs';
+import { supabase, agentMessages, scenarioRows, acceptedFindings, DEFAULT_URL, DEFAULT_KEY } from './lib/supabase.mjs';
 import { table, pct, stamp, reasonKey, unifiedDiff, signed } from './lib/report.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -881,7 +881,10 @@ const PROPOSE_SYSTEM =
   'note: one line (max 120 chars) saying what changed and why, grounded in the evidence — it becomes the ' +
   'version description. rationale: two or three sentences tying each edit to a failing test or a graded debrief. ' +
   'Be conservative: change only what the failures actually support; if the evidence is too thin to justify an ' +
-  'edit, return the prompt unchanged and say so in the note.';
+  'edit, return the prompt unchanged and say so in the note. ' +
+  'designer_decisions lists behaviours the designer has ruled fine by design, each with the reason: never propose ' +
+  'an edit that changes, removes or "fixes" one of them, and disregard any rationale or graded note that complains ' +
+  'about one of them — those are settled, whatever the evidence says.';
 
 /* conversation_config.agent.prompt.prompt, on an agent or a pulled config */
 const promptOf = j => {
@@ -997,6 +1000,14 @@ async function propose(ctx, flags) {
   const key = ctx.env.OPENAI_API_KEY;
   if (!key && !ctx.dryRun) throw new UsageError('OPENAI_API_KEY is not set — the proposer is the repo\'s existing provider (scenario-ai uses the same key)');
   const model = ctx.env.LOOP_MODEL || 'gpt-4o';
+  /* the designer's decisions — findings marked NOT A PROBLEM on the
+   * dashboard's RUNS tab. They go to the proposer as rules, not as
+   * evidence: a failing rationale that complains about one of them is
+   * not a reason to edit the prompt */
+  const accepted = await acceptedFindings(needDb(ctx));
+  if (accepted === null) log('no accepted_findings table yet (supabase/schema.sql) — the proposer gets no designer decisions');
+  else if (accepted.length) log(`${accepted.length} finding(s) the designer marked as fine by design — the proposer is told to leave them be`);
+  evidence.designer_decisions = (accepted || []).map(a => ({ finding: String(a.title || a.key || ''), why: String(a.note || '') }));
   log(`propose — prompt from ${source} (${base.length} chars); ${evidence.failing_tests.length} failing test(s), ${evidence.bad_debriefs.length} debrief(s) graded bad; model ${model}`);
   const fit = fitEvidence(base, evidence);
   if (!fit.fits || (!fit.evidence.failing_tests.length && !fit.evidence.bad_debriefs.length)) {

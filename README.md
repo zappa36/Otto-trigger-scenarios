@@ -397,7 +397,10 @@ the safe way to see what a command does.
    live), the failing tests with their rationales, the debriefs graded
    bad, and how often each evaluation criterion failed in the field,
    and asks for the **smallest edit the evidence supports** — every
-   `{{dynamic_variable}}` kept, nothing restructured. The reply is
+   `{{dynamic_variable}}` kept, nothing restructured. It also gets
+   every finding you marked NOT A PROBLEM on the RUNS tab, with your
+   reason, as a rule: those are settled, whatever the evidence says.
+   The reply is
    refused if it changes nothing or grows the prompt by more than a
    quarter, because a longer prompt is not a better one. What lands is
    `proposals/<stamp>.json`: the prompt, a one-line note, the rationale
@@ -548,7 +551,8 @@ to hold:
 3. **Natural** — a colleague on the phone: a short acknowledgement, plain
    words, no lecturing, no form-filling, no reading the report back.
 4. **No invention** — no fact the driver did not give.
-5. **Length** — two or three questions in the whole conversation.
+5. **Length** — two or three follow-up questions once the driver has said
+   what happened; the opening greeting does not count.
 6. **Close** — the tip confirmed in one line, then the driver let go.
 
 The control row swaps the first, fifth and sixth for "accept that there
@@ -556,6 +560,21 @@ is nothing to report and let them go"; the vague voice adds a seventh —
 one open question first, because the driver's opening line did not say
 what happened. The run, the pass rates and the failing conversations
 land on the situation's own card, the same way the trigger suite's do.
+
+**Reading a run, and ruling on it.** The dashboard's RUNS tab turns each
+suite run into a report in plain words: what went well, what went
+wrong (how many calls showed each problem), and what to change in the
+prompt — each suggestion with its reason and a before/after example.
+Some of what it flags you will not agree with: Otto's first message
+"Hello! How can I help you today?" is the platform's greeting, spoken
+before his first turn, and it is correct by design. Every finding and
+every suggestion carries a **NOT A PROBLEM** button. Press it and the
+finding lands in the `accepted_findings` table with your reason; from
+then on no run report raises it again (a collapsed "you said these are
+fine" list keeps it in view, with UNDO), and the loop's `propose` step
+hands the list to the proposer as decisions it must not touch. Your
+reason is world-readable like the rest of the pilot, so keep prompt
+text out of it.
 
 **Your prompt never leaves ElevenLabs.** This repository is public, so
 the loop prints no prompt, no diff and no proposal note — not in a job

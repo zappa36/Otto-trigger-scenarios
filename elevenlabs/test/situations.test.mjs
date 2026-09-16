@@ -113,6 +113,10 @@ test('a situation is set at its own stop, and the driver reports it in its own w
   assert.ok(dog.body.success_conditions[0].includes(row.follow_up[0]), 'relevance names what a fitting follow-up asks about');
   assert.ok(dog.body.success_conditions[0].includes(row.off_topic[0]), 'and what would not fit');
   assert.ok(dog.body.success_conditions[5].includes(row.tip.replace(/\.$/, '')), 'the close names the tip');
+  /* the platform speaks the greeting before Otto's first turn — it is not one of his questions */
+  assert.match(dog.body.success_conditions[4], /^LENGTH — after the driver has said what happened, Otto asks two or three follow-up questions/);
+  assert.match(dog.body.success_conditions[4], /opening greeting[^.]*does not count/);
+  assert.doesNotMatch(dog.body.success_conditions[4], /opening question included/);
   /* only the cooperative driver is allowed to volunteer anything */
   assert.doesNotMatch(dog.body.simulation_scenario, /you may add one useful detail/);
   assert.match(built.find(t => t.file === 'situation-02-a-big-dog-at-the-door--cooperative.json').body.simulation_scenario, /you may add one useful detail/);
