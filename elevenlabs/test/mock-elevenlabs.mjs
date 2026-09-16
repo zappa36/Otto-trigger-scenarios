@@ -66,6 +66,9 @@ export async function startMock(fixtureDir) {
       { id: 'tool_end', tool_config: { name: 'end_call', type: 'system' } },
     ];
     state.failNext = null;
+    /* the API refusing an update in place, as it did on a live push:
+     * a 422 whose union error names no usable variant */
+    state.refuseUpdate = false;
     /* an invocation that never finishes, for the poll timeout */
     state.neverComplete = false;
     /* the proposer's finish_reason — 'length' is a reply the token
@@ -99,6 +102,7 @@ export async function startMock(fixtureDir) {
       return [200, { tests, has_more: false, next_cursor: null }];
     }],
     ['PUT', /^\/v1\/convai\/agent-testing\/([^/]+)$/, (m, q, body) => {
+      if (state.refuseUpdate) return [422, { detail: [{ type: 'literal_error', loc: ['body', 'function-after[validate_chat_history_ending(), UpdateResponseUnitTestRequest]', 'type'], msg: "Input should be <TestType.RESPONSE: 'llm'>", input: 'simulation' }] }];
       const t = state.tests.find(x => x.id === m[1]);
       if (!t) return [404, { detail: { status: 'test_not_found', message: `No test ${m[1]}` } }];
       t.body = body; t.name = body.name;
@@ -129,7 +133,11 @@ export async function startMock(fixtureDir) {
       const c = fixture.conversations.find(x => x.list.conversation_id === m[1]);
       return c ? [200, c.detail] : [404, { detail: 'not found' }];
     }],
-    ['GET', /^\/v1\/convai\/tools$/, () => [200, { tools: state.tools, has_more: false, next_cursor: null }]],
+    ['DELETE', /^\/v1\/convai\/agent-testing\/([^/]+)$/, (m) => {
+      state.tests = state.tests.filter(t => t.id !== m[1]);
+      return [200, {}];
+    }],
+        ['GET', /^\/v1\/convai\/tools$/, () => [200, { tools: state.tools, has_more: false, next_cursor: null }]],
     ['GET', /^\/v1\/convai\/agents\/([^/]+)$/, () => [200, state.agent]],
     ['PATCH', /^\/v1\/convai\/agents\/([^/]+)$/, (m, q, body) => {
       /* the reference does not say whether platform_settings merges

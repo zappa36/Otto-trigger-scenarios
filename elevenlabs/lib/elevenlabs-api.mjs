@@ -26,7 +26,9 @@ export const DEFAULT_BASE = 'https://api.elevenlabs.io';
 
 export class ApiError extends Error {
   constructor(status, method, path, text) {
-    super(`${status} from ${method} ${path}: ${String(text || '').slice(0, 300)}`);
+    /* 300 characters cut a 422 off mid-union and hid which variant the
+     * API actually objected to; validation replies are long by nature */
+    super(`${status} from ${method} ${path}: ${String(text || '').slice(0, status === 422 ? 2000 : 300)}`);
     this.status = status;
   }
 }
@@ -123,6 +125,9 @@ export function elevenLabs({ apiKey, base = DEFAULT_BASE, http }) {
      * tools, each { id, tool_config: { name, type: client|webhook|system|mcp } };
      * an agent names its own by id in conversation_config.agent.prompt.tool_ids */
     listTools: (query = {}) => paginate('/v1/convai/tools', query, 'tools'),
+    /* https://elevenlabs.io/docs/api-reference/tests/delete — a test the
+     * API will no longer update is replaced rather than left in the way */
+    deleteTest: id => call('DELETE', `/v1/convai/agent-testing/${encodeURIComponent(id)}`),
     /* https://elevenlabs.io/docs/api-reference/tests/run-tests — body
      * { tests: [{test_id}], branch_id?, repeat_count?, agent_config_override? } */
     runTests: (agentId, body) => call('POST', `/v1/convai/agents/${encodeURIComponent(agentId)}/run-tests`, { body }),

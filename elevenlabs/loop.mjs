@@ -334,8 +334,16 @@ function withMocks(req, mocks) {
 
 async function pushTests(ctx, flags = {}) {
   const { log } = ctx;
-  const configs = listConfigs(ctx.p.configs, log);
-  if (!configs.length) { log(`no test files under ${ctx.p.configs} — run "npm run generate" first (regressions come from "cut")`); return 1; }
+  /* Only the suite being pushed. A situations baseline has no business
+   * rewriting the 33 trigger tests: it costs a round trip each and one
+   * of them refusing an update took the whole push down with it, before
+   * a single conversation had run. --filter takes the same text as
+   * `run`, so the workflow hands both the same string. */
+  const all = listConfigs(ctx.p.configs, log);
+  const configs = flags.filter ? all.filter(c => c.body.name.includes(flags.filter)) : all;
+  if (!all.length) { log(`no test files under ${ctx.p.configs} — run "npm run generate" first (regressions come from "cut")`); return 1; }
+  if (!configs.length) { log(`no test file under ${ctx.p.configs} is named like "${flags.filter}" — nothing to push`); return 1; }
+  if (configs.length !== all.length) log(`pushing ${configs.length} of ${all.length} test file(s) — those named like "${flags.filter}"`);
   const lock = readLock(ctx);
   const { api, agentId } = needEleven(ctx);
   const mocks = flags.noMockTools ? null : await toolMocks(api, agentId);
@@ -345,6 +353,7 @@ async function pushTests(ctx, flags = {}) {
   else log('the agent carries no tools to mock');
   const rows = [];
   let byName = null;
+  let replaced = 0;
   for (const { file, body } of configs) {
     const { _otto, ...bare } = body;
     const req = withMocks(bare, mocks);
@@ -353,8 +362,17 @@ async function pushTests(ctx, flags = {}) {
     let action = '';
     if (id) {
       try { await api.updateTest(id, req); action = 'updated'; } catch (e) {
-        if (e.status !== 404) throw e;
-        /* deleted in the workspace since the lock was written */
+        /* 404: deleted in the workspace since the lock was written.
+         * 422: the test that is there will not become this one — a
+         * shape the update endpoint refuses, or a type that cannot be
+         * changed in place. Neither is a reason to abandon the other
+         * seventy-nine: drop that test and make it again. */
+        if (e.status !== 404 && e.status !== 422) throw e;
+        if (e.status === 422) {
+          log(`  ${name}: the existing test would not take the update (${e.message.slice(0, 160)}…) — replacing it`);
+          try { await api.deleteTest(id); } catch (d) { log(`  (could not delete ${id}: ${d.message.slice(0, 120)})`); }
+          replaced++;
+        }
         id = null;
       }
     }
@@ -363,8 +381,16 @@ async function pushTests(ctx, flags = {}) {
        * the lock may be missing (fresh clone) while the tests exist */
       if (!byName) byName = await findByName(api, 'Otto · ');
       const existing = byName.get(name);
-      if (existing) { id = existing; await api.updateTest(id, req); action = 'updated (found by name)'; }
-      else { const res = await api.createTest(req); id = res ? res.id : null; action = 'created'; }
+      if (existing) {
+        try { await api.updateTest(existing, req); id = existing; action = 'updated (found by name)'; } catch (e) {
+          if (e.status !== 422) throw e;
+          try { await api.deleteTest(existing); } catch { /* it stays in the workspace */ }
+          replaced++;
+        }
+      }
+      if (!id) {
+        const res = await api.createTest(req); id = res ? res.id : null; action = action || 'created';
+      }
     }
     if (id) lock[name] = id;
     rows.push({ name, action: ctx.dryRun ? 'would be ' + action : action, id: id || '—', file: path.relative(ctx.dir, file) });
@@ -376,6 +402,7 @@ async function pushTests(ctx, flags = {}) {
     { key: 'id', label: 'id', width: 28 }, { key: 'file', label: 'file', width: 60 },
   ]));
   log(`\n${rows.length} test(s) ${ctx.dryRun ? 'would be' : ''} pushed; ${ctx.dryRun ? 'tests.lock.json untouched (dry run)' : 'tests.lock.json written'}` +
+    (replaced ? `; ${replaced} test(s) the API would not update were replaced` : '') +
     (stale.length ? `; ${stale.length} lock entr${stale.length === 1 ? 'y' : 'ies'} without a file kept (${stale.slice(0, 3).join(', ')}${stale.length > 3 ? ', …' : ''})` : ''));
   return 0;
 }
@@ -1284,7 +1311,8 @@ export function parseArgs(argv) {
 const USAGE = `usage: node loop.mjs <command> [--dry-run] [--dir DIR] [flags]
 
   configure                       evaluation criteria + data collection + overrides (analysis.json) onto the agent
-  push-tests [--no-mock-tools]    test_configs/**.json -> ElevenLabs tests, by name; writes tests.lock.json;
+  push-tests [--filter TEXT] [--no-mock-tools]
+                                  test_configs/**.json -> ElevenLabs tests, by name; writes tests.lock.json;
                                   the agent's tools are mocked for the suite (a client tool has no phone to answer it)
   run        [--branch ID] [--repeat N=3] [--filter TEXT] [--label TEXT]
   pull       [--since ISO | --days N=14] [--no-stamp]

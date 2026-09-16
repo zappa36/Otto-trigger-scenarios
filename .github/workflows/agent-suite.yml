@@ -307,9 +307,12 @@ jobs:
         run: node generate-tests.mjs --situations
 
       # ---------- baseline ----------
+      # only the suite being run: a situations baseline has no business
+      # rewriting the trigger tests, and one of those refusing an update
+      # used to take the whole push down before a conversation had run
       - name: Push the test files to ElevenLabs
         if: steps.plan.outputs.go == 'true' && (steps.plan.outputs.action == 'baseline' || steps.plan.outputs.action == 'field' || steps.plan.outputs.action == 'propose' || steps.plan.outputs.action == 'try')
-        run: node loop.mjs push-tests | tee "$RUNNER_TEMP/push-tests.txt"
+        run: node loop.mjs push-tests ${FILTER:+--filter "$FILTER"} | tee "$RUNNER_TEMP/push-tests.txt"
 
       # The loop exits 0 once the suite has run, whatever the pass rates —
       # a simulated tester is not deterministic, so the rates in the
@@ -346,7 +349,7 @@ jobs:
           node loop.mjs score | tee "$RUNNER_TEMP/score.txt" || true
           node loop.mjs cut | tee "$RUNNER_TEMP/cut.txt"
           # the regressions just cut join the suite
-          node loop.mjs push-tests | tee -a "$RUNNER_TEMP/push-tests.txt"
+          node loop.mjs push-tests ${FILTER:+--filter "$FILTER"} | tee -a "$RUNNER_TEMP/push-tests.txt"
           { echo; echo "### The field — the last $DAYS days"; echo; echo '```'; cat "$RUNNER_TEMP/pull.txt" "$RUNNER_TEMP/score.txt" "$RUNNER_TEMP/cut.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           if [ "$ACTION" = "field" ]; then
             echo "Next button: **propose** — a prompt diff from these failures, tried on an agent branch." >> "$GITHUB_STEP_SUMMARY"
