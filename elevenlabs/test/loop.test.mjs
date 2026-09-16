@@ -915,8 +915,23 @@ test('the why line names the failed criterion, not the verdict word', async () =
   const noSummary = { rationale: { messages: ['m1', 'm2'] } };
   assert.equal(whyOf(noSummary), 'm1 m2');
   assert.equal(whyOf({}), 'no rationale returned');
-  const long = { rationale: { summary: 'Evaluation failed', messages: ['Criterion 2: ' + 'the agent never '.repeat(40)] } };
+  const long = { rationale: { summary: 'Evaluation failed', messages: ['Criterion 6: the closing tip omits ' + 'the time restriction '.repeat(30)] } };
   assert.ok(whyOf(long).length <= 240 && whyOf(long).endsWith('…'));
+
+  /* the evaluator writes a paragraph for the conditions it was happy
+   * with too, in the same voice — quoting one of those as the reason a
+   * test failed is worse than saying nothing */
+  const allPassing = { rationale: { summary: 'Evaluation failed', messages: [
+    'Criterion 2: Otto never asks the driver to repeat something already stated. Each question adds new information.',
+    'Criterion 3: No form-filling language or lecturing. Plain spoken throughout.',
+    'Criterion 4: Otto states no invented facts.',
+  ] } };
+  assert.match(whyOf(allPassing), /read them in full/);
+  const mixed = { rationale: { summary: 'Evaluation failed', messages: [
+    'Criterion 3: No form-filling language or lecturing.',
+    'Criterion 6: Otto never provides a closing tip for the next driver.',
+  ] } };
+  assert.match(whyOf(mixed), /^Criterion 6:/);
 });
 
 /* ---------- the situation suite, and the prompt that must not leak ---------- */

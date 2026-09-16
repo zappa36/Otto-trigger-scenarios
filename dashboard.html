@@ -622,6 +622,21 @@
     color: #8e9bb0;
     margin-bottom: 1px;
   }
+  /* two links can sit in the block's head (the full reasons, the GitHub
+   * run) — one box pushed right, the links inside it left alone */
+  .agent-head .agent-links { margin-left: auto; display: flex; gap: 12px; flex-wrap: wrap; }
+  .agent-head .agent-links .row-link { margin-left: 0; }
+  /* `why` is the FIRST LINE of the evaluator's text, not the verdict —
+   * it can quote a criterion that passed, so it is labelled as what it
+   * is wherever it appears */
+  .agent-why-tag {
+    display: block;
+    font-family: ui-monospace, monospace;
+    font-size: 8.5px;
+    letter-spacing: .1em;
+    color: #8e9bb0;
+    margin: 2px 0 1px;
+  }
   .agent-branch { margin: 9px 0 0; font-size: 12px; color: #d7dfe9; }
   .agent-branch .ok { color: #7ce0b8; }
   .agent-branch .bad { color: #ffab8a; }
@@ -1043,6 +1058,287 @@
   }
   .ver-item:first-of-type { border-top: none; }
   .ver-note { flex: 1; min-width: 0; color: #aeb9c8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* ---------- the RUNS tab ----------
+   * A report, not a list of cards: full width of the list column, the
+   * same dark card chrome so it belongs, and the suite's purple for
+   * everything that came out of the simulated drivers. Two prefixes
+   * keep it apart from the run LOG on a scenario card (.run-*):
+   * .rl-* is the list of runs, .rs-* is one run's summary. */
+  .rl-list { display: flex; flex-direction: column; gap: 10px; }
+  .rl-intro { margin: 0 0 2px; font-size: 12.5px; color: #94a1b2; }
+  .rl-empty {
+    padding: 14px 16px;
+    border-radius: 14px;
+    border: 1px solid rgba(195,166,255,.3);
+    background: rgba(195,166,255,.05);
+  }
+  .rl-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid rgba(195,166,255,.26);
+    background: rgba(9,17,26,.92);
+    cursor: pointer;
+  }
+  .rl-row:hover, .rl-row:focus-visible {
+    border-color: rgba(195,166,255,.6);
+    background: rgba(195,166,255,.07);
+    outline: none;
+  }
+  .rl-when { font-size: 13px; color: #eef2f7; min-width: 92px; }
+  .rl-label, .rl-tests {
+    font-family: ui-monospace, monospace;
+    font-size: 9.5px;
+    letter-spacing: .09em;
+    color: #94a1b2;
+  }
+  .rl-verdict {
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: .1em;
+  }
+  .rl-verdict.ok  { color: #7ce0b8; border-color: rgba(70,211,154,.45); background: rgba(70,211,154,.09); }
+  .rl-verdict.bad { color: #ffab8a; border-color: rgba(255,120,69,.5);  background: rgba(255,120,69,.1); }
+  .rl-go {
+    margin-left: auto;
+    font-family: ui-monospace, monospace;
+    font-size: 9.5px;
+    letter-spacing: .09em;
+    color: #c3a6ff;
+  }
+
+  /* ---------- one run's summary ---------- */
+  .rs { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .rs-head {
+    padding: 14px 16px 15px;
+    border-radius: 16px;
+    border: 1px solid rgba(195,166,255,.3);
+    background: rgba(195,166,255,.06);
+  }
+  .rs-head-top { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+  .rs-head-top .row-link { margin-left: auto; }
+  .rs-back { flex: none; }
+  .rs-h1 {
+    margin: 0;
+    font-size: 19px;
+    line-height: 1.3;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex-wrap: wrap;
+  }
+  .rs-sub { margin: 5px 0 0; font-size: 13.5px; color: #cfe9f2; }
+  .rs-meta { margin: 7px 0 0; font-size: 11.5px; color: #94a1b2; }
+  .rs-meta .ok  { color: #7ce0b8; }
+  .rs-meta .bad { color: #ffab8a; }
+  .rs-note { margin: 10px 0 0; font-size: 12px; color: #aeb9c8; line-height: 1.55; }
+  .rs-note b { color: #d7dfe9; }
+
+  .rs-sec {
+    padding: 13px 16px 16px;
+    border-radius: 16px;
+    border: 1px solid rgba(140,165,200,.18);
+    background: rgba(9,17,26,.92);
+  }
+  .rs-h2 {
+    margin: 0 0 10px;
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: #7fd6ea;
+  }
+  .rs-k {
+    margin: 12px 0 6px;
+    font-family: ui-monospace, monospace;
+    font-size: 9.5px;
+    letter-spacing: .1em;
+    color: #8e9bb0;
+  }
+  .rs-k:first-child { margin-top: 0; }
+  /* the rule under a section heading is prose, not a label — it must
+   * not inherit the heading's monospace tracking */
+  .rs-k .rs-rule {
+    display: block;
+    margin-top: 3px;
+    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+  .rs-ul { margin: 4px 0 0; padding-left: 18px; font-size: 12.5px; color: #d7dfe9; line-height: 1.6; }
+  /* the counting rule, printed next to every count so it can be checked */
+  .rs-rule { margin: 6px 0 0; font-size: 11.5px; color: #8b97a8; line-height: 1.55; }
+  .rs-rule b { color: #aeb9c8; }
+  .rs-explain { margin: 7px 0 0; font-size: 12.5px; color: #d7dfe9; line-height: 1.6; }
+
+  /* the two observed facts that are measurements, not flags */
+  .rs-obs {
+    margin: 0 0 4px;
+    padding: 8px 11px;
+    border-radius: 11px;
+    border: 1px solid rgba(140,165,200,.2);
+    background: rgba(7,13,22,.6);
+    font-size: 12.5px;
+    color: #aeb9c8;
+    line-height: 1.55;
+  }
+  .rs-best { display: flex; flex-direction: column; gap: 5px; }
+  /* a grid, not a flex row: a long situation title must not push its
+   * persona chips onto a line of their own and break the column */
+  .rs-best-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; }
+  .rs-best-t { font-size: 12.5px; color: #eef2f7; }
+  .rs-chips { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
+
+  /* one ranked pattern */
+  .rs-pat {
+    display: block;
+    margin-top: 12px;
+    padding: 11px 13px;
+    border-radius: 13px;
+    border: 1px solid rgba(255,120,69,.26);
+    background: rgba(255,120,69,.04);
+  }
+  /* the finding whose cause is a SETTING and not the prompt — loudest
+   * on the page, because changing the prompt would not fix it */
+  .rs-pat.setting {
+    border-color: rgba(255,217,94,.55);
+    background: rgba(255,217,94,.07);
+  }
+  .rs-pat-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+  .rs-pat-head h4 { margin: 0; font-size: 14px; flex: 1; min-width: 200px; }
+  .rs-rank {
+    flex: none;
+    width: 22px; height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 7px;
+    border: 1px solid rgba(140,165,200,.3);
+    font-family: ui-monospace, monospace;
+    font-size: 10.5px;
+    color: #94a1b2;
+  }
+  .rs-tag {
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(140,165,200,.3);
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: .1em;
+    color: #aeb9c8;
+  }
+  .rs-tag.loud { color: #ffd95e; border-color: rgba(255,217,94,.6); background: rgba(255,217,94,.1); }
+  /* the tip the row wants against the line Otto actually ended on */
+  .rs-cmp { margin: 8px 0 0; font-size: 12.5px; color: #d7dfe9; line-height: 1.6; }
+  .rs-cmp b {
+    display: block;
+    margin-top: 6px;
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: .1em;
+    color: #8e9bb0;
+  }
+  .rs-ex { margin-top: 9px; }
+  .rs-reasons { margin-top: 9px; }
+  .rs-reasons .cmp-k {
+    display: block;
+    margin-bottom: 5px;
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: .1em;
+    color: #8e9bb0;
+  }
+  .rs-reason { margin: 6px 0 0; padding-left: 9px; border-left: 2px solid rgba(195,166,255,.28); font-size: 12px; color: #aeb9c8; line-height: 1.55; }
+  .rs-reason b {
+    display: block;
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: .08em;
+    color: #c3a6ff;
+    margin-bottom: 2px;
+    text-transform: uppercase;
+  }
+  .rs-crit { display: block; margin-top: 14px; }
+
+  /* a suggestion: what to change, where, and the text to paste */
+  .rs-warn {
+    margin: 0 0 10px;
+    padding: 9px 11px;
+    border-radius: 11px;
+    border: 1px solid rgba(255,217,94,.45);
+    background: rgba(255,217,94,.08);
+    font-size: 12.5px;
+    color: #ffd95e;
+    line-height: 1.55;
+  }
+  .rs-sug {
+    display: block;
+    margin-top: 12px;
+    padding: 11px 13px;
+    border-radius: 13px;
+    border: 1px solid rgba(60,192,224,.26);
+    background: rgba(60,192,224,.04);
+  }
+  .rs-sug.setting { border-color: rgba(255,217,94,.55); background: rgba(255,217,94,.07); }
+  .rs-sug-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+  .rs-sug-head h4 { margin: 0; font-size: 14px; flex: 1; min-width: 200px; }
+  .rs-pre {
+    margin: 9px 0 0;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(140,165,200,.28);
+    background: rgba(7,13,22,.8);
+    color: #eef2f7;
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    user-select: all;
+  }
+  .rs-sug-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+  .rs-conf { margin: 14px 0 0; font-size: 11.5px; color: #8b97a8; }
+
+  /* the tables: the per-criterion tally, and every situation worst first */
+  .rs-tbl { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12.5px; }
+  .rs-tbl th {
+    text-align: left;
+    padding: 5px 8px 6px;
+    border-bottom: 1px solid rgba(140,165,200,.2);
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: #8e9bb0;
+    font-weight: 400;
+  }
+  .rs-tbl td { padding: 6px 8px; border-bottom: 1px solid rgba(140,165,200,.1); color: #d7dfe9; vertical-align: middle; }
+  .rs-tbl tbody tr:last-child td { border-bottom: none; }
+  .rs-sits tbody tr { cursor: pointer; }
+  .rs-sits tbody tr:hover, .rs-sits tbody tr:focus-visible { background: rgba(60,192,224,.07); outline: none; }
+  .rs-sits tbody tr.nolink { cursor: default; }
+  .rs-sits tbody tr.nolink:hover { background: rgba(140,165,200,.04); }
+  .rs-sit-t { color: #eef2f7; }
+  .rs-fail-n { font-family: ui-monospace, monospace; color: #ffab8a; }
+  .rs-na { color: #6d7a8c; }
+
+  /* 900 wide: the summary keeps its shape, the tables lose the chrome
+   * they can afford to lose rather than scrolling sideways */
+  @media (max-width: 1000px) {
+    .rs-h1 { font-size: 17px; }
+    .rl-when { min-width: 0; }
+    .rl-go { display: none; }
+    .rs-best-row { grid-template-columns: auto minmax(0, 1fr); }
+    .rs-chips { grid-column: 1 / -1; justify-content: flex-start; }
+    .rs-tbl { font-size: 12px; }
+    .rs-tbl th, .rs-tbl td { padding: 5px 5px; }
+  }
 </style>
 </head>
 <body>

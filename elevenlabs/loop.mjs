@@ -457,15 +457,26 @@ const oneLine = x => String(x == null ? '' : x).replace(/\s+/g, ' ').trim();
  * worth a chip; a summary that says something of its own ("Unsupported
  * client tool") stands. */
 const GENERIC_SUMMARY = /^(evaluation failed|failed|failure|test failed)\.?$/i;
-const FAIL_CUES = /\b(not met|not satisfied|fails?|failed|exceed(s|ed|ing)?|never|does not|did not|doesn't|didn't|no follow-up|invent(s|ed)?|fabricat|violat|missing|contradict)\b|non (soddisfatt|è soddisfatt|chiede|fa riferimento)|supera(ndo)?|non soddisfatto/i;
+/* The evaluator writes one paragraph per condition, for the ones it was
+ * happy with as well as the ones it was not, in the same prose voice —
+ * so a loose search for failure words picks the wrong paragraph and the
+ * chip ends up quoting a condition that PASSED ("Otto never asks the
+ * driver to repeat something already stated"). Only unambiguous
+ * verdict language counts, and a negation in front of it disqualifies
+ * it ("No form-filling language"). When nothing is unambiguous the line
+ * says to read the reasons rather than guessing at them. */
+const FAIL_CUES = /\b(does not meet|doesn't meet|not meet|not met|not satisfied|omits|never (provides|gives|offers|summar)|fails? to|exceed(s|ed|ing)|invented|fabricat|violat|is incomplete|without the required|no closing|form-filling)\b|non soddisfatt|supera(ndo)? il limite/i;
+const NEGATED = /\b(no|not|never|avoids?|without)\s+(\w+\s+){0,3}(form-filling|invented)/i;
 function whyOf(cr) {
   const ra = (cr && cr.rationale) || {};
   const summary = oneLine(ra.summary);
   const msgs = (ra.messages || []).map(oneLine).filter(Boolean);
   if (summary && !GENERIC_SUMMARY.test(summary)) return summary;
-  const failed = msgs.find(m => /^criteri(on|a|o) \d+/i.test(m) && FAIL_CUES.test(m));
+  const failed = msgs.find(m => /^criteri(on|a|o) \d+/i.test(m) && FAIL_CUES.test(m) && !NEGATED.test(m));
   /* no summary at all: the messages are the whole rationale, as before */
-  const line = failed || (summary ? msgs[0] : msgs.join(' ')) || summary || 'no rationale returned';
+  const line = failed
+    || (summary ? (msgs.length ? 'the reasons name no single condition — read them in full' : '') : msgs.join(' '))
+    || summary || 'no rationale returned';
   return line.length > 240 ? line.slice(0, 237).replace(/\s+\S*$/, '') + '…' : line;
 }
 

@@ -107,6 +107,10 @@ const notesEditing = () => {
  * live. The state itself is kept (it lives JS-side), so flipping back to
  * TESTING restores drags, drafts and proposals exactly as left. */
 const uiBusy = () => !!proposalBusy
+  /* a run summary being read is as good as an open editor: the 30 s
+   * poll would rebuild the page and fold every expanded conversation
+   * back up under the reader — ↻ REFRESH is there when they are done */
+  || (runsTabOn() && !!openRunId)
   || (cardView !== 'demo' && !!(tune || fbRec || proposal || msgEdit || gradeBusy() || sitDirty()))
   || !el('form-sheet').hidden || !el('stop-sheet').hidden || notesEditing();
 
@@ -726,6 +730,9 @@ async function loadAll() {
   /* a draft whose row is gone (deleted elsewhere, or a reload that no
    * longer carries it) has nothing left to save onto */
   if (sitEdit && !situations.some(s => s.id === sitEdit.id)) sitEdit = null;
+  /* the run analysis is cached per run, and it reads the situation rows
+   * for their tips — a reload that changed either invalidates it */
+  runAnalysisCache = { id: null, out: null };
 }
 
 /* the order the backend already returns — kept here too, so a row added
@@ -763,7 +770,14 @@ function renderStats() {
    * how many of them the suite has results for are */
   const suite = agentSuite();
   const parts = [];
-  if (sitTabOn()) {
+  if (runsTabOn()) {
+    parts.push(`${agentRuns.length} suite run${agentRuns.length === 1 ? '' : 's'} on file`);
+    const open = openRunId && runById(openRunId);
+    if (open) {
+      const roll = runRollup(open);
+      parts.push(`reading the run of ${fmtAgo(agentRanAt(open))} · ${roll.passed} of ${roll.conv} conversations passed`);
+    }
+  } else if (sitTabOn()) {
     parts.push(`${situations.length} situation${situations.length === 1 ? '' : 's'}`);
     const withResults = situations.filter(s => agentTestsFor(suite.main, s, 'situation').length).length;
     if (withResults) parts.push(`${withResults} with results`);
@@ -787,7 +801,7 @@ function renderStats() {
       + (suite.branch ? ` · a proposed prompt ran on branch ${suite.branch.branch_id} since` : '');
     parts.push({ html: `<span class="stats-suite" title="${esc(title)}">${esc(text)}</span>` });
   }
-  if (!sitTabOn()) renderScenarioVerdicts(parts);
+  if (!sitTabOn() && !runsTabOn()) renderScenarioVerdicts(parts);
   for (const r of loadedRoutes()) {
     const rt = routeStops(r);
     const noted = rt.filter(d => dispatchNotesOf(d).length).length;
@@ -1121,6 +1135,28 @@ function renderRuns(sc) {
     </div>`;
 }
 
+/* What the suite block says when there is nothing to show yet — one
+ * wording per state, used by the card block and by the RUNS tab, so the
+ * reader is never told two different stories about the same absence.
+ * Returns '' when there ARE runs to read. */
+function suiteStateNote(situ) {
+  if (!Backend.enabled) {
+    return 'The suite runs from GitHub Actions (Actions → agent-suite → baseline) and publishes into the shared backend — keyless, this dashboard has nothing to read it from. Point config.js at the Supabase project and its results show here.';
+  }
+  if (agentRunsMissing) {
+    return 'No agent_runs table yet — re-run supabase/schema.sql once, then ↻ REFRESH. The suite\'s runs land there from Actions → agent-suite.';
+  }
+  if (agentRunsError) {
+    return `Could not read the suite\'s runs — ${esc(agentRunsError)}. ↻ REFRESH to try again.`;
+  }
+  if (!agentRuns.length) {
+    return situ
+      ? 'The suite has not run yet — Actions → agent-suite → Run workflow → baseline (suite: situations). Its results land here: one chip per voice, the failing conversations under them.'
+      : 'The suite has not run yet — Actions → agent-suite → Run workflow → baseline. Its results land here: one chip per test, the failing conversations under them.';
+  }
+  return '';
+}
+
 /* The agent suite on the card — the other half of "what Otto
  * understood": what the SIMULATED testers got out of him, between the
  * field debriefs above and the run log below. Workshop chrome, like
@@ -1144,20 +1180,10 @@ function renderAgentBlock(row, kind) {
   /* the row is shared data — only a real web address becomes a link */
   const runLink = (r, what) => (r && /^https?:\/\//i.test(String(r.run_url || ''))
     ? `<a class="row-link" href="${esc(r.run_url)}" target="_blank" rel="noopener" title="${esc(what)}">open the run ↗</a>` : '');
-  if (!Backend.enabled) {
-    return box(head() + note('The suite runs from GitHub Actions (Actions → agent-suite → baseline) and publishes into the shared backend — keyless, this dashboard has nothing to read it from. Point config.js at the Supabase project and its results show here.'));
-  }
-  if (agentRunsMissing) {
-    return box(head() + note('No agent_runs table yet — re-run supabase/schema.sql once, then ↻ REFRESH. The suite\'s runs land there from Actions → agent-suite.'));
-  }
-  if (agentRunsError) {
-    return box(head() + note(`Could not read the suite\'s runs — ${esc(agentRunsError)}. ↻ REFRESH to try again.`));
-  }
-  if (!agentRuns.length) {
-    return box(head() + note(situ
-      ? 'The suite has not run yet — Actions → agent-suite → Run workflow → baseline (suite: situations). Its results land here: one chip per voice, the failing conversations under them.'
-      : 'The suite has not run yet — Actions → agent-suite → Run workflow → baseline. Its results land here: one chip per test, the failing conversations under them.'));
-  }
+  /* one wording per state, shared with the RUNS tab: the same absence
+   * must not be explained two different ways on two surfaces */
+  const state = suiteStateNote(situ);
+  if (state) return box(head() + note(state));
   const { agentId, main, prev, branch } = agentSuite();
   if (!main && !branch) {
     return box(head() + note(`The runs on file are for another agent than this dashboard is configured for (${esc(agentId)}) — a baseline on this agent lands here.`));
@@ -1184,7 +1210,7 @@ function renderAgentBlock(row, kind) {
 
   const chips = tests.length ? `
             <div class="agent-chips">${tests.map(t =>
-    `<span class="agent-chip ${agentCls(t)}" title="${esc(`${t.name || ''} — ${+t.passed || 0} of ${+t.runs || 0} runs passed${t.why ? ' · ' + t.why : ''}`)}">${esc(agentWho(t))} ${+t.passed || 0}/${+t.runs || 0}</span>`).join('')}</div>` : '';
+    `<span class="agent-chip ${agentCls(t)}" title="${esc(`${t.name || ''} — ${+t.passed || 0} of ${+t.runs || 0} runs passed${t.why ? ' · first line of the evaluator\u2019s reasons: ' + t.why : ''}`)}">${esc(agentWho(t))} ${+t.passed || 0}/${+t.runs || 0}</span>`).join('')}</div>` : '';
 
   /* under every failing test: the evaluator's reason in one line, and
    * the conversation the simulated tester had — OTTO / TESTER turns
@@ -1200,7 +1226,7 @@ function renderAgentBlock(row, kind) {
     const rationale = String((failure && failure.rationale) || '').trim();
     return `
             <div class="agent-fail">
-              <span class="agent-fail-who">${esc(agentWho(t))}</span><span class="agent-why">${esc(why)}</span>
+              <span class="agent-fail-who">${esc(agentWho(t))}</span><span class="agent-why-tag" title="The evaluator writes one paragraph per criterion, passed or failed. This is only the FIRST LINE of that text, so it can quote a criterion that passed — it is not the reason the test failed. The full reasons, criterion by criterion, are on the RUNS tab.">FIRST LINE OF THE EVALUATOR’S REASONS · NOT THE VERDICT</span><span class="agent-why">${esc(why)}</span>
               ${list.length ? `<details class="msg-convo agent-convo">
                 <summary>THE CONVERSATION · ${list.length} TURNS</summary>
                 ${list.map(u => `<div class="msg-turn ${u.role === 'user' ? 'me' : 'ai'}"><b>${u.role === 'user' ? 'TESTER' : 'OTTO'}</b>${esc(u.message || '')}</div>`).join('')}
@@ -1254,7 +1280,17 @@ function renderAgentBlock(row, kind) {
         ? 'No test for this situation in the latest run — it is generated from these rows at run time; press baseline again.'
         : 'No test for this scenario yet — generate the tests from your rows (cd elevenlabs &amp;&amp; node generate-tests.mjs --supabase), push them, then baseline again.')
       : chips + fails;
-  return box(head(headLine, headTitle, runLink(main, 'The GitHub Actions run that produced this baseline')) + body + branchLine + fieldLine);
+  /* the card shows this row's chips and its failing conversations; the
+   * whole run — what went well, the ranked patterns, the suggestions,
+   * and the evaluator's full reasons per criterion — is one link away,
+   * landing on this row in the run's EVERY SITUATION table */
+  const full = situ && main
+    ? `<button class="row-link" type="button" data-runjump="${esc(main.id)}" data-runsit="${esc(row.id)}"
+        title="Open this run's summary on the RUNS tab, scrolled to this situation">see the full reasons ↓</button>` : '';
+  const links = full || runLink(main, 'The GitHub Actions run that produced this baseline');
+  return box(head(headLine, headTitle,
+    links ? `<span class="agent-links">${full}${runLink(main, 'The GitHub Actions run that produced this baseline')}</span>` : '')
+    + body + branchLine + fieldLine);
 }
 
 /* ---------- DEMO / TESTING — the two faces of an open card ----------
@@ -1706,6 +1742,726 @@ function renderSituationsEmpty() {
       </div>`;
 }
 
+/* ---------- the RUNS tab: one summary page per suite run ----------
+ * The suite publishes a run and the cards show it a row at a time. That
+ * answers "how did THIS situation go" and not the question actually
+ * being asked after a baseline: what went well, what went wrong, and
+ * what to change next. 240 conversations do not fit on twenty cards,
+ * and nobody reads the Actions log.
+ *
+ * So: a tab that lists the runs, and per run one page that reads like a
+ * report. It CHANGES NOTHING. Every number on it is computed here from
+ * the row the suite published, and it says which of its two sources it
+ * came from, because the two are not equally trustworthy:
+ *
+ *   OBSERVED FACTS come from the transcripts alone — counted, with the
+ *     counting rule printed next to the count so it can be checked. The
+ *     agent's opening line, how many questions were asked, whether the
+ *     closing line carried the tip. Never from the evaluator's prose.
+ *   THE EVALUATOR'S REASONS are shown verbatim, split into the
+ *     "Criterion N:" paragraphs the evaluator writes, each labelled
+ *     with what that criterion is about. They are NOT re-judged here: a
+ *     paragraph about a criterion that PASSED reads much like one about
+ *     a criterion that failed, and an earlier attempt to tell them
+ *     apart by regex got it wrong in both directions. Where a count per
+ *     criterion is given it counts only paragraphs carrying an
+ *     unmistakable marker, is labelled as such, and shows the remainder
+ *     as unclear rather than rounding it into a verdict.
+ *
+ * The prompt is confidential and is never read, shown or stored here —
+ * the suggestions are text to paste, not a diff of anything. */
+
+/* which run's summary is open (null = the list), and the situation row
+ * its EVERY SITUATION table should be scrolled to on the way in */
+let openRunId = null;
+let runFocusSit = null;
+
+const runById = id => agentRuns.find(r => r && String(r.id) === String(id)) || null;
+
+/* ---------- words ----------
+ * Every observed fact that compares two pieces of text compares CONTENT
+ * words: lowercased, stripped of punctuation, three letters or more,
+ * with the grammar dropped. Crude on purpose — the rule has to fit in
+ * the one line printed above the count. */
+const RUN_STOP = new Set(('a an the and or but if then than that this these those there here is are was were be been'
+  + ' being am do does did done doing have has had having will would shall should can could may might must to of in'
+  + ' on at by for with about from into over under again further once no not nor only own same so too very just now'
+  + ' i you he she it we they me him her us them my your his its our their as out up down off when where why how'
+  + ' what which who whom while because before after above below between both each few more most other some such'
+  + ' also got get go going one two three four five six seven eight nine ten thing things something anything nothing'
+  + ' ok okay yeah yes').split(' '));
+/* the voice tags the agent emits ([slow], [happy]) are stage direction,
+ * not speech — out before anything is counted, including the '?' count */
+const runStrip = s => String(s == null ? '' : s).replace(/\[[^\]]*\]/g, ' ');
+const runWords = s => runStrip(s).toLowerCase().replace(/[^a-z0-9äöüß\s-]/g, ' ')
+  .split(/[\s-]+/).filter(w => w.length > 2 && !RUN_STOP.has(w));
+const runBag = s => new Set(runWords(s));
+const runHits = (set, text) => { const w = runBag(text); let n = 0; set.forEach(x => { if (w.has(x)) n++; }); return n; };
+
+/* The sheet row a test was acted out from. TITLE first, then the
+ * number: the suite numbers its situations itself, and after a renumber
+ * (loadSituationSheet) those numbers collide with the sheet's — run
+ * #5 was this sheet's row #1. A tip compared against the wrong row
+ * would be worse than no tip line at all. */
+function runSitRow(t) {
+  const title = normTitle(t && t.situation_title);
+  return (title && situations.find(s => normTitle(s.title) === title))
+    || (t && t.situation_num != null && situations.find(s => s.num != null && +s.num === +t.situation_num))
+    || null;
+}
+
+/* "he told the driver he had filed it" — the agent's own words, not the
+ * evaluator's reading of them */
+const RUN_FILED = /\b(I(?:'ve| have) (logged|noted|filed|recorded)|noted (that|down)|I'?ll (log|note|file)|logged that)\b/i;
+/* capitalised words that open a sentence or an aside rather than name
+ * anything — kept out of "asserted something unsaid" */
+const RUN_NOTNAME = new Set(('thanks thank sorry okay oh wow perfect got glad great hello hi hey yes yeah nope ah'
+  + ' right sure good safe have has had is are was were can could will would should do does did just well also let'
+  + ' so and but that this it you we they if then there here no not what when where why how which who i im ill ive'
+  + ' id noted understood appreciate').split(' '));
+
+/* ---------- observed facts, one record per failing conversation ----------
+ * The published row carries ONE conversation per failing test (the
+ * first that failed), so every share below is over those conversations
+ * — said in as many words wherever a share is printed, because "50% of
+ * the failing tests" and "50% of the 240 runs" are different claims. */
+function runFacts(run) {
+  return agentRunTests(run).map(t => {
+    const f = jsonOf(t.failure);
+    const raw = f && typeof f === 'object' ? jsonOf(f.transcript) : null;
+    const turns = Array.isArray(raw) ? raw.filter(u => u && typeof u === 'object') : [];
+    if (!turns.length) return null;
+    const agent = turns.filter(u => u.role !== 'user');
+    const row = runSitRow(t);
+
+    const opener = runStrip(agent[0] && agent[0].message).trim();
+    const questions = agent.reduce((n, u) => n + (runStrip(u.message).match(/\?/g) || []).length, 0);
+
+    /* the first thing the agent said AFTER the driver's report — the
+     * turn criterion 1 is about */
+    const iUser = turns.findIndex(u => u.role === 'user');
+    const iFollow = iUser < 0 ? -1 : turns.findIndex((u, i) => i > iUser && u.role !== 'user');
+    const follow = iFollow < 0 ? '' : runStrip(turns[iFollow].message);
+
+    const filed = agent.some(u => RUN_FILED.test(runStrip(u.message)));
+
+    /* read the report back: an agent turn that repeats three or more
+     * content words from the driver's previous turn and is not the last
+     * turn of the call — a closing line is SUPPOSED to repeat the tip */
+    let readback = '';
+    for (let i = 1; i < turns.length - 1 && !readback; i++) {
+      if (turns[i].role === 'user') continue;
+      let prev = null;
+      for (let j = i - 1; j >= 0 && !prev; j--) if (turns[j].role === 'user') prev = turns[j];
+      if (prev && runHits(runBag(prev.message), turns[i].message) >= 3) readback = runStrip(turns[i].message);
+    }
+
+    /* the closing line against the tip this row exists to produce */
+    const last = runStrip(agent[agent.length - 1] && agent[agent.length - 1].message);
+    const tip = String((row && row.tip) || '').trim();
+    let tipState = '';
+    let tipHit = 0;
+    let tipOf = 0;
+    if (tip) {
+      const w = runBag(tip);
+      tipOf = w.size;
+      tipHit = runHits(w, last);
+      tipState = tipHit === 0 ? 'none' : tipHit * 2 < tipOf ? 'partial' : 'ok';
+    }
+
+    /* did the first follow-up go where the row says a relevant one goes?
+     * Only an overlap that is bigger on the OFF-TOPIC side counts as
+     * gone elsewhere: a question can fit perfectly and still share no
+     * word with the sheet's phrasing, so "no overlap" proves nothing. */
+    let onTopic = 0;
+    let offTopic = 0;
+    if (row && follow) {
+      sitList(row.follow_up).forEach(s => { onTopic += runHits(runBag(s), follow); });
+      sitList(row.off_topic).forEach(s => { offTopic += runHits(runBag(s), follow); });
+    }
+
+    /* asserted something unsaid: a name or a measurement the agent
+     * STATES in that first follow-up which is in neither the driver's
+     * words so far nor the row's opening line. Statements only — the
+     * whole point of the rule is that asking is fine and asserting is
+     * not — and mid-sentence capitals only, so a sentence opener is
+     * never mistaken for a street. */
+    const said = [row && row.driver_says, ...turns.slice(0, iFollow < 0 ? 0 : iFollow)
+      .filter(u => u.role === 'user').map(u => u.message)].join(' ');
+    const saidSet = new Set(runWords(said));
+    const unsaid = [];
+    follow.split(/(?<=[.!?])\s+/).forEach(sent => {
+      if (/\?/.test(sent)) return;
+      const toks = sent.trim().split(/\s+/);
+      toks.forEach((tok0, i) => {
+        const tok = tok0.replace(/^[^\wÄÖÜäöüß]+|[^\wÄÖÜäöüß]+$/g, '');
+        if (!tok) return;
+        const key = tok.toLowerCase().replace(/[^a-z0-9äöüß]/g, '');
+        const number = /^\d+(?:[.,]\d+)?$/.test(tok)
+          && /^(m|km|metres|meters|min|mins|minutes|hour|hours|h|kg|floor|floors|am|pm)\b/i.test(toks[i + 1] || '');
+        const name = i > 0 && /^[A-ZÄÖÜ][a-zäöüß]{2,}/.test(tok) && !RUN_NOTNAME.has(key);
+        if ((!number && !name) || !key || saidSet.has(key)) return;
+        if (new RegExp('\\b' + key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(said)) return;
+        if (unsaid.indexOf(tok) < 0) unsaid.push(tok);
+      });
+    });
+
+    return { test: t, row, turns, agentTurns: agent.length, opener, questions, follow, filed,
+      readback, last, tip, tipState, tipHit, tipOf, onTopic, offTopic, unsaid,
+      rationale: String((f && f.rationale) || '').trim() };
+  }).filter(Boolean);
+}
+
+/* ---------- the evaluator's reasons, verbatim ----------
+ * One paragraph per criterion, in a fixed order that is the same for
+ * every situation test — so the paragraph can be labelled with what it
+ * is about without reading it. */
+const RUN_CRITERIA = [
+  'the first follow-up fits what the driver reported',
+  'never asks for something already said',
+  'sounds natural — no form-filling, no reading the report back',
+  'invents nothing the driver did not say',
+  'two or three questions in the whole call',
+  'ends by confirming the tip in one line, then lets the driver go',
+  'asks one open question first — the vague driver only',
+];
+const runReasonParas = text => String(text || '').split(/\n(?=Criterion\s+\d+\s*:)/)
+  .map(p => p.trim()).filter(p => /^Criterion\s+\d+\s*:/.test(p))
+  .map(p => ({ n: +p.match(/^Criterion\s+(\d+)/)[1], text: p.replace(/^Criterion\s+\d+\s*:\s*/, '') }));
+
+/* Markers that are not open to reading: a paragraph carrying one is
+ * SAYING the criterion was missed. Per criterion, because the same word
+ * means opposite things under different ones — "invented" is the
+ * complaint under criterion 4 and background under criterion 2. A
+ * paragraph without a marker is counted as unclear, never as a pass. */
+const RUN_MARKERS = {
+  1: [/\bdoes not (?:ask|relate|address|fit|follow|connect)\b/i, /\bis not about\b/i, /\bunrelated to\b/i, /\bcould follow any\b/i],
+  2: [/\bre-?asks?\b/i, /\bre-?asking\b/i, /\basks? (?:the driver )?again\b/i, /\basked again\b/i],
+  3: [/\bform-?filling\b/i, /\bread(?:s|ing)? (?:the |his |her |it )?.{0,24}back\b/i, /\brobotic\b/i],
+  4: [/\binvent(?:ed|s|ing|ion)\b/i, /\bfabricat/i, /\basserts? (?:a|the) fact\b/i],
+  5: [/\bexceed/i, /\b(?:four|five|six|seven|4|5|6|7)\s+questions\b/i, /\btoo many questions\b/i, /\bmore than three\b/i],
+  6: [/\bdoes not (?:end|provide|include|close|state|give|confirm|summari[sz]e)\b/i, /\bno (?:explicit|clear) (?:closing|tip|summary|one-line)\b/i, /\bomits\b/i, /\bnever (?:provides|states|confirms)\b/i],
+  7: [/\brather than an open\b/i, /\bdoes not (?:ask|open|start|begin)\b/i, /\bwithout (?:asking|an open)\b/i, /\bimmediately asked a specific\b/i],
+};
+/* "doesn't re-ask", "no invented times" — a marker under a negation is
+ * the evaluator saying the opposite, so the words just before it decide */
+const RUN_NEG = /(?:n['’]t|\b(?:no|not|nothing|never|without|avoids?|avoided|absent|free of)\b)[^.;:]{0,26}$/i;
+const runSaysPlainly = (n, text) => (RUN_MARKERS[n] || []).some(re => {
+  const m = re.exec(text);
+  return !!m && !RUN_NEG.test(text.slice(Math.max(0, m.index - 32), m.index));
+});
+
+/* ---------- the run, rolled up ---------- */
+function runRollup(run) {
+  const tests = agentRunTests(run);
+  const sm = agentRunSummary(run) || {};
+  const conv = +sm.runs > 0 ? +sm.runs : tests.reduce((a, t) => a + (+t.runs || 0), 0);
+  const passed = sm.passed != null && isFinite(+sm.passed) ? +sm.passed : tests.reduce((a, t) => a + (+t.passed || 0), 0);
+  const nTests = +sm.tests > 0 ? +sm.tests : tests.length;
+  const perfect = sm.tests_at_100 != null && isFinite(+sm.tests_at_100) ? +sm.tests_at_100
+    : tests.filter(t => +t.runs > 0 && +t.passed === +t.runs).length;
+  const rate = sm.pass_rate != null && isFinite(+sm.pass_rate) ? +sm.pass_rate : (conv > 0 ? passed / conv : 0);
+  const situ = tests.some(t => t.kind === 'situation');
+  const trig = tests.some(t => t.kind && t.kind !== 'situation');
+  const personas = [...new Set(tests.map(t => String(t.persona || '')).filter(Boolean))]
+    .sort((a, b) => (PERSONA_ORDER.indexOf(a) + 1 || 99) - (PERSONA_ORDER.indexOf(b) + 1 || 99));
+  const rows = [...new Set(tests.filter(t => t.kind === 'situation')
+    .map(t => (t.situation_num == null ? '' : t.situation_num) + '|' + normTitle(t.situation_title)))];
+  return { tests, conv, passed, nTests, perfect, rate,
+    suite: situ && trig ? 'mixed' : situ ? 'situations' : trig ? 'triggers' : '',
+    personas, rowCount: rows.length,
+    repeat: +run.repeat > 0 ? +run.repeat : (tests[0] && +tests[0].runs) || 0 };
+}
+
+/* the run log's three colours, read at run scale: a baseline is green
+ * only when nearly everything passed */
+const runCls = r => (r >= 0.9 ? 'ok' : r >= 0.5 ? 'warn' : 'bad');
+const runPct = r => Math.round((+r || 0) * 100) + '%';
+
+/* ---------- per situation, from the run's own tests ---------- */
+function runSituations(run, facts) {
+  const by = new Map();
+  agentRunTests(run).filter(t => t.kind === 'situation').forEach(t => {
+    const key = normTitle(t.situation_title) || 'situation ' + t.situation_num;
+    let o = by.get(key);
+    if (!o) {
+      o = { num: t.situation_num, title: String(t.situation_title || '').trim() || ('situation ' + t.situation_num),
+        row: runSitRow(t), runs: 0, passed: 0, tests: [] };
+      by.set(key, o);
+    }
+    o.runs += +t.runs || 0;
+    o.passed += +t.passed || 0;
+    o.tests.push(t);
+  });
+  const out = [...by.values()];
+  out.forEach(o => {
+    o.rate = o.runs > 0 ? o.passed / o.runs : 0;
+    o.failing = Math.max(0, o.runs - o.passed);
+    o.facts = facts.filter(f => o.tests.indexOf(f.test) >= 0);
+  });
+  /* worst first — that is the order the reader wants; ties broken by
+   * how many conversations the row is costing */
+  out.sort((a, b) => a.rate - b.rate || b.failing - a.failing
+    || String(a.title).localeCompare(String(b.title)));
+  return out;
+}
+
+/* ---------- the findings ----------
+ * One entry per pattern that ACTUALLY occurred, each carrying its
+ * count, the rule that produced it, an example, and the change it
+ * argues for. Ranked by count, except the opener: when one generic
+ * first message opens most of the run it is not one failure among
+ * others, it is the reason the rest of the call started wrong, and its
+ * cause is a SETTING and not the prompt. */
+function runFindings(run, facts) {
+  const n = facts.length;
+  if (!n) return [];
+  const share = k => `${k} of ${n} failing conversation${n === 1 ? '' : 's'}, ${Math.round((k / n) * 100)}%`;
+  const out = [];
+
+  /* the opening line, grouped verbatim */
+  const openers = new Map();
+  facts.forEach(f => {
+    const k = f.opener || '(the agent said nothing first)';
+    const o = openers.get(k) || { text: k, hits: [] };
+    o.hits.push(f);
+    openers.set(k, o);
+  });
+  const top = [...openers.values()].sort((a, b) => b.hits.length - a.hits.length)[0];
+  /* generic = it does not ask what happened: no question mark at all,
+   * or a question with none of the words a "what happened" has */
+  const generic = !!top && (!/\?/.test(top.text)
+    || !/\b(happen|happened|going on|find|found|problem|trouble|stop|delivery|report|wrong|there)\b/i.test(top.text));
+  if (top && generic && top.hits.length * 2 > n) {
+    out.push({
+      id: 'opener', first: true, where: 'setting', count: top.hits.length,
+      title: 'Otto opened with a greeting instead of asking what happened',
+      share: share(top.hits.length),
+      rule: 'The first agent turn of each failing conversation, compared verbatim; this one carries no question about the stop.',
+      explain: `Every one of these calls began “${top.text}”. The driver had pressed REPORT and had something to say, `
+        + 'and was met by an open greeting — so the report arrives as an interruption, and the first follow-up Otto is '
+        + 'judged on has already gone by. This is not the prompt: the first message is an agent SETTING, and while it '
+        + 'is a greeting the prompt\'s instruction that the opening question has already been asked leaves the driver unasked.',
+      hits: top.hits,
+      others: [...openers.values()].sort((a, b) => b.hits.length - a.hits.length).slice(1, 4),
+      fix: { where: 'setting',
+        what: 'Set the agent\'s first message to a line that asks what happened.',
+        text: 'Otto here. What happened at this stop?' },
+    });
+  }
+
+  const add = (id, test, o) => {
+    const hits = facts.filter(test);
+    if (!hits.length) return;
+    out.push({ id, count: hits.length, share: share(hits.length), hits, ...o });
+  };
+
+  add('readback', f => !!f.readback, {
+    where: 'prompt',
+    title: 'Otto read the driver\'s report back to them mid-call',
+    rule: 'An agent turn that repeats three or more content words from the driver\'s previous turn, and is not the last turn of the call.',
+    explain: 'Repeating the report back is what a form does, not what a colleague does — and it costs a turn that a '
+      + 'question could have used. The closing line is excluded from this count: there the tip is supposed to be said back.',
+  });
+  add('filed', f => f.filed, {
+    where: 'prompt',
+    title: 'Otto told the driver he had logged it',
+    rule: 'An agent turn matching “I have logged / noted / filed / recorded”, “noted that”, “noted down”, “I\'ll log / note / file”.',
+    explain: 'The driver does not need to hear about the filing, and saying it turns a conversation into a transaction. '
+      + 'It also tends to replace the closing tip: the call ends on the paperwork rather than on what the next driver needs.',
+  });
+  add('tip-partial', f => f.tipState === 'partial', {
+    where: 'prompt',
+    title: 'The closing line carried only part of the tip',
+    rule: 'Content words of the row\'s tip found in Otto\'s last turn: at least one, but fewer than half.',
+    explain: 'Something of the tip was said, but not enough of it to be usable — typically the place without the '
+      + 'condition (the time, the day, the door, the distance) that makes it worth knowing.',
+  });
+  add('tip-none', f => f.tipState === 'none', {
+    where: 'prompt',
+    title: 'No tip at the close at all',
+    rule: 'Not one content word of the row\'s tip appears in Otto\'s last turn.',
+    explain: 'The call ended without the one line this situation exists to produce. Whatever was learned went nowhere.',
+  });
+  add('questions', f => f.questions > 3, {
+    where: 'prompt',
+    title: 'More than three questions in one call',
+    rule: 'Question marks counted in the agent\'s turns — approximate, it counts marks and not intentions. Three is the most the criteria allow.',
+    explain: 'Past the third question the call stops being a colleague checking one thing and starts being an '
+      + 'interview. The driver is standing next to a van.',
+  });
+  add('unsaid', f => f.unsaid.length > 0, {
+    where: 'prompt',
+    title: 'Otto stated a name or a measurement the driver had not given',
+    rule: 'Words in Otto\'s first follow-up that he STATES (not asks) which look like a name or a number with a unit, '
+      + 'and appear in neither the driver\'s words so far nor the row\'s opening line. Deliberately narrow: questions '
+      + 'are never counted, and a capital opening a sentence is never counted.',
+    explain: 'Said as fact, a detail out of the notes on file is indistinguishable from an invention — and when it is '
+      + 'wrong the driver has to argue with it. Asked as a question it costs nothing.',
+  });
+  add('follow-elsewhere', f => f.offTopic > f.onTopic, {
+    where: 'prompt',
+    title: 'The first follow-up went somewhere the row calls off topic',
+    rule: 'Content-word overlap between Otto\'s first follow-up and the row\'s “a relevant follow-up asks about” lines '
+      + 'versus its “off topic here” lines — counted only when the off-topic side is the bigger one.',
+    explain: 'The driver reported one thing and the first question was about another. Counted conservatively: a '
+      + 'question can fit perfectly and still share no wording with the sheet, so a low on-topic overlap alone is not counted here.',
+  });
+  /* ranked by how many conversations each cost — except the opener,
+   * which stays first even when something else counts higher: it is the
+   * one finding whose cause is a setting, and the one change that is
+   * worth making before any of the others are judged again */
+  out.sort((a, b) => (b.first ? 1 : 0) - (a.first ? 1 : 0) || b.count - a.count);
+  return out;
+}
+
+/* The shape of a failing call, measured: how many turns the agent took
+ * and how many questions he asked. Unlike the findings these two are
+ * measurements and not flags, so they are shown as a middle value and a
+ * range rather than as a count of something wrong. */
+function runShape(facts) {
+  if (!facts.length) return '';
+  const mid = list => {
+    const v = [...list].sort((a, b) => a - b);
+    const h = Math.floor(v.length / 2);
+    return v.length % 2 ? v[h] : Math.round((v[h - 1] + v[h]) / 2);
+  };
+  const turns = facts.map(f => f.agentTurns);
+  const qs = facts.map(f => f.questions);
+  return `Across the ${facts.length} conversation${facts.length === 1 ? '' : 's'} published here Otto took `
+    + `${mid(turns)} turns in the middle (${Math.min(...turns)}–${Math.max(...turns)}) and asked `
+    + `${mid(qs)} questions in the middle (${Math.min(...qs)}–${Math.max(...qs)}). `
+    + 'Questions are counted as question marks in his turns, so that number is approximate.';
+}
+
+/* the checks that HELD — the same observed facts, counted the other way
+ * round, so the good news is as computed as the bad */
+function runHeld(facts) {
+  const n = facts.length;
+  if (!n) return [];
+  const list = [
+    ['Otto asked three questions or fewer', facts.filter(f => f.questions <= 3).length],
+    ['the first follow-up stayed on the reported thing', facts.filter(f => !(f.offTopic > f.onTopic)).length],
+    ['Otto stated no name or measurement the driver had not given', facts.filter(f => !f.unsaid.length).length],
+    ['the closing line carried at least part of the tip', facts.filter(f => f.tipState === 'ok' || f.tipState === 'partial').length],
+    ['Otto did not say he had logged it', facts.filter(f => !f.filed).length],
+    ['Otto did not read the report back mid-call', facts.filter(f => !f.readback).length],
+  ];
+  return list.filter(([, k]) => k / n >= 0.6).sort((a, b) => b[1] - a[1])
+    .map(([label, k]) => `${label} in ${Math.round((k / n) * 100)}% of them (${k} of ${n})`);
+}
+
+/* ---------- the analysis, memoised ----------
+ * A published run never changes, so the whole analysis is computed once
+ * per run and kept — the page re-renders on every click. */
+let runAnalysisCache = { id: null, out: null };
+function runAnalysis(run) {
+  if (!run) return null;
+  if (runAnalysisCache.id === run.id && runAnalysisCache.out) return runAnalysisCache.out;
+  const facts = runFacts(run);
+  const out = {
+    roll: runRollup(run),
+    facts,
+    findings: runFindings(run, facts),
+    held: runHeld(facts),
+    sits: runSituations(run, facts),
+  };
+  /* the per-criterion tally, plainly-said only, unclear kept visible */
+  const crit = {};
+  facts.forEach(f => runReasonParas(f.rationale).forEach(p => {
+    const o = crit[p.n] || (crit[p.n] = { paras: 0, plain: 0 });
+    o.paras++;
+    if (runSaysPlainly(p.n, p.text)) o.plain++;
+  }));
+  out.criteria = Object.keys(crit).map(Number).sort((a, b) => a - b)
+    .map(k => ({ idx: k, paras: crit[k].paras, plain: crit[k].plain }));
+  runAnalysisCache = { id: run.id, out };
+  return out;
+}
+
+/* The suggestion text, on the clipboard. The <pre> is selectable
+ * anyway — this is the one-tap version of the same thing, and it fails
+ * visibly rather than silently: an insecure origin or a browser without
+ * the clipboard API gets the text selected instead, ready for ⌘C. */
+function copySuggestion(btn) {
+  const pre = document.getElementById(btn.dataset.copy);
+  if (!pre) return;
+  const text = pre.textContent;
+  const said = ok => {
+    const was = btn.textContent;
+    btn.textContent = ok ? '✓ copied' : 'selected — press ⌘C / Ctrl-C';
+    setTimeout(() => { btn.textContent = was; }, 2200);
+  };
+  const select = () => {
+    try {
+      const r = document.createRange();
+      r.selectNodeContents(pre);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
+    } catch (e) { warn(e); }
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => said(true), () => { select(); said(false); });
+  } else { select(); said(false); }
+}
+
+/* ---------- the run list ---------- */
+function renderRunList() {
+  const note = suiteStateNote(true);
+  if (note) return `<div class="rl-empty"><p class="cmp-empty agent-note">${note}</p></div>`;
+  const rows = agentRuns.map(r => {
+    const roll = runRollup(r);
+    const label = r.label === 'branch' || r.branch_id ? 'PROPOSED PROMPT' : 'BASELINE';
+    const verdict = r.verdict ? `<span class="rl-verdict ${r.verdict === 'accept' ? 'ok' : 'bad'}"
+        title="${esc('The loop\'s own verdict on this run' + (r.verdict_reason ? ': ' + r.verdict_reason : ''))}">${esc(String(r.verdict).toUpperCase())}</span>` : '';
+    return `
+      <article class="rl-row" data-run="${esc(r.id)}" tabindex="0"
+        title="${esc(`ran ${fmtTime(agentRanAt(r))} · label ${r.label || '?'} · agent ${r.agent_id || '?'}${r.branch_id ? ' · branch ' + r.branch_id : ''}`)}">
+        <span class="rl-when" title="${esc(fmtTime(agentRanAt(r)))}">${esc(fmtAgo(agentRanAt(r)) || '—')}</span>
+        <span class="rl-label">${esc(label)}${roll.suite ? ' · ' + esc(roll.suite) : ''}${roll.repeat ? ' · ×' + roll.repeat : ''}</span>
+        <span class="agent-chip ${runCls(roll.rate)}">${esc(runPct(roll.rate))}</span>
+        <span class="rl-tests">${roll.perfect} of ${roll.nTests} tests perfect</span>
+        ${verdict}
+        ${/^https?:\/\//i.test(String(r.run_url || '')) ? `<a class="row-link" href="${esc(r.run_url)}" target="_blank" rel="noopener">open the GitHub run ↗</a>` : ''}
+        <span class="rl-go">read the summary →</span>
+      </article>`;
+  }).join('');
+  return `
+    <div class="rl-list">
+      <p class="rl-intro">One page per suite run: what went well, what went wrong, and what to change. Nothing on it changes the agent — reading it is all it does.</p>
+      ${rows}
+    </div>`;
+}
+
+/* ---------- one failing conversation, as evidence ----------
+ * The same OTTO / TESTER turns as a card's failing conversation, and
+ * under them the evaluator's paragraphs verbatim, one per criterion,
+ * each labelled with what that criterion is about. */
+function renderRunExample(f, open) {
+  const paras = runReasonParas(f.rationale);
+  return `
+      <details class="msg-convo agent-convo rs-ex"${open ? ' open' : ''}>
+        <summary>${esc(agentWho(f.test))} · ${f.turns.length} TURNS · ${esc(String(f.test.situation_title || f.test.name || '').slice(0, 60))}</summary>
+        ${f.turns.map(u => `<div class="msg-turn ${u.role === 'user' ? 'me' : 'ai'}"><b>${u.role === 'user' ? 'TESTER' : 'OTTO'}</b>${esc(u.message || '')}</div>`).join('')}
+        ${paras.length ? `
+        <div class="rs-reasons">
+          <span class="cmp-k">THE EVALUATOR&rsquo;S REASONS — verbatim, one paragraph per criterion, nothing summarised</span>
+          ${paras.map(p => `<p class="rs-reason"><b>${p.n}. ${esc(RUN_CRITERIA[p.n - 1] || 'criterion ' + p.n)}</b>${esc(p.text)}</p>`).join('')}
+        </div>` : (f.rationale ? `<p class="agent-rationale"><b>EVALUATOR</b>${esc(f.rationale)}</p>` : '')}
+      </details>`;
+}
+
+/* ---------- the summary page ---------- */
+function renderRunSummary(run) {
+  const a = runAnalysis(run);
+  const { roll, facts, findings, held, sits, criteria } = a;
+  const back = '<button class="mini-btn rs-back" type="button" data-run-act="all">← all runs</button>';
+  const link = /^https?:\/\//i.test(String(run.run_url || ''))
+    ? `<a class="row-link" href="${esc(run.run_url)}" target="_blank" rel="noopener">open the GitHub run ↗</a>` : '';
+
+  /* (a) the headline — the three numbers, then where the run came from */
+  const shape = [roll.rowCount ? `${roll.rowCount} situation${roll.rowCount === 1 ? '' : 's'}` : '',
+    roll.personas.length ? `${roll.personas.length} driver${roll.personas.length === 1 ? '' : 's'}` : '',
+    roll.repeat ? `${roll.repeat} run${roll.repeat === 1 ? '' : 's'}` : ''].filter(Boolean).join(' × ');
+  const head = `
+      <div class="rs-head">
+        <div class="rs-head-top">${back}${link}</div>
+        <h2 class="rs-h1">${roll.passed} of ${roll.conv} conversations passed
+          <span class="agent-chip ${runCls(roll.rate)}">${esc(runPct(roll.rate))}</span></h2>
+        <p class="rs-sub">${roll.perfect} of ${roll.nTests} tests passed every run${shape ? ' · ' + esc(shape) : ''}</p>
+        <p class="rs-meta">
+          <span title="${esc(fmtTime(agentRanAt(run)))}">ran ${esc(fmtAgo(agentRanAt(run)) || '—')}</span>
+          · <span>${esc(run.label === 'branch' || run.branch_id ? 'a proposed prompt on a branch' : 'a baseline on the live agent')}</span>
+          · <span>agent ${esc(run.agent_id || '?')}</span>
+          ${run.branch_id ? `· <span>branch ${esc(run.branch_id)}</span>` : ''}
+          ${run.verdict ? `· <span class="${run.verdict === 'accept' ? 'ok' : 'bad'}">${esc(String(run.verdict).toUpperCase())}${run.verdict_reason ? ' — ' + esc(run.verdict_reason) : ''}</span>` : ''}
+        </p>
+        <p class="rs-note">Everything below is computed from this run. Two sources, kept apart: <b>observed facts</b> counted
+          from the transcripts, with the counting rule printed next to each count, and <b>the evaluator&rsquo;s reasons</b>
+          shown verbatim. ${facts.length ? `The published run carries one conversation per failing test, so every share
+          below is over those <b>${facts.length}</b> conversations — not over all ${roll.conv}.` : ''}</p>
+      </div>`;
+
+  /* (b) what went well */
+  const perfect = roll.tests.filter(t => +t.runs > 0 && +t.passed === +t.runs).sort(agentTestOrder);
+  const best = sits.slice().sort((x, y) => y.rate - x.rate || y.passed - x.passed).filter(s => s.passed > 0).slice(0, 5);
+  const wellBody = !perfect.length && !best.length && !held.length
+    ? '<p class="cmp-empty">Nothing passed in this run, and no check held in more than a small minority of the failing conversations. There is no good news to report here — the section is left empty rather than padded.</p>'
+    : `
+        ${perfect.length ? `<p class="rs-k">Passed every run</p>
+        <div class="agent-chips">${perfect.map(t => `<span class="agent-chip ok" title="${esc(t.name || '')}">${esc(agentWho(t))} ${+t.passed}/${+t.runs}</span>`).join('')}</div>`
+      : '<p class="cmp-empty">No test passed every one of its runs.</p>'}
+        ${best.length ? `<p class="rs-k">Best situations</p>
+        <div class="rs-best">${best.map(s => `
+          <div class="rs-best-row">
+            <span class="agent-chip ${runCls(s.rate)}">${esc(runPct(s.rate))}</span>
+            <span class="rs-best-t">${s.num != null ? '#' + esc(s.num) + ' ' : ''}${esc(s.title)}</span>
+            <span class="rs-chips">${s.tests.slice().sort(agentTestOrder).map(t =>
+        `<span class="agent-chip ${agentCls(t)}">${esc(t.persona || agentWho(t))} ${+t.passed || 0}/${+t.runs || 0}</span>`).join('')}</span>
+          </div>`).join('')}</div>` : ''}
+        ${held.length ? `<p class="rs-k">Checks that mostly held <span class="rs-rule">— counted from the failing conversations&rsquo; transcripts, so these are the checks Otto kept even where the test failed</span></p>
+        <ul class="rs-ul">${held.map(h => `<li>${esc(h)}</li>`).join('')}</ul>` : ''}`;
+
+  /* (c) what went wrong */
+  const zero = sits.filter(s => s.runs > 0 && s.passed === 0);
+  const wrong = findings.map((fd, i) => `
+        <section class="rs-pat${fd.where === 'setting' ? ' setting' : ''}">
+          <div class="rs-pat-head">
+            <span class="rs-rank">${i + 1}</span>
+            <h4>${esc(fd.title)}</h4>
+            <span class="agent-chip bad">${esc(fd.share)}</span>
+            ${fd.where === 'setting' ? '<span class="rs-tag">A SETTING, NOT THE PROMPT</span>' : ''}
+          </div>
+          <p class="rs-explain">${esc(fd.explain)}</p>
+          <p class="rs-rule"><b>How it was counted:</b> ${esc(fd.rule)}</p>
+          ${fd.id === 'opener' && fd.others && fd.others.length ? `<p class="rs-rule">Other opening lines in this run: ${
+    fd.others.map(o => `${o.hits.length}× &ldquo;${esc(o.text.slice(0, 60))}&rdquo;`).join(' · ')}</p>` : ''}
+          ${fd.id === 'tip-partial' || fd.id === 'tip-none' ? (() => {
+    const f = fd.hits[0];
+    return `<p class="rs-cmp"><b>the tip this row wants</b>${esc(f.tip)}<b>what Otto actually ended with</b>${esc(f.last)}</p>`;
+  })() : ''}
+          ${fd.id === 'unsaid' ? `<p class="rs-cmp"><b>stated but not said by the driver</b>${
+    esc([...new Set([].concat(...fd.hits.map(f => f.unsaid)))].slice(0, 12).join(' · '))}</p>` : ''}
+          ${renderRunExample(fd.hits[0], false)}
+        </section>`).join('');
+
+  const critBlock = !criteria.length ? '' : `
+        <section class="rs-crit">
+          <p class="rs-k">What the evaluator said, criterion by criterion</p>
+          <p class="rs-rule">The evaluator writes one paragraph per criterion whether it passed or failed, and the
+            paragraphs read alike. So these counts are only the paragraphs that say a criterion was missed in
+            unmistakable words — <b>they are not the evaluator&rsquo;s own tally</b>, and the rest is shown as unclear
+            rather than guessed at. The full paragraphs are under every example above and on each situation&rsquo;s card.</p>
+          <table class="rs-tbl">
+            <thead><tr><th>#</th><th>the criterion</th><th>says so plainly</th><th>unclear</th></tr></thead>
+            <tbody>${criteria.map(c => `
+              <tr><td>${c.idx}</td><td>${esc(RUN_CRITERIA[c.idx - 1] || 'criterion ' + c.idx)}</td>
+              <td>${c.plain} of ${c.paras}</td><td>${c.paras - c.plain}</td></tr>`).join('')}
+            </tbody>
+          </table>
+          <p class="rs-rule">Criteria 1, 5 and 6 are swapped for accept-and-close variants on the control row
+            (&ldquo;Nothing to report&rdquo;), and criterion 7 is only put to the vague driver — which is why its row counts fewer paragraphs.</p>
+        </section>`;
+
+  /* (d) suggestions — one per pattern that occurred, the setting first */
+  const FIXES = {
+    opener: null, // carried on the finding itself
+    readback: { where: 'prompt', what: 'Forbid the filing talk and the read-back in one line.',
+      text: 'Never tell the driver that you have logged, noted or filed anything, and never read their report back to them mid-call. Ask your next question instead.' },
+    filed: { where: 'prompt', what: 'Forbid the filing talk and the read-back in one line.',
+      text: 'Never tell the driver that you have logged, noted or filed anything, and never read their report back to them mid-call. Ask your next question instead.' },
+    'tip-none': { where: 'prompt', what: 'Say what the last turn must contain.',
+      text: 'Your last turn must state the tip the way the next driver needs it — the place, and any time or condition attached to it — then thank them and stop.' },
+    'tip-partial': { where: 'prompt', what: 'Say what makes a tip usable.',
+      text: 'When you confirm the tip, include the condition that makes it useful: the time of day, the day of the week, the door, or the distance. A tip without its condition is not a tip.' },
+    questions: { where: 'prompt', what: 'Put a hard number on the questions.',
+      text: 'Count your questions. Two is good, three is the most. After the third, confirm the tip and end the call.' },
+    'follow-elsewhere': { where: 'prompt', what: 'Tie the first question to the report.',
+      text: 'Your first question must be about the thing they just reported. Name it in the question.' },
+    unsaid: { where: 'prompt', what: 'Turn the notes on file into a question, never a statement.',
+      text: 'Never name a street, a time, a person or a distance the driver has not named, even when it is in the notes on file. Ask whether it was that, instead of saying it was.' },
+  };
+  /* one suggestion per distinct line, in the findings' own order, each
+   * naming EVERY pattern it answers — one prompt line often covers two
+   * (the filing talk and the read-back are the same habit) */
+  const sugg = [];
+  const byText = new Map();
+  findings.forEach(fd => {
+    const fix = fd.fix || FIXES[fd.id];
+    if (!fix) return;
+    const had = byText.get(fix.text);
+    if (had) { had.for.push(`${fd.title} (${fd.share})`); return; }
+    const s = { ...fix, for: [`${fd.title} (${fd.share})`], count: fd.count, first: !!fd.first };
+    byText.set(fix.text, s);
+    sugg.push(s);
+  });
+  if (zero.length) {
+    sugg.push({ where: 'sheet', first: false, count: zero.length,
+      for: [`${zero.length} situation${zero.length === 1 ? '' : 's'} at 0% with every driver (${zero.length} of ${sits.length} situations)`],
+      what: 'Not a prompt change — read the row itself.',
+      text: 'Read this row on the SITUATIONS tab — check that what the driver says first, and what a relevant follow-up should cover, match how your drivers really talk.' });
+  }
+  const WHERE = {
+    setting: ['AN AGENT SETTING', 'Changed where the agent is configured (its first message), not in the prompt.'],
+    prompt: ['THE AGENT&rsquo;S PROMPT', 'A line to add to the prompt.'],
+    sheet: ['THE SITUATIONS SHEET', 'A row to re-read on the SITUATIONS tab — no prompt change.'],
+  };
+  const suggBody = !sugg.length ? '<p class="cmp-empty">No pattern in this run maps to a change worth proposing.</p>'
+    : sugg.map((s, i) => `
+        <section class="rs-sug${s.where === 'setting' ? ' setting' : ''}">
+          <div class="rs-sug-head">
+            <span class="rs-rank">${i + 1}</span>
+            <span class="rs-tag${s.where === 'setting' ? ' loud' : ''}">${WHERE[s.where][0]}</span>
+            <h4>${esc(s.what)}</h4>
+          </div>
+          <p class="rs-explain">${WHERE[s.where][1]} For: ${esc(s.for.join('; and '))}.</p>
+          <pre class="rs-pre" id="rs-fix-${i}">${esc(s.text)}</pre>
+          <div class="rs-sug-foot">
+            <button class="mini-btn" type="button" data-copy="rs-fix-${i}">⎘ copy this text</button>
+            <span class="fb-hint">Nothing is applied. This is text to paste where you decide, if you decide to.</span>
+          </div>
+        </section>`).join('');
+
+  /* (e) every situation, worst first */
+  const cols = roll.personas;
+  const table = !sits.length ? '<p class="cmp-empty">This run has no situation tests.</p>' : `
+        <table class="rs-tbl rs-sits">
+          <thead><tr><th>#</th><th>situation</th><th>rate</th>${cols.map(p => `<th>${esc(p)}</th>`).join('')}<th>failing</th></tr></thead>
+          <tbody>${sits.map(s => `
+            <tr class="rs-sit-row${s.row ? '' : ' nolink'}" data-sitjump="${esc(s.row ? s.row.id : '')}" tabindex="0"
+              title="${esc(s.row ? `Row #${s.row.num == null ? '?' : s.row.num} on the SITUATIONS tab — click to open its card`
+    : 'No row with this title on the SITUATIONS tab — load the starter situations, or it was renamed')}">
+              <td>${s.num == null ? '·' : esc(s.num)}</td>
+              <td class="rs-sit-t">${esc(s.title)}</td>
+              <td><span class="agent-chip ${runCls(s.rate)}">${esc(runPct(s.rate))}</span></td>
+              ${cols.map(p => {
+    const t = s.tests.find(x => x.persona === p);
+    return `<td>${t ? `<span class="agent-chip ${agentCls(t)}">${+t.passed || 0}/${+t.runs || 0}</span>` : '<span class="rs-na">—</span>'}</td>`;
+  }).join('')}
+              <td class="rs-fail-n">${s.failing}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>`;
+
+  return `
+    <div class="rs">
+      ${head}
+      <section class="rs-sec">
+        <h3 class="rs-h2">What went well</h3>
+        ${wellBody}
+      </section>
+      <section class="rs-sec">
+        <h3 class="rs-h2">What went wrong</h3>
+        ${facts.length ? `<p class="rs-obs">${esc(runShape(facts))}</p>`
+      : '<p class="cmp-empty">This run published no failing conversation to read — nothing can be counted from transcripts here.</p>'}
+        ${wrong}
+        ${zero.length ? `<section class="rs-pat">
+          <div class="rs-pat-head"><span class="rs-rank">·</span><h4>${zero.length} situation${zero.length === 1 ? '' : 's'} failed with every driver</h4>
+          <span class="agent-chip bad">${zero.length} of ${sits.length} situations</span></div>
+          <p class="rs-explain">A row that no driver gets through is more often the row than the prompt: what the driver
+            says first, or what a relevant follow-up is supposed to cover, may not match how your drivers really talk.</p>
+          <p class="rs-rule"><b>How it was counted:</b> every test of the situation passed none of its runs.</p>
+          <ul class="rs-ul">${zero.slice(0, 12).map(s => `<li>${s.num == null ? '' : '#' + esc(s.num) + ' '}${esc(s.title)} — ${s.failing} failing conversation${s.failing === 1 ? '' : 's'}</li>`).join('')}</ul>
+        </section>` : ''}
+        ${critBlock}
+      </section>
+      <section class="rs-sec">
+        <h3 class="rs-h2">Suggestions</h3>
+        <p class="rs-warn">Nothing here has been applied, and nothing on this page can apply it. These are proposals to
+          read and decide on — the prompt and the settings are changed where you keep them.</p>
+        ${suggBody}
+        <p class="rs-conf">The agent&rsquo;s prompt is never shown, read or stored on this page. The suggestions are
+          written from the conversations alone.</p>
+      </section>
+      <section class="rs-sec">
+        <h3 class="rs-h2">Every situation</h3>
+        <p class="rs-rule">Worst first. Click a row to open that situation&rsquo;s card on the SITUATIONS tab.</p>
+        ${table}
+      </section>
+    </div>`;
+}
+
 /* The list's tabs. The two scenario tabs only split a MIXED list (one
  * kind of row needs no tab of its own), but SITUATIONS is a top-level
  * tab: the other sheet is always there, empty or not, because loading
@@ -1714,7 +2470,9 @@ function renderTabs() {
   const own = scenarios.filter(sc => !fromSheet(sc)).length;
   const sit = cardView === 'demo' ? '' : `
       <button class="tab${sitTabOn() ? ' on' : ''}" type="button" data-tab="situations"
-        title="What a driver reports when they press REPORT — the pilot's other sheet, tested by the agent suite in four voices">SITUATIONS · ${situations.length}</button>`;
+        title="What a driver reports when they press REPORT — the pilot's other sheet, tested by the agent suite in four voices">SITUATIONS · ${situations.length}</button>
+      <button class="tab${runsTabOn() ? ' on' : ''}" type="button" data-tab="runs"
+        title="Every suite run the loop has published, newest first — one summary page each: what went well, what went wrong, and what to change. Reading only; nothing on it changes the agent.">RUNS · ${agentRuns.length}</button>`;
   const scen = !scenarios.length ? '' : !listMixed()
     ? `<button class="tab${sitTabOn() ? '' : ' on'}" type="button" data-tab="${scenarios.every(fromSheet) ? 'sheet' : 'own'}"
         title="The trigger scenarios — when Otto speaks, and what he asks">${scenarios.every(fromSheet) ? '⇩ STARTER SHEET' : 'YOUR SCENARIOS'} · ${scenarios.length}</button>`
@@ -1732,11 +2490,28 @@ function render() {
   /* the top bar follows the tab: a situation has no pin to import, no
    * spec to export and no Excel sheet behind it */
   const sit = sitTabOn();
+  const runs = runsTabOn();
   el('new-situation').hidden = !sit;
-  el('new-open').hidden = sit;
-  el('import-open').hidden = sit;
-  el('spec-all').hidden = sit;
+  el('new-open').hidden = sit || runs;
+  el('import-open').hidden = sit || runs;
+  el('spec-all').hidden = sit || runs;
   const box = el('list');
+  /* the RUNS tab is a report, not a list of rows: either the runs
+   * themselves or ONE run's summary in their place, with the way back
+   * at the top of it */
+  if (runs) {
+    const run = openRunId && runById(openRunId);
+    if (openRunId && !run) openRunId = null;  // the row is gone (another agent's run, a refresh that dropped it)
+    box.innerHTML = renderTabs() + (run ? renderRunSummary(run) : renderRunList());
+    /* arriving from a situation card's "see the full reasons" link:
+     * put that row on screen, then forget the request */
+    if (run && runFocusSit) {
+      const node = box.querySelector(`[data-sitjump="${CSS.escape(runFocusSit)}"]`);
+      if (node) node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      runFocusSit = null;
+    }
+    return;
+  }
   if (sit) {
     box.innerHTML = renderTabs()
       + (situations.length ? situations.map(renderSituation).join('') + renderSitSheetLink() : renderSituationsEmpty());
@@ -2765,14 +3540,21 @@ const fromSheet = sc => SHEET_TITLES.has(normTitle(sc.title));
  * does not carry it — the choice is kept, not cleared, and flipping
  * back to TESTING lands on it again. */
 const LS_TAB = 'od_scen_tab';
-const LIST_TABS = ['own', 'sheet', 'situations'];
+const LIST_TABS = ['own', 'sheet', 'situations', 'runs'];
 let listTab = 'own';
 try { const t = localStorage.getItem(LS_TAB); if (LIST_TABS.includes(t)) listTab = t; } catch { /* private mode */ }
 const sitTabOn = () => listTab === 'situations' && cardView !== 'demo';
+/* RUNS is workshop chrome too — a per-run report of what the simulated
+ * drivers got out of Otto is the last thing a client demo wants on
+ * screen, so the DEMO view hides it exactly as it hides SITUATIONS */
+const runsTabOn = () => listTab === 'runs' && cardView !== 'demo';
 const listMixed = () => scenarios.some(fromSheet) && scenarios.some(sc => !fromSheet(sc));
-const inTab = sc => !sitTabOn() && (!listMixed() || ((listTab === 'sheet') === fromSheet(sc)));
+const inTab = sc => !sitTabOn() && !runsTabOn() && (!listMixed() || ((listTab === 'sheet') === fromSheet(sc)));
 function setListTab(t) {
   listTab = LIST_TABS.includes(t) ? t : 'own';
+  /* leaving the RUNS tab closes whatever summary was open: coming back
+   * should land on the list of runs, not halfway down an old report */
+  if (listTab !== 'runs') { openRunId = null; runFocusSit = null; }
   try { localStorage.setItem(LS_TAB, listTab); } catch { /* private mode */ }
 }
 
@@ -3192,6 +3974,50 @@ el('list').addEventListener('click', e => {
   const tab = e.target.closest('[data-tab]');
   if (tab) { setListTab(tab.dataset.tab); render(); return; }
 
+  /* ---- the runs tab ----
+   * Asked about before the cards: the "see the full reasons" link lives
+   * INSIDE a situation card, and the card's own handler would swallow
+   * it. Everything here only navigates or copies text — nothing on the
+   * RUNS tab writes anything anywhere. */
+  const jump = e.target.closest('[data-runjump]');
+  if (jump) {
+    openRunId = jump.dataset.runjump;
+    runFocusSit = jump.dataset.runsit || null;
+    setListTab('runs');  // switching TO runs keeps openRunId; only leaving clears it
+    render();
+    return;
+  }
+  const copy = e.target.closest('[data-copy]');
+  if (copy) { copySuggestion(copy); return; }
+  if (runsTabOn()) {
+    const act = e.target.closest('[data-run-act]');
+    if (act) {
+      if (act.dataset.runAct === 'all') { openRunId = null; runFocusSit = null; render(); }
+      return;
+    }
+    /* a row of the EVERY SITUATION table opens that situation's card —
+     * the row is where it gets edited, and this page never edits */
+    const sj = e.target.closest('[data-sitjump]');
+    if (sj) {
+      const id = sj.dataset.sitjump;
+      if (!id) return;  // no row of that title on the sheet — nothing to open
+      expandedSitId = id;
+      setListTab('situations');
+      render();
+      scrollToSituation(id);
+      return;
+    }
+    const row = e.target.closest('[data-run]');
+    if (row && !e.target.closest('a')) {  // the GitHub link goes to GitHub
+      openRunId = row.dataset.run;
+      runFocusSit = null;
+      render();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    return;
+  }
+
   /* ---- the situations tab ---- */
   const sitEmpty = e.target.closest('[data-sit-empty]');
   if (sitEmpty) {
@@ -3342,6 +4168,17 @@ el('list').addEventListener('change', e => {
   const v = String(e.target.value).trim() || null;
   if ((d[k] || null) === v) return;
   saveDestPatch(d, { [k]: v });
+});
+
+/* The RUNS tab's rows are focusable, so the keyboard must open them the
+ * way the mouse does — one synthetic click through the same handler
+ * above, no second copy of the navigation. */
+el('list').addEventListener('keydown', e => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const row = e.target.closest && e.target.closest('[data-run], [data-sitjump]');
+  if (!row || !runsTabOn()) return;
+  e.preventDefault();
+  row.click();
 });
 
 /* Enter in the note field adds it, like the button */
