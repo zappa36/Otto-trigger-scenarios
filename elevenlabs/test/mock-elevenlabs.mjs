@@ -91,6 +91,11 @@ export async function startMock(fixtureDir) {
   const routes = [
     /* ---------- ElevenLabs ---------- */
     ['POST', /^\/v1\/convai\/agent-testing\/create$/, (m, q, body) => {
+      /* the API wants a list of answers per tool id; a bare object is a
+       * 422 it took a live push to discover */
+      for (const [id, v] of Object.entries((body && body.tool_mock_overrides) || {})) {
+        if (!Array.isArray(v)) return [422, { detail: [{ type: 'list_type', loc: ['body', 'function-after[validate_simulation_fields(), CreateSimulationTestRequest]', 'tool_mock_overrides', id], msg: 'Input should be a valid list', input: v }] }];
+      }
       const id = `test_${String(++state.created).padStart(3, '0')}`;
       state.tests.push({ id, name: body.name, type: body.type || 'llm', body });
       return [200, { id }];

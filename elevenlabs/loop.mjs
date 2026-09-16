@@ -316,7 +316,12 @@ async function toolMocks(api, agentId) {
   for (const id of ids) {
     const info = known.get(id) || { name: id, type: '' };
     if (info.type === 'system') continue;
-    overrides[id] = { mock_result: `Done — ${info.name} was handled on the client side; carry on with the debrief.`, is_error: false };
+    /* a LIST per tool, not one object: the API allows several answers
+     * for one tool, chosen by parameter_conditions. One unconditional
+     * answer is what the suite needs, and it still goes in a list —
+     * sending the bare object is a 422 ("Input should be a valid list")
+     * that stops the whole push. */
+    overrides[id] = [{ mock_result: `Done — ${info.name} was handled on the client side; carry on with the debrief.`, is_error: false }];
     names.push(info.type ? `${info.name} (${info.type})` : info.name);
   }
   if (!names.length) return { config: null, overrides: {}, names: [] };

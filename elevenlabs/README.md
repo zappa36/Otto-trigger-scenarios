@@ -326,7 +326,9 @@ entry per tool, answering in the tool's name; system tools are left
 out, ElevenLabs never mocks those. The mocks are keyed by tool id, so
 they are added at push time and the files under `test_configs/` stay
 agent-independent; a file that carries its own mock block keeps it.
-`--no-mock-tools` sends the files as they are.
+`--no-mock-tools` sends the files as they are. Each entry is a LIST of
+answers per tool id — the API allows several, chosen by their
+parameter conditions, and refuses a bare object.
 
 The **why** line on a failed test (the table, the dashboard chip) is
 the evaluator's summary when it says something of its own
