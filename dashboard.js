@@ -42,6 +42,12 @@ let runsByScenario = {};
 let agentRuns = [];
 let agentRunsMissing = false;
 let agentRunsError = '';
+/* the designer's NOT A PROBLEM list (RUNS tab): rows {key, title,
+ * note, decided_at}, newest first — kept in memory for the session
+ * when the backend has no table for it yet */
+let accepted = [];
+let acceptedMissing = false;
+let acceptedOpen = false;  // the list unfolds right after a mark, so the entry and its UNDO are in view
 let expandedId = null;
 
 /* ---------- the situations ----------
@@ -701,6 +707,21 @@ async function loadAll() {
       agentRunsError = '';
       agentRuns = suite.rows.filter(r => r && typeof r === 'object').sort((a, b) => agentTime(b) - agentTime(a));
     }
+    /* the designer's NOT A PROBLEM list rides the same refresh. The
+     * table is the newest in schema.sql: a 404 is "not created yet" —
+     * the list stays in memory for this session, and the moment a mark
+     * is made the stats line says how to create the table. A mark made
+     * before the table existed must not be lost by a refresh, so the
+     * in-memory list is kept on any failure. */
+    try {
+      const rows = await Backend.listAccepted();
+      accepted = (rows || []).filter(r => r && r.key);
+      acceptedMissing = false;
+      if (schemaMsg === ACCEPTED_HINT) schemaMsg = '';
+    } catch (e) {
+      warn(e);
+      acceptedMissing = acceptedMissingErr(e);
+    }
   } else {
     try { scenarios = JSON.parse(localStorage.getItem(LS_SCEN) || '[]'); } catch { scenarios = []; }
     try { destinations = JSON.parse(localStorage.getItem(LS_DEST) || '[]'); } catch { destinations = []; }
@@ -775,7 +796,7 @@ function renderStats() {
     const open = openRunId && runById(openRunId);
     if (open) {
       const roll = runRollup(open);
-      parts.push(`reading the run of ${fmtAgo(agentRanAt(open))} · ${roll.passed} of ${roll.conv} conversations passed`);
+      parts.push(`reading the run of ${fmtAgo(agentRanAt(open))} · ${roll.passed} of ${roll.conv} test calls passed`);
     }
   } else if (sitTabOn()) {
     parts.push(`${situations.length} situation${situations.length === 1 ? '' : 's'}`);
@@ -1835,11 +1856,15 @@ function runFacts(run) {
     const row = runSitRow(t);
 
     const opener = runStrip(agent[0] && agent[0].message).trim();
-    const questions = agent.reduce((n, u) => n + (runStrip(u.message).match(/\?/g) || []).length, 0);
-
     /* the first thing the agent said AFTER the driver's report — the
-     * turn criterion 1 is about */
+     * turn check 1 is about */
     const iUser = turns.findIndex(u => u.role === 'user');
+    /* questions: question marks in Otto's turns AFTER the driver's first
+     * words. The greeting ("Hello! How can I help you today?") is his
+     * chosen first line and not a follow-up — it is never counted, which
+     * is also how the suite's LENGTH check reads now. */
+    const questions = iUser < 0 ? 0 : turns.reduce((n, u, i) => n + (i > iUser && u.role !== 'user'
+      ? (runStrip(u.message).match(/\?/g) || []).length : 0), 0);
     const iFollow = iUser < 0 ? -1 : turns.findIndex((u, i) => i > iUser && u.role !== 'user');
     const follow = iFollow < 0 ? '' : runStrip(turns[iFollow].message);
 
@@ -1912,16 +1937,17 @@ function runFacts(run) {
   }).filter(Boolean);
 }
 
-/* ---------- the evaluator's reasons, verbatim ----------
- * One paragraph per criterion, in a fixed order that is the same for
- * every situation test — so the paragraph can be labelled with what it
- * is about without reading it. */
+/* ---------- the judge's notes, word for word ----------
+ * One paragraph per check, in a fixed order that is the same for every
+ * situation test — so the paragraph can be labelled with what it is
+ * about without reading it. The labels are the page's plain words for
+ * the checks; the judge's own text is never changed. */
 const RUN_CRITERIA = [
-  'the first follow-up fits what the driver reported',
-  'never asks for something already said',
-  'sounds natural — no form-filling, no reading the report back',
+  'the first question fits what the driver reported',
+  'never asks for something the driver already said',
+  'sounds natural — no form-filling, no repeating the report back',
   'invents nothing the driver did not say',
-  'two or three questions in the whole call',
+  'two or three follow-up questions after the driver\'s report — the greeting does not count',
   'ends by confirming the tip in one line, then lets the driver go',
   'asks one open question first — the vague driver only',
 ];
@@ -2006,119 +2032,211 @@ function runSituations(run, facts) {
   return out;
 }
 
-/* ---------- the findings ----------
- * One entry per pattern that ACTUALLY occurred, each carrying its
- * count, the rule that produced it, an example, and the change it
- * argues for. Ranked by count, except the opener: when one generic
- * first message opens most of the run it is not one failure among
- * others, it is the reason the rest of the call started wrong, and its
- * cause is a SETTING and not the prompt. */
+/* ---------- the report's words ----------
+ * Everything the report prints is for a busy reader whose first
+ * language is not English: short sentences, common words, and one
+ * plain line saying what each number means. The judge is "the judge",
+ * a criterion is "a check", the rationale is "the judge's notes". */
+
+/* the three chip colours, read per situation and per driver type:
+ * red under half the calls passed, amber under all, green at all */
+const runBarCls = r => (r >= 1 ? 'ok' : r >= 0.5 ? 'warn' : 'bad');
+
+/* a real turn cut to one readable line: whole sentences when they fit,
+ * otherwise the first words and an ellipsis — never mid-word */
+function runClip(text, max = 88) {
+  const s = runStrip(text).replace(/\s+/g, ' ').trim();
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max - 1);
+  const end = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('? '), cut.lastIndexOf('! '));
+  if (end >= 30) return cut.slice(0, end + 1);
+  const sp = cut.lastIndexOf(' ');
+  return (sp > 30 ? cut.slice(0, sp) : cut) + '…';
+}
+const runSentences = text => runStrip(text).replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s+/).filter(Boolean);
+/* the sentence that matches, with the one before it when both fit */
+function runAround(text, re, max = 88) {
+  const ss = runSentences(text);
+  const i = ss.findIndex(s => re.test(s));
+  if (i < 0) return runClip(text, max);
+  const two = i > 0 ? ss[i - 1] + ' ' + ss[i] : ss[i];
+  return two.length <= max ? two : runClip(ss[i], max);
+}
+/* the driver's turn just before turn i */
+const runPrevUser = (turns, i) => { for (let j = i - 1; j >= 0; j--) if (turns[j].role === 'user') return turns[j]; return null; };
+/* the driver's report, as one line: the sidetracked driver opens with
+ * an aside and reports after "anyway" — that part is the report */
+function runReportLine(text) {
+  const s = runStrip(text).replace(/\s+/g, ' ').trim();
+  const m = /\banyway\b[\s,—–:-]*/i.exec(s);
+  const rep = m && s.slice(m.index + m[0].length).trim().length > 12 ? s.slice(m.index + m[0].length).trim() : s;
+  return runClip(rep.charAt(0).toUpperCase() + rep.slice(1));
+}
+
+/* The next thing Otto could ask, built from the situation's own row:
+ * the follow-up on the sheet that the driver has said least about,
+ * turned into one short question. Empty on the control row — there is
+ * nothing to ask after "nothing to report". */
+function runAskLine(row, saidText) {
+  const items = row ? sitList(row.follow_up) : [];
+  if (!items.length) return 'Is there anything the next driver should know?';
+  if (/^nothing\b/i.test(items[0])) return '';
+  const said = runBag(saidText || '');
+  let pick = items[0];
+  let best = Infinity;
+  items.forEach(p => { const ov = runHits(said, p); if (ov < best) { best = ov; pick = p; } });
+  let q = pick.trim();
+  if (q.length > 60) q = q.split(/\s+[—–]\s+/)[0];
+  /* one thing at a time: a sheet item that bundles two questions ("how
+   * long it cost and whether the parcel was delivered") is cut at the
+   * second one — Otto never asks two things in one breath */
+  q = q.split(/\s+(?:and|or)\s+(?=(?:whether|how|which|where|what|when|who|if)\b)/i)[0];
+  q = q.replace(/[.?!]+$/, '').trim();
+  const lead = /^(how|whether|which|where|what|when|who|if)\b/i.test(q) ? 'Do you know '
+    : /^(the|an?)\b/i.test(q) ? 'What is ' : 'Can you tell me ';
+  return lead + q.charAt(0).toLowerCase() + q.slice(1) + '?';
+}
+/* the one-line close the row exists to produce */
+function runCloseLine(row) {
+  let tip = String((row && row.tip) || '').trim().replace(/\.+$/, '');
+  if (!tip) return 'Thanks — that goes to the next driver. Safe trip.';
+  if (/nothing to note/i.test(tip)) return 'Good — a normal one, nothing to note. Thanks, safe trip.';
+  /* "Kollwitzstraße 48: the gate code…" — on the phone both sides know
+   * the stop, so the address label in front of the tip is dropped */
+  tip = tip.replace(/^[^:]{3,48}:\s+(?=[a-zäöü])/, '');
+  return `For the next driver: ${tip}. Thanks, safe trip.`;
+}
+
+/* ---------- Today / After the change ----------
+ * The "Today" side is a REAL call from this run — the shortest one the
+ * pattern has. The "After" side is the same moment, written the way
+ * the suggestion asks for, from the same situation's row. Each side is
+ * two to four lines of DRIVER / OTTO. */
+const runShorter = (a, b) => a.turns.length - b.turns.length
+  || a.turns.reduce((n, u) => n + String(u.message || '').length, 0) - b.turns.reduce((n, u) => n + String(u.message || '').length, 0);
+const runLine = (who, text) => ({ who, text });
+function runExample(id, f) {
+  if (!f) return null;
+  const t = f.turns;
+  const iU = t.findIndex(u => u.role === 'user');
+  const report = iU < 0 ? '' : runReportLine(t[iU].message);
+  const saidAll = t.filter(u => u.role === 'user').map(u => u.message).join(' ');
+  const row = f.row;
+  const close = runCloseLine(row);
+  const today = [];
+  const after = [];
+  let note = '';
+  if (id === 'readback') {
+    const i = t.findIndex((u, k) => k > 0 && u.role !== 'user' && runStrip(u.message) === f.readback);
+    const prev = i > 0 ? runPrevUser(t, i) : null;
+    if (i < 0 || !prev) return null;
+    const said = t.slice(0, i).filter(u => u.role === 'user').map(u => u.message).join(' ');
+    const q = runAskLine(row, said);
+    today.push(runLine('DRIVER', runClip(prev.message)), runLine('OTTO', runClip(t[i].message)));
+    after.push(runLine('DRIVER', runClip(prev.message)), runLine('OTTO', q ? 'Got it. ' + q : close));
+  } else if (id === 'filed') {
+    const i = t.findIndex(u => u.role !== 'user' && RUN_FILED.test(runStrip(u.message)));
+    if (i < 0) return null;
+    const prev = runPrevUser(t, i);
+    const isLast = !t.slice(i + 1).some(u => u.role !== 'user');
+    const said = t.slice(0, i).filter(u => u.role === 'user').map(u => u.message).join(' ');
+    const q = runAskLine(row, said);
+    if (prev) { today.push(runLine('DRIVER', runClip(prev.message))); after.push(runLine('DRIVER', runClip(prev.message))); }
+    else if (report) { today.push(runLine('DRIVER', report)); after.push(runLine('DRIVER', report)); }
+    today.push(runLine('OTTO', runAround(t[i].message, RUN_FILED)));
+    after.push(runLine('OTTO', isLast || !q ? close : 'Thanks. ' + q));
+  } else if (id === 'tip-partial' || id === 'tip-none') {
+    let iL = -1;
+    t.forEach((u, k) => { if (u.role !== 'user') iL = k; });
+    if (iL < 0) return null;
+    const prev = runPrevUser(t, iL);
+    if (prev) { today.push(runLine('DRIVER', runClip(prev.message))); after.push(runLine('DRIVER', runClip(prev.message))); }
+    today.push(runLine('OTTO', runClip(t[iL].message)));
+    after.push(runLine('OTTO', close));
+  } else if (id === 'questions') {
+    const qs = [];
+    t.forEach((u, k) => { if (k > iU && u.role !== 'user') runSentences(u.message).forEach(s => { if (/\?$/.test(s)) qs.push(runClip(s)); }); });
+    if (!qs.length || !report) return null;
+    today.push(runLine('DRIVER', report), ...qs.slice(0, 3).map(q => runLine('OTTO', q)));
+    after.push(runLine('DRIVER', report), ...qs.slice(0, 2).map(q => runLine('OTTO', q)), runLine('OTTO', close));
+    note = `Today: ${f.questions} question${f.questions === 1 ? '' : 's'} in this call. The driver's answers are left out to keep it short.`;
+  } else if (id === 'unsaid') {
+    let tok = f.unsaid[0];
+    if (!tok || !f.follow || !report) return null;
+    const re = new RegExp(tok.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    if (/^\d/.test(tok)) { const m = f.follow.match(new RegExp(tok.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s+[\\wäöüß]+')); if (m) tok = m[0]; }
+    today.push(runLine('DRIVER', report), runLine('OTTO', runAround(f.follow, re)));
+    after.push(runLine('DRIVER', report), runLine('OTTO', `Was that ${tok}? I want the notes to be right.`));
+  } else if (id === 'follow-elsewhere') {
+    if (!f.follow || !report) return null;
+    const q = runAskLine(row, saidAll);
+    today.push(runLine('DRIVER', report), runLine('OTTO', runClip(f.follow)));
+    after.push(runLine('DRIVER', report), runLine('OTTO', q ? 'Sorry to hear that. ' + q : close));
+  } else return null;
+  return { today, after, note, who: agentWho(f.test), title: String((row && row.title) || f.test.situation_title || '').trim() };
+}
+
+/* ---------- what went wrong: the patterns ----------
+ * One entry per pattern that actually happened in this run: its count,
+ * the one plain sentence the list prints, the chart's short label, how
+ * it was counted, and the calls it was found in. Ranked by count. The
+ * greeting is not a pattern: "Hello! How can I help you today?" is the
+ * agent's chosen first line, and the question count never includes it. */
+const RUN_PATTERNS = [
+  /* id = the NOT A PROBLEM key (fixed, never a count or a position);
+   * name = the finding as the list words it; label = the chart's label */
+  { id: 'readback', test: f => !!f.readback, label: 'Repeated the driver\'s words', name: 'Otto repeats what the driver just said',
+    line: (k, of) => `In ${k} of ${of}, Otto repeated what the driver had just said.`,
+    how: 'We looked for a turn where Otto used three or more of the same words as the driver\'s last answer. Otto\'s last line is not counted — there he should say the tip back.' },
+  { id: 'tip-partial', test: f => f.tipState === 'partial', label: 'Tip missing its detail', name: 'Otto\'s last line has only part of the tip',
+    line: (k, of) => `In ${k} of ${of}, Otto\'s last line had only part of the tip — the place without the time, the day, the door or the distance.`,
+    how: 'We compared Otto\'s last line with the tip on the situation\'s row. At least one of the tip\'s main words was there, but fewer than half of them.' },
+  { id: 'filed', test: f => f.filed, label: 'Said "I have noted that"', name: 'Otto says "I have noted that"',
+    line: (k, of) => `In ${k} of ${of}, Otto said "I have noted that" or "I\'ll file that".`,
+    how: 'We looked in Otto\'s turns for "I have noted / logged / filed / recorded", "noted that", "noted down" or "I\'ll note / log / file".' },
+  { id: 'tip-none', test: f => f.tipState === 'none', label: 'No tip at the end', name: 'Otto ends without a tip',
+    line: (k, of) => `In ${k} of ${of}, Otto ended without any tip for the next driver.`,
+    how: 'Not one of the main words of the row\'s tip was in Otto\'s last line.' },
+  { id: 'questions', test: f => f.questions > 3, label: 'More than three questions', name: 'Otto asks more than three questions',
+    line: (k, of) => `In ${k} of ${of}, Otto asked more than three questions after the driver\'s report.`,
+    how: 'We counted question marks in Otto\'s turns after the driver\'s first words. Otto\'s greeting is not counted. Three is the most the check allows. We count marks, not meaning, so the number is close, not exact.' },
+  { id: 'unsaid', test: f => f.unsaid.length > 0, label: 'Said something the driver had not said', name: 'Otto says something the driver did not say',
+    line: (k, of) => `In ${k} of ${of}, Otto said a street, a name or a number that the driver had not said.`,
+    how: 'We looked at Otto\'s first question after the report. A name, or a number with a unit, that Otto stated (not asked) and that the driver had not said, counts. The first word of a sentence is never counted.' },
+  { id: 'follow-elsewhere', test: f => f.offTopic > f.onTopic, label: 'First question off topic', name: 'Otto\'s first question is off topic',
+    line: (k, of) => `In ${k} of ${of}, Otto\'s first question was about something else, not what the driver reported.`,
+    how: 'We compared the words of Otto\'s first question with the row\'s "a good follow-up asks about" list and its "off topic here" list. It counts only when the off-topic list matches more.' },
+];
 function runFindings(run, facts) {
   const n = facts.length;
   if (!n) return [];
-  const share = k => `${k} of ${n} failing conversation${n === 1 ? '' : 's'}, ${Math.round((k / n) * 100)}%`;
-  const out = [];
-
-  /* the opening line, grouped verbatim */
-  const openers = new Map();
-  facts.forEach(f => {
-    const k = f.opener || '(the agent said nothing first)';
-    const o = openers.get(k) || { text: k, hits: [] };
-    o.hits.push(f);
-    openers.set(k, o);
+  const out = RUN_PATTERNS.map(p => {
+    const hits = facts.filter(p.test).sort(runShorter);
+    return hits.length ? { ...p, count: hits.length, n, hits } : null;
+  }).filter(Boolean).sort((a, b) => b.count - a.count);
+  const used = new Set();
+  out.forEach((fd, i) => {
+    fd.text = fd.line(fd.count, i === 0 ? `the ${n} failed call${n === 1 ? '' : 's'}` : `${n} call${n === 1 ? '' : 's'}`);
+    /* the shortest call that has the pattern AND yields a Today / After
+     * example — from a situation no earlier card is showing, when there
+     * is one, so the cards do not all quote the same call */
+    fd.example = fd.hits[0];
+    fd.ex = null;
+    let first = null;
+    for (const h of fd.hits) {
+      const e = runExample(fd.id, h);
+      if (!e) continue;
+      if (!first) first = { e, h };
+      if (!used.has(e.title)) { first = { e, h }; break; }
+    }
+    if (first) { fd.ex = first.e; fd.example = first.h; used.add(first.e.title); }
   });
-  const top = [...openers.values()].sort((a, b) => b.hits.length - a.hits.length)[0];
-  /* generic = it does not ask what happened: no question mark at all,
-   * or a question with none of the words a "what happened" has */
-  const generic = !!top && (!/\?/.test(top.text)
-    || !/\b(happen|happened|going on|find|found|problem|trouble|stop|delivery|report|wrong|there)\b/i.test(top.text));
-  if (top && generic && top.hits.length * 2 > n) {
-    out.push({
-      id: 'opener', first: true, where: 'setting', count: top.hits.length,
-      title: 'Otto opened with a greeting instead of asking what happened',
-      share: share(top.hits.length),
-      rule: 'The first agent turn of each failing conversation, compared verbatim; this one carries no question about the stop.',
-      explain: `Every one of these calls began “${top.text}”. The driver had pressed REPORT and had something to say, `
-        + 'and was met by an open greeting — so the report arrives as an interruption, and the first follow-up Otto is '
-        + 'judged on has already gone by. This is not the prompt: the first message is an agent SETTING, and while it '
-        + 'is a greeting the prompt\'s instruction that the opening question has already been asked leaves the driver unasked.',
-      hits: top.hits,
-      others: [...openers.values()].sort((a, b) => b.hits.length - a.hits.length).slice(1, 4),
-      fix: { where: 'setting',
-        what: 'Set the agent\'s first message to a line that asks what happened.',
-        text: 'Otto here. What happened at this stop?' },
-    });
-  }
-
-  const add = (id, test, o) => {
-    const hits = facts.filter(test);
-    if (!hits.length) return;
-    out.push({ id, count: hits.length, share: share(hits.length), hits, ...o });
-  };
-
-  add('readback', f => !!f.readback, {
-    where: 'prompt',
-    title: 'Otto read the driver\'s report back to them mid-call',
-    rule: 'An agent turn that repeats three or more content words from the driver\'s previous turn, and is not the last turn of the call.',
-    explain: 'Repeating the report back is what a form does, not what a colleague does — and it costs a turn that a '
-      + 'question could have used. The closing line is excluded from this count: there the tip is supposed to be said back.',
-  });
-  add('filed', f => f.filed, {
-    where: 'prompt',
-    title: 'Otto told the driver he had logged it',
-    rule: 'An agent turn matching “I have logged / noted / filed / recorded”, “noted that”, “noted down”, “I\'ll log / note / file”.',
-    explain: 'The driver does not need to hear about the filing, and saying it turns a conversation into a transaction. '
-      + 'It also tends to replace the closing tip: the call ends on the paperwork rather than on what the next driver needs.',
-  });
-  add('tip-partial', f => f.tipState === 'partial', {
-    where: 'prompt',
-    title: 'The closing line carried only part of the tip',
-    rule: 'Content words of the row\'s tip found in Otto\'s last turn: at least one, but fewer than half.',
-    explain: 'Something of the tip was said, but not enough of it to be usable — typically the place without the '
-      + 'condition (the time, the day, the door, the distance) that makes it worth knowing.',
-  });
-  add('tip-none', f => f.tipState === 'none', {
-    where: 'prompt',
-    title: 'No tip at the close at all',
-    rule: 'Not one content word of the row\'s tip appears in Otto\'s last turn.',
-    explain: 'The call ended without the one line this situation exists to produce. Whatever was learned went nowhere.',
-  });
-  add('questions', f => f.questions > 3, {
-    where: 'prompt',
-    title: 'More than three questions in one call',
-    rule: 'Question marks counted in the agent\'s turns — approximate, it counts marks and not intentions. Three is the most the criteria allow.',
-    explain: 'Past the third question the call stops being a colleague checking one thing and starts being an '
-      + 'interview. The driver is standing next to a van.',
-  });
-  add('unsaid', f => f.unsaid.length > 0, {
-    where: 'prompt',
-    title: 'Otto stated a name or a measurement the driver had not given',
-    rule: 'Words in Otto\'s first follow-up that he STATES (not asks) which look like a name or a number with a unit, '
-      + 'and appear in neither the driver\'s words so far nor the row\'s opening line. Deliberately narrow: questions '
-      + 'are never counted, and a capital opening a sentence is never counted.',
-    explain: 'Said as fact, a detail out of the notes on file is indistinguishable from an invention — and when it is '
-      + 'wrong the driver has to argue with it. Asked as a question it costs nothing.',
-  });
-  add('follow-elsewhere', f => f.offTopic > f.onTopic, {
-    where: 'prompt',
-    title: 'The first follow-up went somewhere the row calls off topic',
-    rule: 'Content-word overlap between Otto\'s first follow-up and the row\'s “a relevant follow-up asks about” lines '
-      + 'versus its “off topic here” lines — counted only when the off-topic side is the bigger one.',
-    explain: 'The driver reported one thing and the first question was about another. Counted conservatively: a '
-      + 'question can fit perfectly and still share no wording with the sheet, so a low on-topic overlap alone is not counted here.',
-  });
-  /* ranked by how many conversations each cost — except the opener,
-   * which stays first even when something else counts higher: it is the
-   * one finding whose cause is a setting, and the one change that is
-   * worth making before any of the others are judged again */
-  out.sort((a, b) => (b.first ? 1 : 0) - (a.first ? 1 : 0) || b.count - a.count);
   return out;
 }
 
-/* The shape of a failing call, measured: how many turns the agent took
- * and how many questions he asked. Unlike the findings these two are
- * measurements and not flags, so they are shown as a middle value and a
- * range rather than as a count of something wrong. */
+/* What a failed call looks like: the greeting Otto opens with, said
+ * once and neutrally, then how much he talks and asks. Measurements,
+ * not faults — the middle value and the range. */
 function runShape(facts) {
   if (!facts.length) return '';
   const mid = list => {
@@ -2126,30 +2244,73 @@ function runShape(facts) {
     const h = Math.floor(v.length / 2);
     return v.length % 2 ? v[h] : Math.round((v[h - 1] + v[h]) / 2);
   };
+  const openers = new Map();
+  facts.forEach(f => { const k = f.opener || ''; openers.set(k, (openers.get(k) || 0) + 1); });
+  const [top, topN] = [...openers.entries()].sort((a, b) => b[1] - a[1])[0];
   const turns = facts.map(f => f.agentTurns);
   const qs = facts.map(f => f.questions);
-  return `Across the ${facts.length} conversation${facts.length === 1 ? '' : 's'} published here Otto took `
-    + `${mid(turns)} turns in the middle (${Math.min(...turns)}–${Math.max(...turns)}) and asked `
-    + `${mid(qs)} questions in the middle (${Math.min(...qs)}–${Math.max(...qs)}). `
-    + 'Questions are counted as question marks in his turns, so that number is approximate.';
+  const greet = !top ? '' : topN === facts.length
+    ? `Every call starts with Otto's greeting: “${top}” `
+    : `Most calls (${topN} of ${facts.length}) start with Otto's greeting: “${top}” `;
+  const mq = mid(qs);
+  return `${greet}Then the driver reports. In a failed call, Otto speaks ${mid(turns)} times in all (${Math.min(...turns)} to ${Math.max(...turns)}) `
+    + `and asks ${mq} question${mq === 1 ? '' : 's'} after the report (${Math.min(...qs)} to ${Math.max(...qs)}). `
+    + 'We count question marks, so the question number is close, not exact.';
 }
 
-/* the checks that HELD — the same observed facts, counted the other way
- * round, so the good news is as computed as the bad */
+/* the checks that HELD — the same facts, counted the other way round,
+ * so the good news is as counted as the bad */
 function runHeld(facts) {
   const n = facts.length;
   if (!n) return [];
   const list = [
-    ['Otto asked three questions or fewer', facts.filter(f => f.questions <= 3).length],
-    ['the first follow-up stayed on the reported thing', facts.filter(f => !(f.offTopic > f.onTopic)).length],
-    ['Otto stated no name or measurement the driver had not given', facts.filter(f => !f.unsaid.length).length],
-    ['the closing line carried at least part of the tip', facts.filter(f => f.tipState === 'ok' || f.tipState === 'partial').length],
-    ['Otto did not say he had logged it', facts.filter(f => !f.filed).length],
-    ['Otto did not read the report back mid-call', facts.filter(f => !f.readback).length],
+    [f => !(f.offTopic > f.onTopic), k => `In ${k} of ${n} failed calls, Otto's first question was still about what the driver reported.`],
+    [f => !f.unsaid.length, k => `In ${k} of ${n} failed calls, Otto did not invent any street, name or number.`],
+    [f => f.tipState === 'ok' || f.tipState === 'partial', k => `In ${k} of ${n} failed calls, Otto's last line still had at least part of the tip.`],
+    [f => f.questions <= 3, k => `In ${k} of ${n} failed calls, Otto still kept to three questions or fewer.`],
+    [f => !f.filed, k => `In ${k} of ${n} failed calls, Otto did not talk about noting or filing.`],
+    [f => !f.readback, k => `In ${k} of ${n} failed calls, Otto did not repeat the driver's words back.`],
   ];
-  return list.filter(([, k]) => k / n >= 0.6).sort((a, b) => b[1] - a[1])
-    .map(([label, k]) => `${label} in ${Math.round((k / n) * 100)}% of them (${k} of ${n})`);
+  return list.map(([test, line]) => [facts.filter(test).length, line])
+    .filter(([k]) => k / n >= 0.6).sort((a, b) => b[0] - a[0]).map(([k, line]) => line(k));
 }
+
+/* ---------- per driver type ---------- */
+const RUN_TYPES = {
+  cooperative: 'answers fully and adds one useful detail of their own.',
+  terse: 'answers in three to six words and adds nothing until asked.',
+  sidetracked: 'starts with small talk, then answers.',
+  vague: 'says “it did not really work out” and no more until Otto asks what happened.',
+};
+function runPersonas(roll) {
+  return roll.personas.map(p => {
+    const tests = roll.tests.filter(x => x.persona === p);
+    const runs = tests.reduce((s, x) => s + (+x.runs || 0), 0);
+    const passed = tests.reduce((s, x) => s + (+x.passed || 0), 0);
+    return { persona: p, runs, passed, rate: runs ? passed / runs : 0 };
+  });
+}
+
+/* ---------- the old rule ----------
+ * Runs graded before the LENGTH check was reworded sometimes counted
+ * Otto's greeting as a question. Where a stored note under check 5 did
+ * that, the page says so — it is the old rule, not a fault in Otto. A
+ * note that calls the greeting "not a question" is the new rule. */
+const RUN_OLD_RULE = [
+  /\b(plus|including|combined with|counting|with)\s+(the|his|an?)\s+opening\s*(greeting|message|line|['‘"]|[,.;—–-]|$)/i,
+  /\bopening\s+(greeting|message|question|line)\s+counts?\b/i,
+  /['’"]\s*\(opening\)/i,
+  /\bhow can i help[^.]{0,40}\(opening\)/i,
+  /\(\s*1\s*\)\s*(the\s+)?opening\s+['‘"]?(hello|how can)/i,
+  /\b(hello|how can i help)[^.]*\b(counts?|counted|totall?ing)\b/i,
+];
+const RUN_OLD_NOT = [
+  /\b(opening|greeting)[^.]{0,60}\b(not|n['’]t)\s+(a\s+)?(real\s+|relevant\s+|genuine\s+|substantive\s+)?question\b/i,
+  /\b(not|n['’]t)\s+count(?:ed)?\b/i,
+  /\bexclud(?:e|es|ed|ing)\s+the\s+(opening|greeting)/i,
+];
+const runOldRule = (n, text) => n === 5 && RUN_OLD_RULE.some(re => re.test(text)) && !RUN_OLD_NOT.some(re => re.test(text));
+const RUN_OLD_NOTE = 'Graded by the old rule — the greeting was counted as a question. The next run counts only follow-ups.';
 
 /* ---------- the analysis, memoised ----------
  * A published run never changes, so the whole analysis is computed once
@@ -2159,22 +2320,28 @@ function runAnalysis(run) {
   if (!run) return null;
   if (runAnalysisCache.id === run.id && runAnalysisCache.out) return runAnalysisCache.out;
   const facts = runFacts(run);
+  const roll = runRollup(run);
   const out = {
-    roll: runRollup(run),
+    roll,
     facts,
     findings: runFindings(run, facts),
     held: runHeld(facts),
     sits: runSituations(run, facts),
+    personas: runPersonas(roll),
+    shape: runShape(facts),
   };
-  /* the per-criterion tally, plainly-said only, unclear kept visible */
+  /* the judge's notes by check: only a paragraph that says clearly the
+   * check was missed counts; the rest stays "unclear", never guessed.
+   * A check-5 paragraph written under the old rule is kept apart. */
   const crit = {};
   facts.forEach(f => runReasonParas(f.rationale).forEach(p => {
-    const o = crit[p.n] || (crit[p.n] = { paras: 0, plain: 0 });
+    const o = crit[p.n] || (crit[p.n] = { paras: 0, plain: 0, old: 0 });
     o.paras++;
-    if (runSaysPlainly(p.n, p.text)) o.plain++;
+    if (runOldRule(p.n, p.text)) o.old++;
+    else if (runSaysPlainly(p.n, p.text)) o.plain++;
   }));
   out.criteria = Object.keys(crit).map(Number).sort((a, b) => a - b)
-    .map(k => ({ idx: k, paras: crit[k].paras, plain: crit[k].plain }));
+    .map(k => ({ idx: k, paras: crit[k].paras, plain: crit[k].plain, old: crit[k].old }));
   runAnalysisCache = { id: run.id, out };
   return out;
 }
@@ -2212,7 +2379,7 @@ function renderRunList() {
   if (note) return `<div class="rl-empty"><p class="cmp-empty agent-note">${note}</p></div>`;
   const rows = agentRuns.map(r => {
     const roll = runRollup(r);
-    const label = r.label === 'branch' || r.branch_id ? 'PROPOSED PROMPT' : 'BASELINE';
+    const label = r.label === 'branch' || r.branch_id ? 'PROPOSED PROMPT' : 'LIVE PROMPT';
     const verdict = r.verdict ? `<span class="rl-verdict ${r.verdict === 'accept' ? 'ok' : 'bad'}"
         title="${esc('The loop\'s own verdict on this run' + (r.verdict_reason ? ': ' + r.verdict_reason : ''))}">${esc(String(r.verdict).toUpperCase())}</span>` : '';
     return `
@@ -2221,200 +2388,306 @@ function renderRunList() {
         <span class="rl-when" title="${esc(fmtTime(agentRanAt(r)))}">${esc(fmtAgo(agentRanAt(r)) || '—')}</span>
         <span class="rl-label">${esc(label)}${roll.suite ? ' · ' + esc(roll.suite) : ''}${roll.repeat ? ' · ×' + roll.repeat : ''}</span>
         <span class="agent-chip ${runCls(roll.rate)}">${esc(runPct(roll.rate))}</span>
-        <span class="rl-tests">${roll.perfect} of ${roll.nTests} tests perfect</span>
+        <span class="rl-tests">${roll.passed} of ${roll.conv} calls passed · ${roll.perfect} of ${roll.nTests} tests passed every time</span>
         ${verdict}
         ${/^https?:\/\//i.test(String(r.run_url || '')) ? `<a class="row-link" href="${esc(r.run_url)}" target="_blank" rel="noopener">open the GitHub run ↗</a>` : ''}
-        <span class="rl-go">read the summary →</span>
+        <span class="rl-go">open the report →</span>
       </article>`;
   }).join('');
   return `
     <div class="rl-list">
-      <p class="rl-intro">One page per suite run: what went well, what went wrong, and what to change. Nothing on it changes the agent — reading it is all it does.</p>
+      <p class="rl-intro">One report per test run: what went well, what went wrong, and what to change. Reading it changes nothing on the agent.</p>
       ${rows}
     </div>`;
 }
 
-/* ---------- one failing conversation, as evidence ----------
- * The same OTTO / TESTER turns as a card's failing conversation, and
- * under them the evaluator's paragraphs verbatim, one per criterion,
- * each labelled with what that criterion is about. */
-function renderRunExample(f, open) {
+/* ---------- one real call, as evidence ----------
+ * Two folded blocks, both closed to start: the conversation as DRIVER /
+ * OTTO turns, and the judge's notes on it word for word, one paragraph
+ * per check, each labelled with what the check is about. */
+function renderRunCall(f) {
+  if (!f) return '';
   const paras = runReasonParas(f.rationale);
+  const who = `${agentWho(f.test)} driver · ${String(f.test.situation_title || f.test.name || '').slice(0, 60)} · ${f.turns.length} turns`;
   return `
-      <details class="msg-convo agent-convo rs-ex"${open ? ' open' : ''}>
-        <summary>${esc(agentWho(f.test))} · ${f.turns.length} TURNS · ${esc(String(f.test.situation_title || f.test.name || '').slice(0, 60))}</summary>
-        ${f.turns.map(u => `<div class="msg-turn ${u.role === 'user' ? 'me' : 'ai'}"><b>${u.role === 'user' ? 'TESTER' : 'OTTO'}</b>${esc(u.message || '')}</div>`).join('')}
-        ${paras.length ? `
-        <div class="rs-reasons">
-          <span class="cmp-k">THE EVALUATOR&rsquo;S REASONS — verbatim, one paragraph per criterion, nothing summarised</span>
-          ${paras.map(p => `<p class="rs-reason"><b>${p.n}. ${esc(RUN_CRITERIA[p.n - 1] || 'criterion ' + p.n)}</b>${esc(p.text)}</p>`).join('')}
-        </div>` : (f.rationale ? `<p class="agent-rationale"><b>EVALUATOR</b>${esc(f.rationale)}</p>` : '')}
-      </details>`;
+      <details class="rs-more rs-call"><summary>show a real call</summary>
+        <p class="rs-call-who">${esc(who)}</p>
+        ${f.turns.map(u => `<div class="msg-turn ${u.role === 'user' ? 'me' : 'ai'}"><b>${u.role === 'user' ? 'DRIVER' : 'OTTO'}</b>${esc(u.message || '')}</div>`).join('')}
+      </details>
+      ${paras.length || f.rationale ? `<details class="rs-more rs-notes"><summary>the judge&rsquo;s notes on this call</summary>
+        <p class="rs-how">Word for word, one paragraph per check. Nothing is shortened.</p>
+        ${paras.length ? paras.map(p => `<p class="rs-reason"><b>${p.n}. ${esc(RUN_CRITERIA[p.n - 1] || 'check ' + p.n)}</b>${esc(p.text)}${
+    runOldRule(p.n, p.text) ? `<span class="rs-old">${esc(RUN_OLD_NOTE)}</span>` : ''}</p>`).join('')
+    : `<p class="rs-reason">${esc(f.rationale)}</p>`}
+      </details>` : ''}`;
 }
 
-/* ---------- the summary page ---------- */
+/* the Today / After box of a suggestion */
+function renderRunExampleBox(ex) {
+  const side = (k, cls, lines) => `
+        <div class="rs-ex-side${cls}"><span class="rs-ex-k">${k}</span>${lines.map(l =>
+    `<div class="rs-ex-line ${l.who === 'DRIVER' ? 'me' : 'ai'}"><b>${l.who}</b><span>${esc(l.text)}</span></div>`).join('')}</div>`;
+  return `
+      <div class="rs-ex-wrap">
+        <p class="rs-sug-p"><b>Example</b>${ex.title ? `<span class="rs-ex-from">“Today” is a real call from this run — the ${esc(ex.who)} driver, “${esc(ex.title)}”.</span>` : ''}</p>
+        <div class="rs-ex2">${side('Today', '', ex.today)}${side('After the change', ' after', ex.after)}</div>
+        ${ex.note ? `<p class="rs-how">${esc(ex.note)}</p>` : ''}
+      </div>`;
+}
+
+/* ---------- the suggestions ----------
+ * One card per pattern that happened, in the findings' own order, each
+ * in the same shape: a plain title, what happened (with the count), why
+ * it matters to the driver, a Today / After example, and the line to
+ * paste. The rows at 0% get a card of their own with no prompt line. */
+const RUN_FIXES = {
+  readback: { title: 'Stop repeating what the driver said',
+    what: (k, n) => `In ${k} of the ${n} failed calls, Otto repeated the driver's report back to them.`,
+    why: 'It wastes the driver\'s time and sounds like a form being filled in. The driver is standing in a doorway. Every wasted sentence costs them time. Ask the next question instead.',
+    text: 'Do not repeat the driver\'s report back to them. Say "Got it" or "Thanks", then ask your next question.' },
+  'tip-partial': { title: 'Keep the important detail in the final summary',
+    what: (k, n) => `In ${k} of the ${n} failed calls, Otto's last line had the place but not the condition.`,
+    why: 'The next driver needs the condition — the time, the day, the door, the distance. "Loading bay on Husemannstraße" is useless without "free before ten".',
+    text: 'When you confirm the tip, include the detail that makes it useful: the time of day, the day of the week, the door, or the distance. A place without its condition is not a tip.' },
+  filed: { title: 'Do not say "I have noted that"',
+    what: (k, n) => `In ${k} of the ${n} failed calls, Otto told the driver he had noted or filed the report.`,
+    why: 'The app files the report by itself. The sentence adds nothing, and it often ends the call before the tip is confirmed.',
+    text: 'Never say that you have noted, logged or filed anything. The app files the report by itself. Go straight to your next question, or to the tip.' },
+  questions: { title: 'Ask two or three questions, then stop',
+    what: (k, n) => `In ${k} of the ${n} failed calls, Otto asked more than three questions after the driver's report.`,
+    why: 'The driver is in a doorway or a running van. A long call means they stop pressing REPORT.',
+    text: 'Ask two questions, three at most. After the third question, say the tip and end the call.' },
+  'tip-none': { title: 'Always end with the one-line tip',
+    what: (k, n) => `In ${k} of the ${n} failed calls, Otto ended without any tip for the next driver.`,
+    why: 'The tip is the whole point of the call. Without it, nothing useful is filed for the next driver.',
+    text: 'Your last line must be the tip for the next driver: the place and its condition, in one sentence. Then thank the driver and stop.' },
+  unsaid: { title: 'Ask, don\'t tell, about the notes on file',
+    what: (k, n) => `In ${k} of the ${n} failed calls, Otto said a street, a name or a number the driver had not said.`,
+    why: 'Otto put a detail from the notes in the driver\'s mouth. If the notes are wrong, a wrong tip gets filed, and the next driver follows it.',
+    text: 'Never name a street, a time, a person or a distance the driver has not named, even if it is in the notes. Ask if it was that, instead of saying it was.' },
+  'follow-elsewhere': { title: 'Make the first question about what the driver reported',
+    what: (k, n) => `In ${k} of the ${n} failed calls, Otto's first question was about something else.`,
+    why: 'The driver feels not listened to and stops talking. The first question shows whether Otto heard them.',
+    text: 'Your first question must be about the thing the driver just reported. Name it in the question.' },
+};
+
+/* "#6 The pin is wrong" — the sheet's own row number where the row is
+ * found, so the name matches the SITUATIONS tab; the run's number
+ * otherwise */
+const runSitName = s => `${s.row && s.row.num != null ? '#' + s.row.num + ' ' : s.num != null ? '#' + s.num + ' ' : ''}${s.title}`;
+/* the same, with the title in quotes — for a sentence, where a title
+ * with a dash of its own would otherwise run into the sentence's */
+const runSitQuote = s => `${s.row && s.row.num != null ? '#' + s.row.num + ' ' : s.num != null ? '#' + s.num + ' ' : ''}“${s.title}”`;
+const runTestName = t => {
+  if (t.kind === 'situation') { const row = runSitRow(t); return `${row && row.num != null ? '#' + row.num + ' ' : ''}“${String(t.situation_title || '').trim()}”`; }
+  return `“${String(t.scenario_title || t.name || '').replace(/^Otto · /, '').trim()}”`;
+};
+
+/* one horizontal bar: the name, the bar, and the number on it */
+function renderRunBar(name, rate, val, cls, attrs, title) {
+  const w = Math.max(0, Math.min(100, (+rate || 0) * 100)).toFixed(1);
+  return `
+        <div class="rs-bar-row${attrs ? ' link' : ''}" ${attrs || ''} title="${esc(title)}">
+          <span class="rs-bar-name">${name}</span>
+          <span class="rs-bar-track"><span class="rs-bar-fill ${cls}" style="width:${w}%"></span></span>
+          <span class="rs-bar-val">${esc(val)}</span>
+        </div>`;
+}
+
+/* ---------- the NOT A PROBLEM list ----------
+ * A finding the designer has ruled fine by design. Marking it keeps
+ * the pattern and its suggestion out of EVERY run report, and lists
+ * it under "You said these are fine" with an UNDO. The pass rate is
+ * the suite's and is never touched. Saved to the backend when the
+ * table exists; kept in memory for this session when it does not,
+ * with a persistent hint saying how to create it. The key is the
+ * pattern's fixed id — never a count or a position — so it holds
+ * across reloads and runs; a suggestion shares its pattern's key, so
+ * marking either hides both. The rows-at-0% card has its own key. */
+const ACCEPTED_HINT = 'The NOT A PROBLEM list needs a new table. Paste the accepted_findings block from supabase/schema.sql into Supabase → SQL editor once, then ↻ REFRESH.';
+const ROWS_KEY = 'rows-at-zero';
+const ROWS_NAME = 'Situations that fail with every driver type';
+const acceptedMissingErr = e => /\b404\b|PGRST205|42P01|schema cache/i.test(String((e && e.message) || ''));
+const acceptedHint = () => {
+  if (!Backend.enabled) return;
+  schemaMsg = ACCEPTED_HINT;
+  el('stats').textContent = schemaMsg;
+};
+function acceptFinding(key, title) {
+  if (!key) return;
+  const note = window.prompt('Why is this fine? One line, optional. (No prompt text — this list is public.)', '');
+  if (note === null) return;  // cancelled: nothing marked
+  const row = { key, title: String(title || key), note: String(note).trim() || null, decided_at: new Date().toISOString() };
+  accepted = [row, ...accepted.filter(r => r.key !== key)];
+  acceptedOpen = true;
+  render();
+  if (!Backend.enabled) return;
+  if (acceptedMissing) { acceptedHint(); return; }
+  Backend.acceptFinding({ key: row.key, title: row.title, note: row.note }).then(rows => {
+    const saved = Array.isArray(rows) ? rows[0] : null;
+    if (saved && saved.key) accepted = accepted.map(r => (r.key === saved.key ? { ...r, ...saved } : r));
+  }).catch(e => {
+    warn(e);
+    if (acceptedMissingErr(e)) { acceptedMissing = true; acceptedHint(); return; }
+    el('stats').textContent = `The mark did not reach the backend — ${String((e && e.message) || '').slice(0, 80)}. It is kept in this browser until ↻ REFRESH.`;
+  });
+}
+function unacceptFinding(key) {
+  accepted = accepted.filter(r => r.key !== key);
+  render();
+  if (!Backend.enabled || acceptedMissing) return;
+  Backend.unacceptFinding(key).catch(e => {
+    warn(e);
+    if (acceptedMissingErr(e)) { acceptedMissing = true; acceptedHint(); }
+  });
+}
+const renderNapBtn = (key, title) => `<button class="mini-btn rs-nap" type="button" data-nap="${esc(key)}" data-nap-title="${esc(title)}"
+            title="Mark this as fine by design. It leaves every run report and the suggestions; UNDO is at the end of the report.">NOT A PROBLEM</button>`;
+
+/* ---------- the report ---------- */
 function renderRunSummary(run) {
   const a = runAnalysis(run);
-  const { roll, facts, findings, held, sits, criteria } = a;
+  const { roll, facts, findings, held, sits, criteria, personas, shape } = a;
+  const n = facts.length;
   const back = '<button class="mini-btn rs-back" type="button" data-run-act="all">← all runs</button>';
   const link = /^https?:\/\//i.test(String(run.run_url || ''))
     ? `<a class="row-link" href="${esc(run.run_url)}" target="_blank" rel="noopener">open the GitHub run ↗</a>` : '';
+  const failed = Math.max(0, roll.conv - roll.passed);
+  const pct = Math.round(roll.rate * 100);
+  const calls = k => `${k} call${k === 1 ? '' : 's'}`;
+  const sitN = roll.rowCount;
+  const perN = roll.personas.length;
+  const shapeLine = sitN && perN && roll.repeat
+    ? `${sitN} situation${sitN === 1 ? '' : 's'} × ${perN} driver type${perN === 1 ? '' : 's'} × ${roll.repeat} run${roll.repeat === 1 ? '' : 's'} each = ${calls(roll.conv)}.` : '';
+  /* the NOT A PROBLEM list applies to every run: a pattern on it is not
+   * a problem here, not in the chart, and not a suggestion */
+  const onList = new Set(accepted.map(r => r.key));
+  const shown = findings.filter(fd => !onList.has(fd.id));
+  const hiddenN = findings.length - shown.length;
+  const rowsHidden = onList.has(ROWS_KEY);
 
-  /* (a) the headline — the three numbers, then where the run came from */
-  const shape = [roll.rowCount ? `${roll.rowCount} situation${roll.rowCount === 1 ? '' : 's'}` : '',
-    roll.personas.length ? `${roll.personas.length} driver${roll.personas.length === 1 ? '' : 's'}` : '',
-    roll.repeat ? `${roll.repeat} run${roll.repeat === 1 ? '' : 's'}` : ''].filter(Boolean).join(' × ');
+  /* (a) the big number and the stacked bar */
   const head = `
       <div class="rs-head">
         <div class="rs-head-top">${back}${link}</div>
-        <h2 class="rs-h1">${roll.passed} of ${roll.conv} conversations passed
-          <span class="agent-chip ${runCls(roll.rate)}">${esc(runPct(roll.rate))}</span></h2>
-        <p class="rs-sub">${roll.perfect} of ${roll.nTests} tests passed every run${shape ? ' · ' + esc(shape) : ''}</p>
+        <div class="rs-hero">
+          <div class="rs-hero-n"><span class="rs-big">${pct}%</span><span class="rs-big-k">of test calls passed</span></div>
+          <div class="rs-hero-t">
+            <p class="rs-lead">Otto passed <b>${roll.passed} of ${roll.conv}</b> test calls. That is ${pct} out of 100.</p>
+            <div class="rs-stack" role="img" aria-label="${esc(`${roll.passed} passed, ${failed} failed`)}">
+              ${roll.passed > 0 ? `<span class="rs-stack-seg ok" style="width:${(100 * roll.passed / Math.max(1, roll.conv)).toFixed(2)}%"></span>` : ''}
+              ${failed > 0 ? '<span class="rs-stack-seg bad"></span>' : ''}
+            </div>
+            <p class="rs-legend"><span><span class="rs-sw ok"></span>${roll.passed} passed</span><span><span class="rs-sw bad"></span>${failed} failed</span></p>
+            <p class="rs-sub">${roll.perfect} of ${roll.nTests} tests passed every time. ${esc(shapeLine)}</p>
+          </div>
+        </div>
+        <p class="rs-note">${n ? `The judge kept one conversation for each failed test — <b>${n}</b> of them. The counts below are out of those ${n}.`
+      : 'The judge kept no failed conversation from this run, so nothing below is counted from calls.'}</p>
+        ${shape ? `<p class="rs-note">${esc(shape)}</p>` : ''}
         <p class="rs-meta">
           <span title="${esc(fmtTime(agentRanAt(run)))}">ran ${esc(fmtAgo(agentRanAt(run)) || '—')}</span>
-          · <span>${esc(run.label === 'branch' || run.branch_id ? 'a proposed prompt on a branch' : 'a baseline on the live agent')}</span>
+          · <span>${esc(run.label === 'branch' || run.branch_id ? 'a proposed prompt on a branch' : 'the live prompt')}</span>
           · <span>agent ${esc(run.agent_id || '?')}</span>
           ${run.branch_id ? `· <span>branch ${esc(run.branch_id)}</span>` : ''}
           ${run.verdict ? `· <span class="${run.verdict === 'accept' ? 'ok' : 'bad'}">${esc(String(run.verdict).toUpperCase())}${run.verdict_reason ? ' — ' + esc(run.verdict_reason) : ''}</span>` : ''}
         </p>
-        <p class="rs-note">Everything below is computed from this run. Two sources, kept apart: <b>observed facts</b> counted
-          from the transcripts, with the counting rule printed next to each count, and <b>the evaluator&rsquo;s reasons</b>
-          shown verbatim. ${facts.length ? `The published run carries one conversation per failing test, so every share
-          below is over those <b>${facts.length}</b> conversations — not over all ${roll.conv}.` : ''}</p>
       </div>`;
 
-  /* (b) what went well */
+  /* (b) Otto by situation — one bar each, worst first, click = the card */
+  const sitChart = !sits.length ? '<p class="cmp-empty">This run has no situation tests.</p>' : `
+        <div class="rs-bars">${sits.map(s => renderRunBar(esc(runSitName(s)), s.rate, `${s.passed} of ${s.runs}`, runBarCls(s.rate),
+    s.row ? `data-sitjump="${esc(s.row.id)}" tabindex="0" role="button"` : '',
+    `${s.title} — ${s.passed} of ${s.runs} calls passed. ${s.row ? 'Click to open this situation on the SITUATIONS tab.' : 'No row with this title on the SITUATIONS tab.'}`)).join('')}
+        </div>
+        <p class="rs-legend"><span><span class="rs-sw bad"></span>under half passed</span><span><span class="rs-sw warn"></span>half or more</span><span><span class="rs-sw ok"></span>all passed</span></p>`;
+  const perSit = sits.length ? sits[0].runs : 0;
+
+  /* (c) Otto by driver type */
+  const typeChart = !personas.length ? '<p class="cmp-empty">This run has no driver types.</p>' : `
+        <div class="rs-bars">${personas.map(p => renderRunBar(esc(p.persona), p.rate, `${p.passed} of ${p.runs}`, runBarCls(p.rate), '',
+    `${p.persona}: ${p.passed} of ${p.runs} calls passed`)).join('')}
+        </div>
+        <ul class="rs-types">${personas.map(p => `<li><b>${esc(p.persona)}</b> ${esc(RUN_TYPES[p.persona] || 'a driver type from personas.json.')}</li>`).join('')}</ul>`;
+
+  /* what went well — three short lines at most */
   const perfect = roll.tests.filter(t => +t.runs > 0 && +t.passed === +t.runs).sort(agentTestOrder);
-  const best = sits.slice().sort((x, y) => y.rate - x.rate || y.passed - x.passed).filter(s => s.passed > 0).slice(0, 5);
-  const wellBody = !perfect.length && !best.length && !held.length
-    ? '<p class="cmp-empty">Nothing passed in this run, and no check held in more than a small minority of the failing conversations. There is no good news to report here — the section is left empty rather than padded.</p>'
-    : `
-        ${perfect.length ? `<p class="rs-k">Passed every run</p>
-        <div class="agent-chips">${perfect.map(t => `<span class="agent-chip ok" title="${esc(t.name || '')}">${esc(agentWho(t))} ${+t.passed}/${+t.runs}</span>`).join('')}</div>`
-      : '<p class="cmp-empty">No test passed every one of its runs.</p>'}
-        ${best.length ? `<p class="rs-k">Best situations</p>
-        <div class="rs-best">${best.map(s => `
-          <div class="rs-best-row">
-            <span class="agent-chip ${runCls(s.rate)}">${esc(runPct(s.rate))}</span>
-            <span class="rs-best-t">${s.num != null ? '#' + esc(s.num) + ' ' : ''}${esc(s.title)}</span>
-            <span class="rs-chips">${s.tests.slice().sort(agentTestOrder).map(t =>
-        `<span class="agent-chip ${agentCls(t)}">${esc(t.persona || agentWho(t))} ${+t.passed || 0}/${+t.runs || 0}</span>`).join('')}</span>
-          </div>`).join('')}</div>` : ''}
-        ${held.length ? `<p class="rs-k">Checks that mostly held <span class="rs-rule">— counted from the failing conversations&rsquo; transcripts, so these are the checks Otto kept even where the test failed</span></p>
-        <ul class="rs-ul">${held.map(h => `<li>${esc(h)}</li>`).join('')}</ul>` : ''}`;
-
-  /* (c) what went wrong */
-  const zero = sits.filter(s => s.runs > 0 && s.passed === 0);
-  const wrong = findings.map((fd, i) => `
-        <section class="rs-pat${fd.where === 'setting' ? ' setting' : ''}">
-          <div class="rs-pat-head">
-            <span class="rs-rank">${i + 1}</span>
-            <h4>${esc(fd.title)}</h4>
-            <span class="agent-chip bad">${esc(fd.share)}</span>
-            ${fd.where === 'setting' ? '<span class="rs-tag">A SETTING, NOT THE PROMPT</span>' : ''}
-          </div>
-          <p class="rs-explain">${esc(fd.explain)}</p>
-          <p class="rs-rule"><b>How it was counted:</b> ${esc(fd.rule)}</p>
-          ${fd.id === 'opener' && fd.others && fd.others.length ? `<p class="rs-rule">Other opening lines in this run: ${
-    fd.others.map(o => `${o.hits.length}× &ldquo;${esc(o.text.slice(0, 60))}&rdquo;`).join(' · ')}</p>` : ''}
-          ${fd.id === 'tip-partial' || fd.id === 'tip-none' ? (() => {
-    const f = fd.hits[0];
-    return `<p class="rs-cmp"><b>the tip this row wants</b>${esc(f.tip)}<b>what Otto actually ended with</b>${esc(f.last)}</p>`;
-  })() : ''}
-          ${fd.id === 'unsaid' ? `<p class="rs-cmp"><b>stated but not said by the driver</b>${
-    esc([...new Set([].concat(...fd.hits.map(f => f.unsaid)))].slice(0, 12).join(' · '))}</p>` : ''}
-          ${renderRunExample(fd.hits[0], false)}
-        </section>`).join('');
-
-  const critBlock = !criteria.length ? '' : `
-        <section class="rs-crit">
-          <p class="rs-k">What the evaluator said, criterion by criterion</p>
-          <p class="rs-rule">The evaluator writes one paragraph per criterion whether it passed or failed, and the
-            paragraphs read alike. So these counts are only the paragraphs that say a criterion was missed in
-            unmistakable words — <b>they are not the evaluator&rsquo;s own tally</b>, and the rest is shown as unclear
-            rather than guessed at. The full paragraphs are under every example above and on each situation&rsquo;s card.</p>
-          <table class="rs-tbl">
-            <thead><tr><th>#</th><th>the criterion</th><th>says so plainly</th><th>unclear</th></tr></thead>
-            <tbody>${criteria.map(c => `
-              <tr><td>${c.idx}</td><td>${esc(RUN_CRITERIA[c.idx - 1] || 'criterion ' + c.idx)}</td>
-              <td>${c.plain} of ${c.paras}</td><td>${c.paras - c.plain}</td></tr>`).join('')}
-            </tbody>
-          </table>
-          <p class="rs-rule">Criteria 1, 5 and 6 are swapped for accept-and-close variants on the control row
-            (&ldquo;Nothing to report&rdquo;), and criterion 7 is only put to the vague driver — which is why its row counts fewer paragraphs.</p>
-        </section>`;
-
-  /* (d) suggestions — one per pattern that occurred, the setting first */
-  const FIXES = {
-    opener: null, // carried on the finding itself
-    readback: { where: 'prompt', what: 'Forbid the filing talk and the read-back in one line.',
-      text: 'Never tell the driver that you have logged, noted or filed anything, and never read their report back to them mid-call. Ask your next question instead.' },
-    filed: { where: 'prompt', what: 'Forbid the filing talk and the read-back in one line.',
-      text: 'Never tell the driver that you have logged, noted or filed anything, and never read their report back to them mid-call. Ask your next question instead.' },
-    'tip-none': { where: 'prompt', what: 'Say what the last turn must contain.',
-      text: 'Your last turn must state the tip the way the next driver needs it — the place, and any time or condition attached to it — then thank them and stop.' },
-    'tip-partial': { where: 'prompt', what: 'Say what makes a tip usable.',
-      text: 'When you confirm the tip, include the condition that makes it useful: the time of day, the day of the week, the door, or the distance. A tip without its condition is not a tip.' },
-    questions: { where: 'prompt', what: 'Put a hard number on the questions.',
-      text: 'Count your questions. Two is good, three is the most. After the third, confirm the tip and end the call.' },
-    'follow-elsewhere': { where: 'prompt', what: 'Tie the first question to the report.',
-      text: 'Your first question must be about the thing they just reported. Name it in the question.' },
-    unsaid: { where: 'prompt', what: 'Turn the notes on file into a question, never a statement.',
-      text: 'Never name a street, a time, a person or a distance the driver has not named, even when it is in the notes on file. Ask whether it was that, instead of saying it was.' },
-  };
-  /* one suggestion per distinct line, in the findings' own order, each
-   * naming EVERY pattern it answers — one prompt line often covers two
-   * (the filing talk and the read-back are the same habit) */
-  const sugg = [];
-  const byText = new Map();
-  findings.forEach(fd => {
-    const fix = fd.fix || FIXES[fd.id];
-    if (!fix) return;
-    const had = byText.get(fix.text);
-    if (had) { had.for.push(`${fd.title} (${fd.share})`); return; }
-    const s = { ...fix, for: [`${fd.title} (${fd.share})`], count: fd.count, first: !!fd.first };
-    byText.set(fix.text, s);
-    sugg.push(s);
-  });
-  if (zero.length) {
-    sugg.push({ where: 'sheet', first: false, count: zero.length,
-      for: [`${zero.length} situation${zero.length === 1 ? '' : 's'} at 0% with every driver (${zero.length} of ${sits.length} situations)`],
-      what: 'Not a prompt change — read the row itself.',
-      text: 'Read this row on the SITUATIONS tab — check that what the driver says first, and what a relevant follow-up should cover, match how your drivers really talk.' });
+  const best = sits.filter(s => s.passed > 0).sort((x, y) => y.rate - x.rate || y.passed - x.passed)[0];
+  const well = [];
+  if (perfect.length) {
+    well.push(`${perfect.length} of ${roll.nTests} tests passed every time: ${perfect.slice(0, 3).map(t =>
+      `${runTestName(t)}${t.persona ? ' with the ' + t.persona + ' driver' : ''}`).join(', ')}${perfect.length > 3 ? `, and ${perfect.length - 3} more` : ''}.`);
   }
-  const WHERE = {
-    setting: ['AN AGENT SETTING', 'Changed where the agent is configured (its first message), not in the prompt.'],
-    prompt: ['THE AGENT&rsquo;S PROMPT', 'A line to add to the prompt.'],
-    sheet: ['THE SITUATIONS SHEET', 'A row to re-read on the SITUATIONS tab — no prompt change.'],
-  };
-  const suggBody = !sugg.length ? '<p class="cmp-empty">No pattern in this run maps to a change worth proposing.</p>'
-    : sugg.map((s, i) => `
-        <section class="rs-sug${s.where === 'setting' ? ' setting' : ''}">
-          <div class="rs-sug-head">
-            <span class="rs-rank">${i + 1}</span>
-            <span class="rs-tag${s.where === 'setting' ? ' loud' : ''}">${WHERE[s.where][0]}</span>
-            <h4>${esc(s.what)}</h4>
-          </div>
-          <p class="rs-explain">${WHERE[s.where][1]} For: ${esc(s.for.join('; and '))}.</p>
-          <pre class="rs-pre" id="rs-fix-${i}">${esc(s.text)}</pre>
+  if (best) well.push(`Best situation: ${runSitQuote(best)} — ${best.passed} of ${best.runs} calls passed.`);
+  if (held.length) well.push(held[0]);
+  const wellBody = well.length ? `<ul class="rs-ul rs-well">${well.slice(0, 3).map(l => `<li>${esc(l)}</li>`).join('')}</ul>`
+    : '<p class="cmp-empty">Nothing passed in this run. There is no good news to report here.</p>';
+
+  /* (d) what went wrong — the chart, then the list in the same order */
+  const zero = sits.filter(s => s.runs > 0 && s.passed === 0);
+  const wrongChart = !shown.length ? '' : `
+        <div class="rs-bars rs-bars-wide">${shown.map(fd => renderRunBar(esc(fd.label), fd.count / n, `${fd.count} of ${n}`, 'acc', '',
+    `${fd.label}: ${fd.count} of ${n} failed calls`)).join('')}
+        </div>`;
+  const wrongList = !shown.length ? '' : `
+        <ol class="rs-wrong">${shown.map((fd, i) => `
+          <li class="rs-item" data-finding="${esc(fd.id)}">
+            <p class="rs-item-line"><span class="rs-rank">${i + 1}</span><span>${esc(fd.text)}</span></p>
+            <div class="rs-item-more">
+              ${renderRunCall(fd.example)}
+              <details class="rs-more"><summary>how we counted this</summary><p class="rs-how">${esc(fd.how)}</p></details>
+              ${renderNapBtn(fd.id, fd.name)}
+            </div>
+          </li>`).join('')}
+        </ol>`;
+  const hiddenLine = !hiddenN ? '' : `
+        <p class="rs-how rs-hidden">${hiddenN === 1 ? '1 pattern is' : hiddenN + ' patterns are'} on your NOT A PROBLEM list and not shown here — see the end of the report.</p>`;
+  const zeroLine = !zero.length || rowsHidden ? '' : `
+        <p class="rs-item-line rs-zero"><span class="rs-rank">·</span><span>${zero.length} of ${sits.length} situations failed with every driver type: ${
+    zero.map(s => esc(runSitName(s))).join(' · ')}. See the last card under WHAT TO CHANGE.</span></p>`;
+
+  /* the suggestions, in the findings' order, the rows at 0% last */
+  const sugg = shown.map(fd => (RUN_FIXES[fd.id] ? { ...RUN_FIXES[fd.id], id: fd.id, name: fd.name, what: RUN_FIXES[fd.id].what(fd.count, n), ex: fd.ex } : null)).filter(Boolean);
+  if (zero.length && !rowsHidden) {
+    sugg.push({ id: ROWS_KEY, name: ROWS_NAME, title: 'Check these rows on the SITUATIONS tab',
+      what: `${zero.length} of ${sits.length} situations failed with every driver type.`,
+      why: 'When no driver type gets through, the problem is often the row, not Otto. The driver\'s first words, or the follow-up the row expects, may not match how real drivers talk. Read the row and change it if it sounds wrong.',
+      rows: zero });
+  }
+  const suggBody = sugg.map((s, i) => `
+        <section class="rs-sug" data-sug="${esc(s.id)}">
+          <div class="rs-sug-head"><span class="rs-rank">${i + 1}</span><h4>${esc(s.title)}</h4></div>
+          <p class="rs-sug-p"><b>What happened</b>${esc(s.what)}</p>
+          <p class="rs-sug-p"><b>Why it matters</b>${esc(s.why)}</p>
+          ${s.ex ? renderRunExampleBox(s.ex) : ''}
+          ${s.rows ? `<ul class="rs-ul rs-rows">${s.rows.map(z => `<li>${z.row
+    ? `<button class="row-link" type="button" data-sitjump="${esc(z.row.id)}">${esc(runSitName(z))} — open the row →</button>`
+    : `${esc(runSitName(z))} — no row with this title on the SITUATIONS tab`}</li>`).join('')}</ul>` : ''}
+          ${s.text ? `
+          <p class="rs-sug-p"><b>Add this to the prompt</b></p>
+          <pre class="rs-pre" id="rs-fix-${i}">${esc(s.text)}</pre>` : ''}
           <div class="rs-sug-foot">
-            <button class="mini-btn" type="button" data-copy="rs-fix-${i}">⎘ copy this text</button>
-            <span class="fb-hint">Nothing is applied. This is text to paste where you decide, if you decide to.</span>
+            ${s.text ? `<button class="mini-btn" type="button" data-copy="rs-fix-${i}">⎘ copy this text</button>
+            <span class="fb-hint">Nothing is applied until you paste it into the prompt yourself.</span>` : ''}
+            ${renderNapBtn(s.id, s.name)}
           </div>
         </section>`).join('');
+  const suggEmpty = sugg.length ? '' : findings.length || zero.length
+    ? '<p class="cmp-empty">Nothing left to change — every pattern found in this run is on your NOT A PROBLEM list.</p>'
+    : '<p class="cmp-empty">No pattern in this run calls for a change.</p>';
 
-  /* (e) every situation, worst first */
+  /* every situation, worst first — the detail behind the bars */
   const cols = roll.personas;
   const table = !sits.length ? '<p class="cmp-empty">This run has no situation tests.</p>' : `
         <table class="rs-tbl rs-sits">
-          <thead><tr><th>#</th><th>situation</th><th>rate</th>${cols.map(p => `<th>${esc(p)}</th>`).join('')}<th>failing</th></tr></thead>
+          <thead><tr><th>#</th><th>situation</th><th>passed</th>${cols.map(p => `<th>${esc(p)}</th>`).join('')}<th>failed calls</th></tr></thead>
           <tbody>${sits.map(s => `
             <tr class="rs-sit-row${s.row ? '' : ' nolink'}" data-sitjump="${esc(s.row ? s.row.id : '')}" tabindex="0"
-              title="${esc(s.row ? `Row #${s.row.num == null ? '?' : s.row.num} on the SITUATIONS tab — click to open its card`
+              title="${esc(s.row ? `Row #${s.row.num == null ? '?' : s.row.num} on the SITUATIONS tab — click to open it`
     : 'No row with this title on the SITUATIONS tab — load the starter situations, or it was renamed')}">
-              <td>${s.num == null ? '·' : esc(s.num)}</td>
+              <td>${s.row && s.row.num != null ? esc(s.row.num) : s.num == null ? '·' : esc(s.num)}</td>
               <td class="rs-sit-t">${esc(s.title)}</td>
-              <td><span class="agent-chip ${runCls(s.rate)}">${esc(runPct(s.rate))}</span></td>
+              <td><span class="agent-chip ${runBarCls(s.rate)}">${s.passed} of ${s.runs}</span></td>
               ${cols.map(p => {
     const t = s.tests.find(x => x.persona === p);
     return `<td>${t ? `<span class="agent-chip ${agentCls(t)}">${+t.passed || 0}/${+t.runs || 0}</span>` : '<span class="rs-na">—</span>'}</td>`;
@@ -2424,41 +2697,83 @@ function renderRunSummary(run) {
           </tbody>
         </table>`;
 
+  /* the judge's notes by check — folded, at the bottom */
+  const oldN = criteria.reduce((s, c) => s + c.old, 0);
+  const critBlock = !criteria.length ? '' : `
+      <section class="rs-sec">
+        <details class="rs-more rs-crit"><summary>the judge&rsquo;s notes by check</summary>
+          <p class="rs-how">The judge writes one paragraph per check, pass or fail, and they read alike. We count only the paragraphs
+            that say clearly that the check was missed. The rest is &ldquo;unclear&rdquo; — not guessed. The full notes are under
+            &ldquo;show a real call&rdquo; above and on each situation&rsquo;s card.</p>
+          <table class="rs-tbl">
+            <thead><tr><th>#</th><th>the check</th><th>clearly missed</th><th>unclear</th>${oldN ? '<th>old rule</th>' : ''}</tr></thead>
+            <tbody>${criteria.map(c => `
+              <tr><td>${c.idx}</td><td>${esc(RUN_CRITERIA[c.idx - 1] || 'check ' + c.idx)}</td>
+              <td>${c.plain} of ${c.paras}</td><td>${c.paras - c.plain - c.old}</td>${oldN ? `<td>${c.old || '·'}</td>` : ''}</tr>`).join('')}
+            </tbody>
+          </table>
+          ${oldN ? `<p class="rs-how">${oldN} note${oldN === 1 ? '' : 's'} under check 5 counted Otto&rsquo;s greeting as a question. Graded by the old rule — the next run counts only follow-ups.</p>` : ''}
+          <p class="rs-how">Checks 1, 5 and 6 are different for the &ldquo;Nothing to report&rdquo; row, and check 7 is only for the vague driver — so that row has fewer notes.</p>
+        </details>
+      </section>`;
+
+  /* what the designer said is fine — every run, folded, with UNDO */
+  const napBlock = !accepted.length ? '' : `
+      <section class="rs-sec rs-nap-sec">
+        <details class="rs-more rs-nap-det"${acceptedOpen ? ' open' : ''}><summary>You said these are fine (${accepted.length})</summary>
+          <ul class="rs-nap-list">${accepted.map(r => `
+            <li data-accepted="${esc(r.key)}">
+              <span class="rs-nap-t"><b>${esc(r.title)}</b>${r.note ? `<span class="rs-nap-note">&ldquo;${esc(r.note)}&rdquo;</span>` : ''}</span>
+              <span class="rs-nap-when" title="${esc(r.decided_at || '')}">${esc(fmtTime(r.decided_at) || '—')}</span>
+              <button class="mini-btn" type="button" data-unap="${esc(r.key)}" title="Take this off the list — it shows in the reports again">UNDO</button>
+            </li>`).join('')}
+          </ul>
+          <p class="rs-how">Marked findings still count in the pass rate — the suite&rsquo;s rules decide that; this only keeps them out of the report and out of prompt suggestions.</p>
+          ${acceptedMissing ? `<p class="rs-how rs-nap-warn">${esc(ACCEPTED_HINT)} Until then the list lives in this browser only.</p>` : ''}
+        </details>
+      </section>`;
+
   return `
     <div class="rs">
       ${head}
-      <section class="rs-sec">
-        <h3 class="rs-h2">What went well</h3>
-        ${wellBody}
-      </section>
+      <div class="rs-two">
+        <section class="rs-sec">
+          <h3 class="rs-h2">Otto by situation</h3>
+          <p class="rs-how">Worst first.${perSit ? ` Each situation was called ${perSit} times.` : ''} Click a bar to open the situation.</p>
+          ${sitChart}
+        </section>
+        <div class="rs-two-right">
+          <section class="rs-sec">
+            <h3 class="rs-h2">Otto by driver type</h3>
+            <p class="rs-how">The same situations, played by four kinds of driver.</p>
+            ${typeChart}
+          </section>
+          <section class="rs-sec">
+            <h3 class="rs-h2">What went well</h3>
+            ${wellBody}
+          </section>
+        </div>
+      </div>
       <section class="rs-sec">
         <h3 class="rs-h2">What went wrong</h3>
-        ${facts.length ? `<p class="rs-obs">${esc(runShape(facts))}</p>`
-      : '<p class="cmp-empty">This run published no failing conversation to read — nothing can be counted from transcripts here.</p>'}
-        ${wrong}
-        ${zero.length ? `<section class="rs-pat">
-          <div class="rs-pat-head"><span class="rs-rank">·</span><h4>${zero.length} situation${zero.length === 1 ? '' : 's'} failed with every driver</h4>
-          <span class="agent-chip bad">${zero.length} of ${sits.length} situations</span></div>
-          <p class="rs-explain">A row that no driver gets through is more often the row than the prompt: what the driver
-            says first, or what a relevant follow-up is supposed to cover, may not match how your drivers really talk.</p>
-          <p class="rs-rule"><b>How it was counted:</b> every test of the situation passed none of its runs.</p>
-          <ul class="rs-ul">${zero.slice(0, 12).map(s => `<li>${s.num == null ? '' : '#' + esc(s.num) + ' '}${esc(s.title)} — ${s.failing} failing conversation${s.failing === 1 ? '' : 's'}</li>`).join('')}</ul>
-        </section>` : ''}
-        ${critBlock}
+        ${n ? `<p class="rs-how">Counted from the ${n} failed calls. One call can be in more than one line.</p>${wrongChart}${wrongList}${
+    !shown.length && findings.length ? '<p class="cmp-empty">Every pattern found in this run is on your NOT A PROBLEM list.</p>' : ''}${hiddenLine}`
+      : '<p class="cmp-empty">This run kept no failed call to read, so nothing can be counted here.</p>'}
+        ${zeroLine}
       </section>
       <section class="rs-sec">
-        <h3 class="rs-h2">Suggestions</h3>
-        <p class="rs-warn">Nothing here has been applied, and nothing on this page can apply it. These are proposals to
-          read and decide on — the prompt and the settings are changed where you keep them.</p>
-        ${suggBody}
-        <p class="rs-conf">The agent&rsquo;s prompt is never shown, read or stored on this page. The suggestions are
-          written from the conversations alone.</p>
+        <h3 class="rs-h2">What to change</h3>
+        <p class="rs-warn">Nothing here is applied by itself. These are lines to paste into Otto&rsquo;s prompt, if you decide to.
+          The prompt itself is never shown, read or stored on this page.</p>
+        ${suggBody}${suggEmpty}
       </section>
       <section class="rs-sec">
         <h3 class="rs-h2">Every situation</h3>
-        <p class="rs-rule">Worst first. Click a row to open that situation&rsquo;s card on the SITUATIONS tab.</p>
+        <p class="rs-how">Worst first. Click a row to open that situation on the SITUATIONS tab.</p>
         ${table}
       </section>
+      ${critBlock}
+      ${napBlock}
     </div>`;
 }
 
@@ -2472,7 +2787,7 @@ function renderTabs() {
       <button class="tab${sitTabOn() ? ' on' : ''}" type="button" data-tab="situations"
         title="What a driver reports when they press REPORT — the pilot's other sheet, tested by the agent suite in four voices">SITUATIONS · ${situations.length}</button>
       <button class="tab${runsTabOn() ? ' on' : ''}" type="button" data-tab="runs"
-        title="Every suite run the loop has published, newest first — one summary page each: what went well, what went wrong, and what to change. Reading only; nothing on it changes the agent.">RUNS · ${agentRuns.length}</button>`;
+        title="Every test run, newest first — one report each: what went well, what went wrong, and what to change. Reading only; nothing on it changes the agent.">RUNS · ${agentRuns.length}</button>`;
   const scen = !scenarios.length ? '' : !listMixed()
     ? `<button class="tab${sitTabOn() ? '' : ' on'}" type="button" data-tab="${scenarios.every(fromSheet) ? 'sheet' : 'own'}"
         title="The trigger scenarios — when Otto speaks, and what he asks">${scenarios.every(fromSheet) ? '⇩ STARTER SHEET' : 'YOUR SCENARIOS'} · ${scenarios.length}</button>`
@@ -2495,6 +2810,21 @@ function render() {
   el('new-open').hidden = sit || runs;
   el('import-open').hidden = sit || runs;
   el('spec-all').hidden = sit || runs;
+  /* the RUNS tab is a report with no pins to show: the map column goes
+   * away and the report takes the full width. Leaving the tab brings
+   * the map back and tells it its box changed size. */
+  const wrap = document.querySelector('main.wrap');
+  if (wrap && wrap.classList.contains('report') !== runs) {
+    wrap.classList.toggle('report', runs);
+    if (!runs) {
+      requestAnimationFrame(() => {
+        try {
+          if (map.map && window.google && google.maps && google.maps.event) google.maps.event.trigger(map.map, 'resize');
+        } catch (e) { warn(e); }
+        map.refresh();
+      });
+    }
+  }
   const box = el('list');
   /* the RUNS tab is a report, not a list of rows: either the runs
    * themselves or ONE run's summary in their place, with the way back
@@ -2506,7 +2836,9 @@ function render() {
     /* arriving from a situation card's "see the full reasons" link:
      * put that row on screen, then forget the request */
     if (run && runFocusSit) {
-      const node = box.querySelector(`[data-sitjump="${CSS.escape(runFocusSit)}"]`);
+      /* the table row, not the chart bar that carries the same id */
+      const node = box.querySelector(`.rs-sits [data-sitjump="${CSS.escape(runFocusSit)}"]`)
+        || box.querySelector(`[data-sitjump="${CSS.escape(runFocusSit)}"]`);
       if (node) node.scrollIntoView({ behavior: 'smooth', block: 'center' });
       runFocusSit = null;
     }
@@ -3990,6 +4322,12 @@ el('list').addEventListener('click', e => {
   const copy = e.target.closest('[data-copy]');
   if (copy) { copySuggestion(copy); return; }
   if (runsTabOn()) {
+    /* NOT A PROBLEM and its UNDO — the one thing on this tab that
+     * writes anywhere, and it writes the designer's decision only */
+    const nap = e.target.closest('[data-nap]');
+    if (nap) { acceptFinding(nap.dataset.nap, nap.dataset.napTitle); return; }
+    const unap = e.target.closest('[data-unap]');
+    if (unap) { unacceptFinding(unap.dataset.unap); return; }
     const act = e.target.closest('[data-run-act]');
     if (act) {
       if (act.dataset.runAct === 'all') { openRunId = null; runFocusSit = null; render(); }

@@ -88,6 +88,10 @@
     margin: 0 auto;
   }
   .map-panel { position: sticky; top: 78px; height: calc(100vh - 120px); min-height: 380px; }
+  /* the RUNS tab: a report, not a map — the map column goes and the
+   * report takes the whole width (render() sets the class) */
+  .wrap.report { grid-template-columns: minmax(0, 1fr); }
+  .wrap.report .map-panel { display: none; }
   #map {
     position: relative;
     height: calc(100% - 26px);
@@ -1113,7 +1117,12 @@
     color: #c3a6ff;
   }
 
-  /* ---------- one run's summary ---------- */
+  /* ---------- one run's report ----------
+   * Written for a busy reader: one big number, bars with the number on
+   * every bar, short lines. The charts are plain divs — the page has
+   * no chart library — in the three chip colours where a bar is a pass
+   * rate (red under half, amber under all, green at all), and in the
+   * suite's purple where a bar is a count. */
   .rs { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
   .rs-head {
     padding: 14px 16px 15px;
@@ -1121,97 +1130,114 @@
     border: 1px solid rgba(195,166,255,.3);
     background: rgba(195,166,255,.06);
   }
-  .rs-head-top { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+  .rs-head-top { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
   .rs-head-top .row-link { margin-left: auto; }
   .rs-back { flex: none; }
-  .rs-h1 {
-    margin: 0;
-    font-size: 19px;
-    line-height: 1.3;
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    flex-wrap: wrap;
+  /* the hero figure: the one number the page leads with, in the same
+   * sans as everything else, proportional figures */
+  .rs-hero { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 28px; align-items: start; }
+  .rs-big { display: block; font-size: 56px; line-height: 1; font-weight: 600; letter-spacing: -.02em; color: #eef2f7; }
+  .rs-big-k {
+    display: block;
+    margin-top: 6px;
+    font-family: ui-monospace, monospace;
+    font-size: 9.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: #8e9bb0;
   }
-  .rs-sub { margin: 5px 0 0; font-size: 13.5px; color: #cfe9f2; }
-  .rs-meta { margin: 7px 0 0; font-size: 11.5px; color: #94a1b2; }
+  .rs-lead { margin: 4px 0 0; font-size: 15px; color: #eef2f7; line-height: 1.5; }
+  .rs-lead b { color: #fff; }
+  /* passed against failed, one bar, a 2px gap of the surface between */
+  .rs-stack { display: flex; gap: 2px; height: 16px; margin-top: 10px; border-radius: 4px; overflow: hidden; max-width: 720px; }
+  .rs-stack-seg { display: block; height: 100%; flex: none; }
+  .rs-stack-seg.bad { flex: 1 1 0; }
+  .rs-stack-seg.ok  { background: rgb(70,211,154); }
+  .rs-stack-seg.bad { background: rgb(255,120,69); }
+  .rs-legend { display: flex; flex-wrap: wrap; gap: 5px 16px; align-items: center; margin: 7px 0 0; font-size: 12px; color: #aeb9c8; }
+  .rs-legend > span { white-space: nowrap; }
+  .rs-sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+  .rs-sw.ok   { background: rgb(70,211,154); }
+  .rs-sw.warn { background: rgb(255,217,94); }
+  .rs-sw.bad  { background: rgb(255,120,69); }
+  .rs-sw.acc  { background: rgba(195,166,255,.9); }
+  .rs-sub { margin: 9px 0 0; font-size: 13px; color: #cfe9f2; }
+  .rs-note { margin: 10px 0 0; font-size: 12.5px; color: #d7dfe9; line-height: 1.55; max-width: 92ch; }
+  .rs-note b { color: #fff; }
+  .rs-meta { margin: 9px 0 0; font-size: 11.5px; color: #94a1b2; }
   .rs-meta .ok  { color: #7ce0b8; }
   .rs-meta .bad { color: #ffab8a; }
-  .rs-note { margin: 10px 0 0; font-size: 12px; color: #aeb9c8; line-height: 1.55; }
-  .rs-note b { color: #d7dfe9; }
 
   .rs-sec {
     padding: 13px 16px 16px;
     border-radius: 16px;
     border: 1px solid rgba(140,165,200,.18);
     background: rgba(9,17,26,.92);
+    min-width: 0;
   }
   .rs-h2 {
-    margin: 0 0 10px;
+    margin: 0 0 8px;
     font-family: ui-monospace, monospace;
     font-size: 11px;
     letter-spacing: .14em;
     text-transform: uppercase;
     color: #7fd6ea;
   }
-  .rs-k {
-    margin: 12px 0 6px;
+  /* the situation chart on the left, tall; the driver types and the
+   * good news stacked on the right — read in that order */
+  .rs-two { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+  .rs-two-right { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .rs-how { margin: 6px 0 0; font-size: 12px; color: #aeb9c8; line-height: 1.55; max-width: 92ch; }
+  .rs-ul { margin: 4px 0 0; padding-left: 18px; font-size: 13px; color: #eef2f7; line-height: 1.65; }
+  .rs-well li { margin-top: 2px; }
+
+  /* ---- the bars: thin, rounded at the data end, the number at the tip ---- */
+  .rs-bars { display: flex; flex-direction: column; gap: 3px; margin-top: 8px; }
+  .rs-bar-row {
+    display: grid;
+    grid-template-columns: minmax(110px, 38%) minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+    min-height: 22px;
+    padding: 1px 6px;
+    border-radius: 7px;
+  }
+  .rs-bars-wide .rs-bar-row { grid-template-columns: minmax(150px, 30%) minmax(0, 1fr) auto; }
+  .rs-bar-row.link { cursor: pointer; }
+  .rs-bar-row.link:hover, .rs-bar-row.link:focus-visible { background: rgba(60,192,224,.08); outline: none; }
+  .rs-bar-name { font-size: 12px; color: #d7dfe9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rs-bar-row.link:hover .rs-bar-name { color: #eef2f7; }
+  .rs-bar-track { display: block; height: 14px; border-radius: 0 4px 4px 0; background: rgba(140,165,200,.1); }
+  .rs-bar-fill { display: block; height: 100%; min-width: 3px; border-radius: 0 4px 4px 0; }
+  .rs-bar-fill.ok   { background: rgb(70,211,154); }
+  .rs-bar-fill.warn { background: rgb(255,217,94); }
+  .rs-bar-fill.bad  { background: rgb(255,120,69); }
+  .rs-bar-fill.acc  { background: rgba(195,166,255,.88); }
+  .rs-bar-val {
     font-family: ui-monospace, monospace;
-    font-size: 9.5px;
-    letter-spacing: .1em;
-    color: #8e9bb0;
+    font-size: 11px;
+    letter-spacing: .04em;
+    font-variant-numeric: tabular-nums;
+    color: #eef2f7;
+    white-space: nowrap;
+    min-width: 54px;
+    text-align: right;
   }
-  .rs-k:first-child { margin-top: 0; }
-  /* the rule under a section heading is prose, not a label — it must
-   * not inherit the heading's monospace tracking */
-  .rs-k .rs-rule {
-    display: block;
-    margin-top: 3px;
-    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-    letter-spacing: 0;
-    text-transform: none;
-  }
-  .rs-ul { margin: 4px 0 0; padding-left: 18px; font-size: 12.5px; color: #d7dfe9; line-height: 1.6; }
-  /* the counting rule, printed next to every count so it can be checked */
-  .rs-rule { margin: 6px 0 0; font-size: 11.5px; color: #8b97a8; line-height: 1.55; }
-  .rs-rule b { color: #aeb9c8; }
-  .rs-explain { margin: 7px 0 0; font-size: 12.5px; color: #d7dfe9; line-height: 1.6; }
+  .rs-types { margin: 12px 0 0; padding-left: 18px; font-size: 12.5px; color: #d7dfe9; line-height: 1.65; }
+  .rs-types b { color: #eef2f7; text-transform: capitalize; }
 
-  /* the two observed facts that are measurements, not flags */
-  .rs-obs {
-    margin: 0 0 4px;
-    padding: 8px 11px;
-    border-radius: 11px;
-    border: 1px solid rgba(140,165,200,.2);
-    background: rgba(7,13,22,.6);
-    font-size: 12.5px;
-    color: #aeb9c8;
-    line-height: 1.55;
-  }
-  .rs-best { display: flex; flex-direction: column; gap: 5px; }
-  /* a grid, not a flex row: a long situation title must not push its
-   * persona chips onto a line of their own and break the column */
-  .rs-best-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; }
-  .rs-best-t { font-size: 12.5px; color: #eef2f7; }
-  .rs-chips { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
-
-  /* one ranked pattern */
-  .rs-pat {
-    display: block;
-    margin-top: 12px;
-    padding: 11px 13px;
-    border-radius: 13px;
-    border: 1px solid rgba(255,120,69,.26);
+  /* ---- what went wrong: the ranked list ---- */
+  .rs-wrong { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .rs-item {
+    padding: 9px 12px 8px;
+    border-radius: 12px;
+    border: 1px solid rgba(255,120,69,.22);
     background: rgba(255,120,69,.04);
   }
-  /* the finding whose cause is a SETTING and not the prompt — loudest
-   * on the page, because changing the prompt would not fix it */
-  .rs-pat.setting {
-    border-color: rgba(255,217,94,.55);
-    background: rgba(255,217,94,.07);
-  }
-  .rs-pat-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
-  .rs-pat-head h4 { margin: 0; font-size: 14px; flex: 1; min-width: 200px; }
+  .rs-item-line { display: flex; gap: 10px; align-items: flex-start; margin: 0; font-size: 13.5px; color: #eef2f7; line-height: 1.5; }
+  .rs-item-line > span:last-child { padding-top: 1px; }
+  .rs-zero { margin-top: 12px; }
+  .rs-item-more { display: flex; flex-wrap: wrap; gap: 2px 18px; margin-top: 3px; padding-left: 32px; }
   .rs-rank {
     flex: none;
     width: 22px; height: 22px;
@@ -1224,36 +1250,20 @@
     font-size: 10.5px;
     color: #94a1b2;
   }
-  .rs-tag {
-    padding: 3px 8px;
-    border-radius: 999px;
-    border: 1px solid rgba(140,165,200,.3);
+  .rs-more { font-size: 12.5px; min-width: 0; }
+  .rs-more > summary {
+    cursor: pointer;
     font-family: ui-monospace, monospace;
-    font-size: 9px;
+    font-size: 9.5px;
     letter-spacing: .1em;
-    color: #aeb9c8;
-  }
-  .rs-tag.loud { color: #ffd95e; border-color: rgba(255,217,94,.6); background: rgba(255,217,94,.1); }
-  /* the tip the row wants against the line Otto actually ended on */
-  .rs-cmp { margin: 8px 0 0; font-size: 12.5px; color: #d7dfe9; line-height: 1.6; }
-  .rs-cmp b {
-    display: block;
-    margin-top: 6px;
-    font-family: ui-monospace, monospace;
-    font-size: 9px;
-    letter-spacing: .1em;
+    text-transform: uppercase;
     color: #8e9bb0;
+    padding: 4px 0;
   }
-  .rs-ex { margin-top: 9px; }
-  .rs-reasons { margin-top: 9px; }
-  .rs-reasons .cmp-k {
-    display: block;
-    margin-bottom: 5px;
-    font-family: ui-monospace, monospace;
-    font-size: 9px;
-    letter-spacing: .1em;
-    color: #8e9bb0;
-  }
+  .rs-more > summary:hover { color: #c3a6ff; }
+  .rs-more[open] { flex-basis: 100%; }
+  .rs-call-who { margin: 4px 0 2px; font-size: 11.5px; color: #aeb9c8; }
+  .rs-call .msg-turn { font-size: 12.5px; color: #d7dfe9; }
   .rs-reason { margin: 6px 0 0; padding-left: 9px; border-left: 2px solid rgba(195,166,255,.28); font-size: 12px; color: #aeb9c8; line-height: 1.55; }
   .rs-reason b {
     display: block;
@@ -1264,9 +1274,11 @@
     margin-bottom: 2px;
     text-transform: uppercase;
   }
-  .rs-crit { display: block; margin-top: 14px; }
+  .rs-old { display: block; margin-top: 4px; font-size: 11.5px; color: #ffd95e; }
+  .rs-crit > summary { padding: 0; }
+  .rs-crit .rs-tbl { max-width: 720px; }
 
-  /* a suggestion: what to change, where, and the text to paste */
+  /* ---- a suggestion: title, what happened, why, Today / After, the text ---- */
   .rs-warn {
     margin: 0 0 10px;
     padding: 9px 11px;
@@ -1280,16 +1292,52 @@
   .rs-sug {
     display: block;
     margin-top: 12px;
-    padding: 11px 13px;
+    padding: 12px 14px 13px;
     border-radius: 13px;
     border: 1px solid rgba(60,192,224,.26);
     background: rgba(60,192,224,.04);
   }
-  .rs-sug.setting { border-color: rgba(255,217,94,.55); background: rgba(255,217,94,.07); }
-  .rs-sug-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
-  .rs-sug-head h4 { margin: 0; font-size: 14px; flex: 1; min-width: 200px; }
+  .rs-sug-head { display: flex; align-items: center; gap: 9px; }
+  .rs-sug-head h4 { margin: 0; font-size: 15px; color: #eef2f7; }
+  .rs-sug-p { margin: 10px 0 0; font-size: 13px; color: #d7dfe9; line-height: 1.55; max-width: 92ch; }
+  .rs-sug-p b {
+    display: block;
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: #7fd6ea;
+    margin-bottom: 2px;
+  }
+  .rs-ex-from { display: block; font-size: 12px; color: #aeb9c8; }
+  .rs-ex2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-top: 7px; }
+  .rs-ex-side {
+    padding: 9px 11px 10px;
+    border-radius: 11px;
+    border: 1px solid rgba(140,165,200,.18);
+    background: rgba(7,13,22,.6);
+    min-width: 0;
+  }
+  .rs-ex-side.after { border-color: rgba(70,211,154,.35); background: rgba(70,211,154,.05); }
+  .rs-ex-k {
+    display: block;
+    font-family: ui-monospace, monospace;
+    font-size: 9.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: #8e9bb0;
+    margin-bottom: 3px;
+  }
+  .rs-ex-side.after .rs-ex-k { color: #7ce0b8; }
+  .rs-ex-line { display: grid; grid-template-columns: 50px minmax(0, 1fr); gap: 8px; margin-top: 6px; font-size: 12.5px; color: #eef2f7; line-height: 1.45; }
+  .rs-ex-line b { font-family: ui-monospace, monospace; font-size: 9px; letter-spacing: .1em; padding-top: 3px; color: #8e9bb0; }
+  .rs-ex-line.me b { color: #7fd6ea; }
+  .rs-ex-line.ai b { color: #c3a6ff; }
+  .rs-rows li { margin-top: 3px; }
+  .rs-rows .row-link { font-size: 13px; color: #cfe9f2; text-align: left; }
+  .rs-rows .row-link:hover { color: #7fd6ea; }
   .rs-pre {
-    margin: 9px 0 0;
+    margin: 4px 0 0;
     padding: 10px 12px;
     border-radius: 10px;
     border: 1px solid rgba(140,165,200,.28);
@@ -1301,11 +1349,45 @@
     white-space: pre-wrap;
     word-break: break-word;
     user-select: all;
+    max-width: 92ch;
   }
   .rs-sug-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
-  .rs-conf { margin: 14px 0 0; font-size: 11.5px; color: #8b97a8; }
 
-  /* the tables: the per-criterion tally, and every situation worst first */
+  /* ---- NOT A PROBLEM: the designer's decision, and the list of them ---- */
+  .rs-nap {
+    margin-left: auto;
+    padding: 4px 9px;
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: .1em;
+    color: #94a1b2;
+    border-color: rgba(140,165,200,.22);
+  }
+  .rs-nap:hover { color: #ffd95e; border-color: rgba(255,217,94,.5); }
+  .rs-item-more .rs-nap { align-self: center; }
+  .rs-hidden { margin-top: 10px; color: #ffd95e; }
+  .rs-nap-sec { border-color: rgba(255,217,94,.3); }
+  .rs-nap-det > summary { padding: 0; color: #ffd95e; }
+  .rs-nap-list { list-style: none; margin: 8px 0 0; padding: 0; }
+  .rs-nap-list li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 7px 0;
+    border-top: 1px solid rgba(140,165,200,.1);
+    font-size: 12.5px;
+    color: #d7dfe9;
+  }
+  .rs-nap-list li:first-child { border-top: none; }
+  .rs-nap-t { flex: 1; min-width: 200px; }
+  .rs-nap-t b { color: #eef2f7; font-weight: 600; }
+  .rs-nap-note { display: block; margin-top: 2px; color: #aeb9c8; font-style: italic; }
+  .rs-nap-when { font-family: ui-monospace, monospace; font-size: 10px; letter-spacing: .05em; color: #8e9bb0; white-space: nowrap; }
+  .rs-nap-list .mini-btn { padding: 4px 9px; font-family: ui-monospace, monospace; font-size: 9px; letter-spacing: .1em; }
+  .rs-nap-warn { color: #ffd95e; }
+
+  /* ---- the tables: every situation worst first, and the notes by check ---- */
   .rs-tbl { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12.5px; }
   .rs-tbl th {
     text-align: left;
@@ -1328,16 +1410,20 @@
   .rs-fail-n { font-family: ui-monospace, monospace; color: #ffab8a; }
   .rs-na { color: #6d7a8c; }
 
-  /* 900 wide: the summary keeps its shape, the tables lose the chrome
-   * they can afford to lose rather than scrolling sideways */
+  /* narrower: the two charts stack, the Today / After sides stack, the
+   * tables lose the chrome they can afford to lose */
   @media (max-width: 1000px) {
-    .rs-h1 { font-size: 17px; }
     .rl-when { min-width: 0; }
     .rl-go { display: none; }
-    .rs-best-row { grid-template-columns: auto minmax(0, 1fr); }
-    .rs-chips { grid-column: 1 / -1; justify-content: flex-start; }
     .rs-tbl { font-size: 12px; }
     .rs-tbl th, .rs-tbl td { padding: 5px 5px; }
+  }
+  @media (max-width: 760px) {
+    .rs-two { grid-template-columns: 1fr; }
+    .rs-hero { grid-template-columns: 1fr; }
+    .rs-big { font-size: 44px; }
+    .rs-ex2 { grid-template-columns: 1fr; }
+    .rs-item-more { padding-left: 0; }
   }
 </style>
 </head>

@@ -69,3 +69,18 @@ export const scenarioRows = db => db.select('scenarios', {
   select: 'id,num,title,learns,version,destination_id',
   order: 'num.asc.nullslast',
 });
+
+/* The designer's "not a problem" list — findings the dashboard's RUNS
+ * tab raised and the designer ruled fine by design, with their reason.
+ * The proposer gets them as decisions it must not touch. A project
+ * whose schema.sql predates the table answers 404 (PGRST205): that is
+ * null here — "no list yet", which the caller reports — not a failure
+ * of the command. */
+export async function acceptedFindings(db) {
+  try {
+    return await db.select('accepted_findings', { select: 'key,title,note,decided_at', order: 'decided_at.desc' });
+  } catch (e) {
+    if (e.status === 404 || /PGRST205|accepted_findings/i.test(String(e.message))) return null;
+    throw e;
+  }
+}

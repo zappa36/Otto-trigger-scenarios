@@ -112,7 +112,7 @@ node loop.mjs score                # per row: suite pass rate, field grade rate,
 node loop.mjs cut                  # a debrief graded bad -> test_configs/regressions/<conversation_id>.json
 node loop.mjs push-tests           # the regressions join the suite
 
-node loop.mjs propose              # proposals/<stamp>.json: the prompt, a one-line note, the diff (--quiet in CI)
+node loop.mjs propose              # proposals/<stamp>.json: the prompt, a one-line note, the diff (--quiet in CI); honours the RUNS tab's NOT A PROBLEM list (accepted_findings)
 node loop.mjs branch --proposal proposals/<stamp>.json        # the note becomes the branch's description
 node loop.mjs run --branch <created_branch_id> --label branch --filter "Otto · situation"
 node loop.mjs compare --base results/<stamp>-main.json --branch results/<stamp>-branch.json
@@ -201,8 +201,9 @@ rule, no measurements, no "Otto says" line.
    before the question, plain words, no lecturing, no form-filling, no
    read-backs mid-conversation.
 4. **NO INVENTION** — no fact the driver did not say. Asking is fine.
-5. **LENGTH** — two or three questions in total, then he closes. Four
-   fails.
+5. **LENGTH** — two or three follow-up questions after the driver has
+   said what happened, then he closes. The opening greeting is not a
+   question and is not counted. Four follow-ups fails.
 6. **CLOSE** — he confirms the tip in one line, consistent with what the
    driver said, and lets the driver go.
 
@@ -225,6 +226,15 @@ comes back with nothing to run. `--sheet` forces the starter twenty,
 Both suites live in one ElevenLabs workspace and are told apart by
 name — `Otto · situation #3 …` against `Otto · #3 …` — which is all the
 `suite` input on the buttons and `--filter` on `run` need.
+
+**The designer's decisions.** The dashboard's RUNS tab reads each run
+as a report — what went well, what went wrong, what to change — and
+every finding there has a **NOT A PROBLEM** button. What is marked
+lands in `accepted_findings` (key, title, note) and stays out of every
+later report; `propose` reads the same table and hands it to the
+proposer as `designer_decisions`, behaviours it must not "fix" whatever
+a failing rationale says. No table yet (a `schema.sql` that predates
+it) is reported in one line and the proposer simply gets none.
 
 ## Confidential prompt
 

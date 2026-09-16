@@ -379,9 +379,14 @@ test('cut writes a next-reply regression test from the debrief graded bad, witho
 
 test('propose hands the proposer the evidence, writes the diff, and refuses a prompt that grows by more than a quarter', async () => {
   const dir = shared.dir;
+  /* one finding the designer ruled fine on the RUNS tab: it reaches the
+   * proposer as a decision, not as evidence */
+  mock.state.accepted = [{ key: 'greeting-first', title: 'Otto opens with “Hello! How can I help you today?”', note: 'the platform speaks it before Otto’s first turn — correct by design', decided_at: '2026-09-16T10:00:00Z' }];
   let r = await loop(['propose', '--results', shared.results, '--field', shared.field], dir);
   assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /1 finding\(s\) the designer marked as fine by design/);
   const req = sent('POST', /chat\/completions$/)[0];
+  assert.match(req.body.messages[0].content, /designer_decisions lists behaviours the designer has ruled fine by design/);
   assert.ok(req.auth.bearer);
   assert.equal(req.body.model, 'gpt-4o');
   assert.deepEqual(req.body.response_format, { type: 'json_object' });
@@ -393,6 +398,7 @@ test('propose hands the proposer the evidence, writes the diff, and refuses a pr
   assert.equal(user.bad_debriefs[0].conversation_id, 'conv_aaa');
   assert.deepEqual(user.bad_debriefs[0].failed_checks, ['Followed up on what the tester actually found', 'Got the tip type the scenario expects']);
   assert.equal(user.criteria_results.otto_tip_elicited.failure, 1);
+  assert.deepEqual(user.designer_decisions, [{ finding: 'Otto opens with “Hello! How can I help you today?”', why: 'the platform speaks it before Otto’s first turn — correct by design' }]);
   assert.equal(sent('GET', /\/v1\/convai\/agents\/agent_test1$/).length, 1, 'the prompt came from GET agent');
   const files = filesIn(path.join(dir, 'proposals'));
   assert.equal(files.length, 1);
@@ -427,6 +433,16 @@ test('propose hands the proposer the evidence, writes the diff, and refuses a pr
   assert.equal(sent('GET', /\/v1\/convai\/agents\//).length, 0);
   assert.match(r.out, /-Ask one thing\.\n\+Ask one thing, then stop\./);
   assert.equal(filesIn(path.join(dir, 'proposals')).length, 2, 'a second proposal never overwrites the first');
+});
+
+test('propose runs without the accepted_findings table and says the proposer got no decisions', async () => {
+  const dir = shared.dir;
+  mock.state.acceptedTable = false;
+  const r = await loop(['propose', '--results', shared.results, '--field', shared.field], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /no accepted_findings table yet \(supabase\/schema\.sql\)/);
+  const user = JSON.parse(sent('POST', /chat\/completions$/)[0].body.messages[1].content);
+  assert.deepEqual(user.designer_decisions, []);
 });
 
 test('propose has nothing to say when everything passes', async () => {

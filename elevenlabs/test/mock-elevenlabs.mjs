@@ -54,6 +54,9 @@ export async function startMock(fixtureDir) {
     /* the dashboard's situation rows, and the same switch for them */
     state.situations = JSON.parse(JSON.stringify(fixture.situations));
     state.situationsTable = true;
+    /* the designer's "not a problem" list, empty; the same switch */
+    state.accepted = [];
+    state.acceptedTable = true;
     /* what GET branch answers with, when a test wants another note */
     state.branchDescription = null;
     /* a status POST branches refuses with, its body quoting the prompt */
@@ -202,6 +205,9 @@ export async function startMock(fixtureDir) {
       return [200, rows];
     }],
     ['GET', /^\/rest\/v1\/agent_runs$/, () => (state.agentRunsTable ? [200, state.agentRuns] : noTable('agent_runs'))],
+    /* the findings the designer ruled fine by design (the RUNS tab's
+     * NOT A PROBLEM button) — propose reads them, nothing here writes */
+    ['GET', /^\/rest\/v1\/accepted_findings$/, () => (state.acceptedTable ? [200, state.accepted] : noTable('accepted_findings'))],
     /* an insert the way PostgREST answers one: 201, the stored rows
      * (id and created_at filled in) only when the Prefer header asked
      * for the representation — a loop that forgot it would get nothing

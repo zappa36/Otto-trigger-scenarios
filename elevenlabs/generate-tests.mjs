@@ -463,7 +463,7 @@ function situationConditions({ row, d, persona }) {
   c.push(`NO INVENTION — Otto states no fact the driver did not say: no invented times, names, distances, reasons or outcomes, and nothing about ${where} that came from neither the driver nor the notes on file. Asking about any of that is fine; asserting it is not.`);
   c.push(control
     ? 'LENGTH — after his opening message Otto asks at most one question, then closes. Two or more questions fails.'
-    : 'LENGTH — Otto asks two or three questions in the whole conversation, his opening question included if his first message is one (two questions in one turn count as two), and then he closes. Four or more fails.');
+    : 'LENGTH — after the driver has said what happened, Otto asks two or three follow-up questions in total, one at a time (two questions in one turn count as two), and then he closes. His opening greeting — “Hello! How can I help you today?” or similar — is not a follow-up and does not count. Four or more follow-up questions fails.');
   c.push(control
     ? `CLOSE — Otto ends by confirming that there is nothing to note about ${where} and lets the driver go with a short goodbye. Inventing a tip for a stop where nothing happened fails.`
     : `CLOSE — Otto ends by confirming the tip in one line — what the next driver should know about ${where} — and it is consistent with what the driver said (for this situation something like: “${noStop(row.tip)}”; equivalent wording is fine, the facts are what count). Then he lets the driver go with a short goodbye.`);

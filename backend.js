@@ -238,6 +238,21 @@ const Backend = (() => {
      * and the dashboard says so instead of failing the page. */
     listAgentRuns: limit => rest(`/rest/v1/agent_runs?select=*&order=ran_at.desc&limit=${limit || 50}`),
 
+    /* ---------- the designer's "not a problem" list ----------
+     * A finding on the RUNS tab (a pattern in the failed calls, or a
+     * suggested prompt change) the designer has ruled fine by design.
+     * Saved here so no run report and no proposal brings it up again;
+     * one row per finding key, and saving a key twice only updates
+     * the note (an upsert). UNDO deletes the row. The table is the
+     * newest in schema.sql — a 404 means "not created yet". */
+    listAccepted: () => rest('/rest/v1/accepted_findings?select=*&order=decided_at.desc'),
+    acceptFinding: row => rest('/rest/v1/accepted_findings?on_conflict=key', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation,resolution=merge-duplicates' },
+      body: JSON.stringify([row]),
+    }),
+    unacceptFinding: key => rest('/rest/v1/accepted_findings?key=eq.' + encodeURIComponent(key), { method: 'DELETE' }),
+
     /* ---------- visits ----------
      * The Delivered / Not delivered tap on a route stop (app.js) — the
      * stand-in for a courier's parcel scan, and the row a tour is built

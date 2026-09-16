@@ -269,6 +269,22 @@ create table if not exists public.agent_runs (
 -- the dashboard reads the latest runs of one agent, newest first
 create index if not exists agent_runs_agent_idx on public.agent_runs (agent_id, ran_at desc);
 
+-- The designer's "not a problem" list. A finding the dashboard's RUNS
+-- tab raised — a pattern in the failed calls, or a suggested prompt
+-- change — that the designer has ruled fine by design (Otto's opening
+-- greeting, say). One row per finding key; saving the same key again
+-- only updates the note. Every run report hides those findings (a
+-- collapsed "you said these are fine" list keeps them in view, with
+-- UNDO), and the loop's propose step hands them to the proposer as
+-- decisions it must not touch. World-readable like the rest of the
+-- pilot, so: no prompt text in the note.
+create table if not exists public.accepted_findings (
+  key text primary key,             -- the finding's stable id on the RUNS tab
+  title text not null,              -- the finding, as the report worded it
+  note text,                        -- why it is fine, in the designer's words (optional)
+  decided_at timestamptz not null default now()
+);
+
 alter table public.destinations enable row level security;
 alter table public.messages enable row level security;
 alter table public.scenarios enable row level security;
@@ -276,6 +292,7 @@ alter table public.situations enable row level security;
 alter table public.runs enable row level security;
 alter table public.visits enable row level security;
 alter table public.agent_runs enable row level security;
+alter table public.accepted_findings enable row level security;
 
 -- ------------------------------------------------------------
 -- OPEN PILOT POLICIES (the default in this kit)
@@ -391,6 +408,24 @@ create policy "anyone reads agent_runs" on public.agent_runs
 drop policy if exists "anyone adds agent_runs" on public.agent_runs;
 create policy "anyone adds agent_runs" on public.agent_runs
   for insert to anon, authenticated with check (true);
+
+-- the designer's decisions: made and unmade on the RUNS tab, read by
+-- the dashboard and by the loop's propose step
+drop policy if exists "anyone reads accepted_findings" on public.accepted_findings;
+create policy "anyone reads accepted_findings" on public.accepted_findings
+  for select to anon, authenticated using (true);
+
+drop policy if exists "anyone adds accepted_findings" on public.accepted_findings;
+create policy "anyone adds accepted_findings" on public.accepted_findings
+  for insert to anon, authenticated with check (true);
+
+drop policy if exists "anyone updates accepted_findings" on public.accepted_findings;
+create policy "anyone updates accepted_findings" on public.accepted_findings
+  for update to anon, authenticated using (true) with check (true);
+
+drop policy if exists "anyone deletes accepted_findings" on public.accepted_findings;
+create policy "anyone deletes accepted_findings" on public.accepted_findings
+  for delete to anon, authenticated using (true);
 
 -- ------------------------------------------------------------
 -- SIGNED-IN POLICIES
