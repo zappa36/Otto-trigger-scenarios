@@ -66,6 +66,11 @@
   .chip.plain { color: #94a1b2; }
   .chip.off { border-color: rgba(140,165,200,.22); color: #94a1b2; }
   button.chip { cursor: pointer; }
+  /* the class sets display, which outranks the browser's own [hidden]
+   * rule — so a chip the tab hides (+ NEW SITUATION on a scenario tab,
+   * + NEW SCENARIO on the situations tab) stayed on screen and did
+   * nothing when pressed */
+  .chip[hidden] { display: none; }
   button.chip:hover { border-color: rgba(60,192,224,.5); color: #cfe9f2; }
   .chip.primary {
     border-color: rgba(124,140,255,.5);
