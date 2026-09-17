@@ -1,5 +1,5 @@
 {
-  "_comment": "The simulated TESTERS a row is run against, one test per persona. `style` is pasted into the persona's first-person brief; `max_turns` is the trigger suite's turn cap — the personas that need follow-ups get more room (the situation suite sets its own: eight turns, ten for the vague opener). `suites` says which suites a persona is cut for — omitted means both; \"vague\" only makes sense where the driver opens the conversation, which is the situation suite. Edit freely and re-run `npm run generate`; ids are part of the test names, so renaming one orphans its ElevenLabs test until the loop re-creates it.",
+  "_comment": "The simulated TESTERS a row is run against, one test per persona. `style` is pasted into the persona's first-person brief; `max_turns` is the trigger suite's turn cap — the personas that need follow-ups get more room (the situation suite sets its own: eight turns, ten for the vague opener). `suites` says which suites a persona is cut for — omitted means both; \"vague\" and \"annoyed\" only make sense where the driver opens the conversation, which is the situation suite. Edit freely and re-run `npm run generate`; ids are part of the test names, so renaming one orphans its ElevenLabs test until the loop re-creates it.",
   "personas": [
     {
       "id": "cooperative",
@@ -18,9 +18,19 @@
     },
     {
       "id": "vague",
-      "suites": ["situations"],
+      "suites": [
+        "situations"
+      ],
       "max_turns": 10,
       "style": "You open with something unclear that does not say what happened — \"it didn't really work out at that one\", \"that one was a bit of a thing\" — and you only say what actually happened once Otto asks you what happened. After that you answer three to eight words at a time, and you never volunteer the next detail before it is asked for"
+    },
+    {
+      "id": "annoyed",
+      "suites": [
+        "situations"
+      ],
+      "max_turns": 8,
+      "style": "You are annoyed: the stop went wrong, you are behind on your round, and talking to the app is the last thing you want to do. You are curt and a bit sharp — short answers, an irritated remark now and then (\"can we make this quick?\", \"I already told you that\"), and you ask to be let go. You still answer what Otto asks, in a few words, and you never volunteer the next detail. Fed up and busy, not abusive: no insults, no swearing beyond a mild word"
     }
   ]
 }

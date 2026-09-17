@@ -525,10 +525,26 @@ const agentCls = t => { const r = agentRate(t); return r >= 1 ? 'ok' : r >= 0.5 
  * debrief named as such — then passed/runs. Ordered for the eye, not
  * worst-first like the loop prints: personas in the order
  * personas.json lists them, Italian after English, regressions last. */
-const PERSONA_ORDER = ['cooperative', 'terse', 'sidetracked', 'vague'];
+const PERSONA_ORDER = ['cooperative', 'terse', 'sidetracked', 'vague', 'annoyed'];
+/* The word the page uses for a driver type. The id is part of every
+ * test's name in ElevenLabs, so it is not renamed — "terse" stays the
+ * id and reads "quiet" here. */
+const PERSONA_LABEL = { terse: 'quiet' };
+const personaLabel = id => PERSONA_LABEL[id] || String(id || '');
+/* how each driver talks — the line under the bars on the RUNS tab, the
+ * tooltip on a card's chips. Edit personas.json to change the driver;
+ * edit this to change what the page says about them. */
+const PERSONA_ABOUT = {
+  cooperative: 'answers fully and adds one useful detail of their own.',
+  terse: 'answers in three to six words and adds nothing until asked.',
+  sidetracked: 'starts with small talk, then answers.',
+  vague: 'says “it did not really work out” and no more until Otto asks what happened.',
+  annoyed: 'is fed up and behind on the round: short, sharp answers, and asks to be let go.',
+};
+const personaAbout = id => PERSONA_ABOUT[id] || 'a driver type from personas.json.';
 const agentWho = t => {
   const parts = [];
-  if (t.persona) parts.push(String(t.persona));
+  if (t.persona) parts.push(personaLabel(t.persona));
   if (t.language === 'it') parts.push('🇮🇹 IT');
   if (t.kind === 'regression') parts.push('REGRESSION');
   if (!parts.length) parts.push(String(t.name || 'test').replace(/^Otto · /, '').slice(0, 40));
@@ -1231,7 +1247,8 @@ function renderAgentBlock(row, kind) {
 
   const chips = tests.length ? `
             <div class="agent-chips">${tests.map(t =>
-    `<span class="agent-chip ${agentCls(t)}" title="${esc(`${t.name || ''} — ${+t.passed || 0} of ${+t.runs || 0} runs passed${t.why ? ' · first line of the evaluator\u2019s reasons: ' + t.why : ''}`)}">${esc(agentWho(t))} ${+t.passed || 0}/${+t.runs || 0}</span>`).join('')}</div>` : '';
+    `<span class="agent-chip ${agentCls(t)}" title="${esc(`${t.name || ''} — ${+t.passed || 0} of ${+t.runs || 0} runs passed${t.persona ? ' · the ' + personaLabel(t.persona) + ' driver ' + personaAbout(t.persona) : ''}${t.why ? ' · first line of the evaluator\u2019s reasons: ' + t.why : ''}`)}">${esc(agentWho(t))} ${+t.passed || 0}/${+t.runs || 0}</span>`).join('')}</div>
+            <p class="agent-types">${[...new Set(tests.map(t => t.persona).filter(Boolean))].sort((a, b) => (PERSONA_ORDER.indexOf(a) + 1 || 99) - (PERSONA_ORDER.indexOf(b) + 1 || 99)).map(id => `<b>${esc(personaLabel(id))}</b> ${esc(personaAbout(id))}`).join(' ')}</p>` : '';
 
   /* under every failing test: the evaluator's reason in one line, and
    * the conversation the simulated tester had — OTTO / TESTER turns
@@ -2349,12 +2366,7 @@ function runHeld(facts) {
 }
 
 /* ---------- per driver type ---------- */
-const RUN_TYPES = {
-  cooperative: 'answers fully and adds one useful detail of their own.',
-  terse: 'answers in three to six words and adds nothing until asked.',
-  sidetracked: 'starts with small talk, then answers.',
-  vague: 'says “it did not really work out” and no more until Otto asks what happened.',
-};
+const RUN_TYPES = PERSONA_ABOUT;
 function runPersonas(roll) {
   return roll.personas.map(p => {
     const tests = roll.tests.filter(x => x.persona === p);
@@ -2687,10 +2699,10 @@ function renderRunSummary(run) {
 
   /* (c) Otto by driver type */
   const typeChart = !personas.length ? '<p class="cmp-empty">This run has no driver types.</p>' : `
-        <div class="rs-bars">${personas.map(p => renderRunBar(esc(p.persona), p.rate, `${p.passed} of ${p.runs}`, runBarCls(p.rate), '',
-    `${p.persona}: ${p.passed} of ${p.runs} calls passed`)).join('')}
+        <div class="rs-bars">${personas.map(p => renderRunBar(esc(personaLabel(p.persona)), p.rate, `${p.passed} of ${p.runs}`, runBarCls(p.rate), '',
+    `${personaLabel(p.persona)}: ${p.passed} of ${p.runs} calls passed. This driver ${personaAbout(p.persona)}`)).join('')}
         </div>
-        <ul class="rs-types">${personas.map(p => `<li><b>${esc(p.persona)}</b> ${esc(RUN_TYPES[p.persona] || 'a driver type from personas.json.')}</li>`).join('')}</ul>`;
+        <ul class="rs-types">${personas.map(p => `<li><b>${esc(personaLabel(p.persona))}</b> ${esc(personaAbout(p.persona))}</li>`).join('')}</ul>`;
 
   /* what went well — three short lines at most */
   const perfect = roll.tests.filter(t => +t.runs > 0 && +t.passed === +t.runs).sort(agentTestOrder);
@@ -2840,7 +2852,7 @@ function renderRunSummary(run) {
         <div class="rs-two-right">
           <section class="rs-sec">
             <h3 class="rs-h2">Otto by driver type</h3>
-            <p class="rs-how">The same situations, played by four kinds of driver.</p>
+            <p class="rs-how">The same situations, played by ${roll.personas.length === 1 ? 'one kind' : ['', '', 'two', 'three', 'four', 'five', 'six'][roll.personas.length] ? ['', '', 'two', 'three', 'four', 'five', 'six'][roll.personas.length] + ' kinds' : roll.personas.length + ' kinds'} of driver.</p>
             ${typeChart}
           </section>
           <section class="rs-sec">

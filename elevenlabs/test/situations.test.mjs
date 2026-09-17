@@ -45,8 +45,8 @@ const HEADS = ['RELEVANCE', 'NO REPETITION', 'NATURAL', 'NO INVENTION', 'LENGTH'
 function validate(body, file) {
   const at = `${file}: `;
   assert.equal(body.type, 'simulation', at + 'type');
-  assert.match(body.name, /^Otto · situation #\d+ .+ · (cooperative|terse|sidetracked|vague)$/, at + 'name');
-  assert.match(file, /^situation-\d\d-[a-z0-9-]+--(cooperative|terse|sidetracked|vague)\.json$/, at + 'file name');
+  assert.match(body.name, /^Otto · situation #\d+ .+ · (cooperative|terse|sidetracked|vague|annoyed)$/, at + 'name');
+  assert.match(file, /^situation-\d\d-[a-z0-9-]+--(cooperative|terse|sidetracked|vague|annoyed)\.json$/, at + 'file name');
   /* the pilot's button flow: the agent's own first message opens it */
   assert.ok(!('chat_history' in body), at + 'a situation test must not script the first turn');
   assert.equal(body.simulation_max_turns, body._otto.persona === 'vague' ? 10 : 8, at + 'turns');
@@ -74,10 +74,10 @@ function validate(body, file) {
   assert.ok(SITUATION_PERSONAS.some(p => p.id === o.persona), at + '_otto.persona');
 }
 
-test('the starter sheet yields twenty situations × four personas, all valid', () => {
+test('the starter sheet yields twenty situations × five personas, all valid', () => {
   assert.equal(rows.length, 20);
-  assert.equal(SITUATION_PERSONAS.map(p => p.id).join(','), 'cooperative,terse,sidetracked,vague');
-  assert.equal(built.length, 20 * 4);
+  assert.equal(SITUATION_PERSONAS.map(p => p.id).join(','), 'cooperative,terse,sidetracked,vague,annoyed');
+  assert.equal(built.length, 20 * 5);
   built.forEach(t => validate(t.body, t.file));
   assert.equal(new Set(built.map(t => t.file)).size, built.length, 'file names collide');
   assert.equal(new Set(built.map(t => t.body.name)).size, built.length, 'test names collide');
@@ -169,20 +169,20 @@ test('generation is deterministic: the CLI run twice writes byte-identical files
   const a = tmp(), b = tmp();
   try {
     const out = execFileSync(process.execPath, [GEN, '--situations', '--sheet', '--out', a], { encoding: 'utf8' });
-    assert.match(out, /GENERATE — 20 situation\(s\) from the starter sheet × 4 persona\(s\) → 80 test\(s\)/);
-    assert.match(out, /wrote 80 file\(s\)/);
+    assert.match(out, /GENERATE — 20 situation\(s\) from the starter sheet × 5 persona\(s\) → 100 test\(s\)/);
+    assert.match(out, /wrote 100 file\(s\)/);
     assert.match(out, /^note: "Nothing to report — a normal delivery" asks for no follow-up/m);
     execFileSync(process.execPath, [GEN, '--situations', '--sheet', '--out', b], { encoding: 'utf8' });
     const fa = readdirSync(a).sort(), fb = readdirSync(b).sort();
     assert.deepEqual(fa, fb);
-    assert.equal(fa.length, 80);
+    assert.equal(fa.length, 100);
     fa.forEach(f => assert.equal(readFileSync(path.join(a, f), 'utf8'), readFileSync(path.join(b, f), 'utf8'), f + ' differs between runs'));
     /* what the builder makes is what the CLI wrote */
     built.forEach(t => assert.equal(readFileSync(path.join(a, t.file), 'utf8'), JSON.stringify(t.body, null, 2) + '\n', t.file));
     /* one row only: the other 76 files are left where they are */
     const again = execFileSync(process.execPath, [GEN, '--situations', '--sheet', '--out', a, '--situation', '2'], { encoding: 'utf8' });
-    assert.match(again, /wrote 4 file\(s\) to .*; 0 stale removed/);
-    assert.equal(readdirSync(a).length, 80);
+    assert.match(again, /wrote 5 file\(s\) to .*; 0 stale removed/);
+    assert.equal(readdirSync(a).length, 100);
   } finally {
     rmSync(a, { recursive: true, force: true });
     rmSync(b, { recursive: true, force: true });
@@ -216,8 +216,8 @@ test('--situations reads the situations table, and falls back to the sheet when 
     /* the live rows: the active ones only, in num order, each one a test
      * per persona — and a row without a stop still gets one */
     let r = await run([]);
-    assert.match(r.log, /GENERATE — 2 situation\(s\) from Supabase \(http:\/\/127\.0\.0\.1:\d+\) × 4 persona\(s\) → 8 test\(s\)/);
-    assert.equal(r.files.length, 8);
+    assert.match(r.log, /GENERATE — 2 situation\(s\) from Supabase \(http:\/\/127\.0\.0\.1:\d+\) × 5 persona\(s\) → 10 test\(s\)/);
+    assert.equal(r.files.length, 10);
     assert.deepEqual(r.files.filter(f => f.endsWith('--vague.json')), ['situation-02-letterbox-full--vague.json', 'situation-05-building-site-mud-across-the-path--vague.json']);
     const got = mock.requests.filter(x => x.path === '/rest/v1/situations');
     assert.equal(got.length, 1);
@@ -236,8 +236,8 @@ test('--situations reads the situations table, and falls back to the sheet when 
     mock.state.situationsTable = false;
     r = await run([]);
     assert.match(r.log, /^Supabase \(http:\/\/127\.0\.0\.1:\d+\) has no situations table yet — generating from situations-starter\.js instead \(run supabase\/schema\.sql there to get one\)$/m);
-    assert.match(r.log, /GENERATE — 20 situation\(s\) from the starter sheet × 4 persona\(s\) → 80 test\(s\)/);
-    assert.equal(r.files.length, 80);
+    assert.match(r.log, /GENERATE — 20 situation\(s\) from the starter sheet × 5 persona\(s\) → 100 test\(s\)/);
+    assert.equal(r.files.length, 100);
 
     /* the table is there but the tab is empty, or everything in it is
      * switched off: the same fallback, its own line */
@@ -245,7 +245,7 @@ test('--situations reads the situations table, and falls back to the sheet when 
     mock.state.situations = [];
     r = await run([]);
     assert.match(r.log, /has no active row — generating from situations-starter\.js instead$/m);
-    assert.equal(r.files.length, 80);
+    assert.equal(r.files.length, 100);
   } finally {
     await mock.close();
   }
@@ -262,7 +262,7 @@ test('rows from a file, and the jsonb columns however they arrive', async () => 
     execFileSync(process.execPath, ['-e', 'require("fs").writeFileSync(process.argv[1], JSON.stringify({situations: [JSON.parse(process.argv[2])]}))', file, JSON.stringify(row)]);
     const out = path.join(dir, 'out');
     const log = execFileSync(process.execPath, [GEN, '--situations', '--file', file, '--out', out], { encoding: 'utf8' });
-    assert.match(log, /GENERATE — 1 situation\(s\) from .*rows\.json × 4 persona\(s\) → 4 test\(s\)/);
+    assert.match(log, /GENERATE — 1 situation\(s\) from .*rows\.json × 5 persona\(s\) → 5 test\(s\)/);
     const body = JSON.parse(readFileSync(path.join(out, 'situation-07-hand-fed-row--terse.json'), 'utf8'));
     validate(body, 'situation-07-hand-fed-row--terse.json');
     assert.ok(body.success_conditions[0].includes('how the driver got in; whether the parcel was delivered'));
@@ -282,8 +282,8 @@ test('an inactive row is not run, and a row can be picked on its own', () => {
     { num: 1, title: 'On', driver_says: 'a', driver_knows: 'b', follow_up: ['c'], off_topic: ['d'], tip: 'e' },
     { num: 2, title: 'Off', active: false, driver_says: 'a', driver_knows: 'b', follow_up: ['c'], off_topic: ['d'], tip: 'e' },
   ];
-  assert.equal(buildSituationTests(some, { stops }).length, 4);
-  assert.equal(buildSituationTests(some, { stops, only: 1 }).length, 4);
+  assert.equal(buildSituationTests(some, { stops }).length, 5);
+  assert.equal(buildSituationTests(some, { stops, only: 1 }).length, 5);
   assert.equal(buildSituationTests(some, { stops, only: 2 }).length, 0);
   /* a row with no number of its own still gets a valid test */
   const t = buildSituationTest({ row: { title: 'Unnumbered', driver_says: 'a', driver_knows: 'b', follow_up: ['c'], off_topic: ['d'], tip: 'e' }, persona: SITUATION_PERSONAS[0], stops });
