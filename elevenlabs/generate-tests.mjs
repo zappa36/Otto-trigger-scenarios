@@ -70,6 +70,13 @@ export const PERSONAS = JSON.parse(readFileSync(path.join(HERE, 'personas.json')
  * conversation — a trigger scenario opens with Otto's own question and
  * there is nothing vague left to be. */
 const forSuite = suite => PERSONAS.filter(p => !Array.isArray(p.suites) || p.suites.includes(suite));
+/* The two AI players in every simulated call besides Otto: the one
+ * that plays the driver and the judge that reads the call. Named in
+ * every test file rather than left to ElevenLabs's default, which can
+ * change any day and move a baseline with no change to the prompt.
+ * Both are the platform default at the time of writing. Change them on
+ * purpose, and treat the next run as a new baseline, not as progress. */
+export const SIMULATION_MODELS = { simulated_user_model: 'claude-sonnet-4-6', evaluation_model: 'claude-sonnet-4-6' };
 export const TRIGGER_PERSONAS = forSuite('triggers');
 export const SITUATION_PERSONAS = forSuite('situations');
 
@@ -304,6 +311,7 @@ export function buildTest({ sc, persona, lang, stops }) {
     chat_history: [{ role: 'agent', time_in_call_secs: 0, message: q }],
     simulation_scenario: simulationScenario({ sc, d, v, persona, lang, fx }),
     simulation_max_turns: persona.max_turns,
+    ...SIMULATION_MODELS,
     success_conditions: successConditions({ sc, v, q, lang, fx, cat }),
     _otto: {
       scenario_num: num,
@@ -490,6 +498,7 @@ export function buildSituationTest({ row, persona, stops, index = 0 }) {
      * is judging. */
     simulation_scenario: situationScenario({ row, d, persona }),
     simulation_max_turns: situationTurns(persona),
+    ...SIMULATION_MODELS,
     success_conditions: situationConditions({ row, d, persona }),
     _otto: {
       kind: 'situation',
