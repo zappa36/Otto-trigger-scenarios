@@ -153,7 +153,7 @@ In the pilot there are no triggers. The driver finishes a stop, presses
 the big **REPORT** button on the phone and says what they found — *the
 road was closed*, *a big dog at the door*, *the bell does nothing*. What
 matters is what happens next: Otto's follow-up has to fit **that**
-report, not a script, and after two or three questions he confirms the
+report, not a script, and after at most three questions he confirms the
 tip in one line and lets the driver go. That is what this suite
 measures, and it is the suite the buttons run by default.
 
@@ -201,8 +201,9 @@ rule, no measurements, no "Otto says" line.
    before the question, plain words, no lecturing, no form-filling, no
    read-backs mid-conversation.
 4. **NO INVENTION** — no fact the driver did not say. Asking is fine.
-5. **LENGTH** — two or three follow-up questions after the driver has
-   said what happened, then he closes. The opening greeting is not a
+5. **LENGTH** — at most three follow-up questions after the driver has
+   said what happened, then he closes; one good question is enough when
+   the driver has already said the rest. The opening greeting is not a
    question and is not counted. Four follow-ups fails.
 6. **CLOSE** — he confirms the tip in one line, consistent with what the
    driver said, and lets the driver go.
