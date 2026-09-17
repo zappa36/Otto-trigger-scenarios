@@ -7,7 +7,7 @@ against the destination, and the pin flips to reported.
 For the **first pilot** there is no trigger at all: the phone's main
 element is one big **REPORT** button. The driver presses it after a
 stop, says what they found — the road was closed, a dog at the door,
-the bell does nothing — and Otto asks two or three questions that fit
+the bell does nothing — and Otto asks up to three questions that fit
 *that* report and confirms the tip in one line. What makes or breaks
 that is the agent's prompt, so it gets a suite of its own: [the
 situations](#the-situations--what-a-driver-reports-and-what-otto-asks-back).
@@ -551,8 +551,9 @@ to hold:
 3. **Natural** — a colleague on the phone: a short acknowledgement, plain
    words, no lecturing, no form-filling, no reading the report back.
 4. **No invention** — no fact the driver did not give.
-5. **Length** — two or three follow-up questions once the driver has said
-   what happened; the opening greeting does not count.
+5. **Length** — at most three follow-up questions once the driver has
+   said what happened; one good one is enough, and the opening greeting
+   does not count.
 6. **Close** — the tip confirmed in one line, then the driver let go.
 
 The control row swaps the first, fifth and sixth for "accept that there

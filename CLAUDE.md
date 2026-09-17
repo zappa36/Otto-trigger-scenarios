@@ -17,7 +17,7 @@ Ruled on so far, before the table existed:
 
 - Otto's first message, "Hello! How can I help you today?", is the
   platform's greeting, spoken before his first turn. It is correct by
-  design; it is not one of his two or three follow-up questions
+  design; it is not one of his follow-up questions (at most three)
   (`elevenlabs/generate-tests.mjs`, the LENGTH condition, says so).
 
 ## The prompt is confidential, the repository is public
