@@ -227,6 +227,14 @@ Both suites live in one ElevenLabs workspace and are told apart by
 name — `Otto · situation #3 …` against `Otto · #3 …` — which is all the
 `suite` input on the buttons and `--filter` on `run` need.
 
+**The driver and the judge are cast by name.** Every test file names
+the model that plays the simulated driver and the model that judges the
+call (`simulated_user_model`, `evaluation_model` — `SIMULATION_MODELS`
+in `generate-tests.mjs`, both the platform default at the time of
+writing). Left unset, ElevenLabs's default would decide, and a change to
+that default moves a baseline with no change to the prompt. Change them
+on purpose, regenerate, and treat the next run as a new baseline.
+
 **The designer's decisions.** The dashboard's RUNS tab reads each run
 as a report — what went well, what went wrong, what to change — and
 every finding there has a **NOT A PROBLEM** button. What is marked

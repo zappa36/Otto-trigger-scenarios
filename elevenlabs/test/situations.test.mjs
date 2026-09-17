@@ -50,6 +50,9 @@ function validate(body, file) {
   /* the pilot's button flow: the agent's own first message opens it */
   assert.ok(!('chat_history' in body), at + 'a situation test must not script the first turn');
   assert.equal(body.simulation_max_turns, body._otto.persona === 'vague' ? 10 : 8, at + 'turns');
+  /* the driver and the judge are cast by name, never left to the platform's default */
+  assert.equal(body.simulated_user_model, 'claude-sonnet-4-6', at + 'simulated_user_model');
+  assert.equal(body.evaluation_model, 'claude-sonnet-4-6', at + 'evaluation_model');
   assert.match(body.simulation_scenario, /^You are a parcel-delivery driver on a round in Berlin\./, at + 'the driver, first person');
   assert.match(body.simulation_scenario, /pressed the big REPORT button/, at + 'why they are talking to Otto');
   assert.match(body.simulation_scenario, /What you know if Otto asks, and only when he asks: /, at + 'what is held back');

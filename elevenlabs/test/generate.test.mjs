@@ -129,7 +129,7 @@ test('the park-and-walk row quotes its measured distances in the question and th
 
 /* C4 + the create-test body, checked by hand: the shape POST
  * /v1/convai/agent-testing/create takes for type "simulation" */
-const TOP_KEYS = ['name', 'type', 'dynamic_variables', 'chat_history', 'simulation_scenario', 'simulation_max_turns', 'success_conditions', '_otto'];
+const TOP_KEYS = ['name', 'type', 'dynamic_variables', 'chat_history', 'simulation_scenario', 'simulation_max_turns', 'simulated_user_model', 'evaluation_model', 'success_conditions', '_otto'];
 function validate(body, file) {
   const at = `${file}: `;
   assert.deepEqual(Object.keys(body).sort(), [...TOP_KEYS].sort(), at + 'unexpected top-level keys');
@@ -138,6 +138,9 @@ function validate(body, file) {
   assert.equal(typeof body.simulation_scenario, 'string');
   assert.ok(body.simulation_scenario.length > 200, at + 'simulation_scenario too short');
   assert.ok(Number.isInteger(body.simulation_max_turns) && body.simulation_max_turns >= 1 && body.simulation_max_turns <= 50, at + 'simulation_max_turns');
+  /* the driver and the judge are cast by name, never left to the platform's default */
+  assert.equal(body.simulated_user_model, 'claude-sonnet-4-6', at + 'simulated_user_model');
+  assert.equal(body.evaluation_model, 'claude-sonnet-4-6', at + 'evaluation_model');
   assert.ok(Array.isArray(body.success_conditions) && body.success_conditions.length >= 4 && body.success_conditions.length <= 6, at + 'success_conditions count');
   body.success_conditions.forEach(c => assert.ok(typeof c === 'string' && c.trim().length > 40, at + 'condition too short'));
   assert.ok(body.dynamic_variables && typeof body.dynamic_variables === 'object', at + 'dynamic_variables');
