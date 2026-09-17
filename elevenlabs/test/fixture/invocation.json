@@ -12,7 +12,10 @@
       "test_run_id": "run_2", "test_invocation_id": "inv_1", "agent_id": "agent_test1", "status": "failed",
       "test_id": "test_001", "test_name": "Otto · #1 Parking loops · cooperative",
       "condition_result": { "result": "failure", "rationale": { "messages": ["Asked four questions.", "Did not let the tester go."], "summary": "The agent asked four questions and never let the tester go. It opened correctly." } },
-      "agent_responses": [{ "role": "agent", "time_in_call_secs": 0, "message": "Is it hard to park here at this time? Where did you find a spot?" }],
+      "agent_responses": [
+        { "role": "agent", "time_in_call_secs": 0, "tool_calls": [{ "request_id": "req_1", "tool_name": "report_incident", "params_as_json": "{\"summary\":\"parking\"}" }] },
+        { "role": "agent", "time_in_call_secs": 0, "message": "Is it hard to park here at this time? Where did you find a spot?" }
+      ],
       "last_updated_at_unix": 1789000101, "branch_id": null, "version_id": "agtvrsn_v1"
     },
     {
