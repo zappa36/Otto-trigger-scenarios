@@ -1961,6 +1961,14 @@ const RUN_CRITERIA = [
   'ends by confirming the tip in one line, then lets the driver go',
   'asks one open question first — the vague driver only',
 ];
+/* The judge's own word at the head of a paragraph — every check asks
+ * for "PASS or FAIL, then the reason" — so the count per check is its
+ * word wherever it complied, and a reading of the prose only for runs
+ * from before the ask (or a paragraph where it forgot). */
+const runVerdictOf = text => {
+  const m = /^\s*(?:\*{0,2}|_{0,2})(?:verdict\s*:\s*)?(PASS|FAIL)\b/i.exec(String(text || ''));
+  return m ? m[1].toLowerCase() : null;
+};
 const runReasonParas = text => String(text || '').split(/\n(?=Criterion\s+\d+\s*:)/)
   .map(p => p.trim()).filter(p => /^Criterion\s+\d+\s*:/.test(p))
   .map(p => ({ n: +p.match(/^Criterion\s+(\d+)/)[1], text: p.replace(/^Criterion\s+\d+\s*:\s*/, '') }));
@@ -2345,13 +2353,20 @@ function runAnalysis(run) {
    * A check-5 paragraph written under the old rule is kept apart. */
   const crit = {};
   facts.forEach(f => runReasonParas(f.rationale).forEach(p => {
-    const o = crit[p.n] || (crit[p.n] = { paras: 0, plain: 0, old: 0 });
+    const o = crit[p.n] || (crit[p.n] = { paras: 0, plain: 0, old: 0, fail: 0, pass: 0 });
     o.paras++;
-    if (runOldRule(p.n, p.text)) o.old++;
+    const v = runVerdictOf(p.text);
+    if (v === 'fail') o.fail++;
+    else if (v === 'pass') o.pass++;
+    else if (runOldRule(p.n, p.text)) o.old++;
     else if (runSaysPlainly(p.n, p.text)) o.plain++;
   }));
   out.criteria = Object.keys(crit).map(Number).sort((a, b) => a - b)
-    .map(k => ({ idx: k, paras: crit[k].paras, plain: crit[k].plain, old: crit[k].old }));
+    .map(k => ({ idx: k, ...crit[k] }));
+  /* the judge's word over EVERY call of the run, passed ones included —
+   * the loop counts it per test (checks) and per suite (by_check) */
+  const sum = jsonOf(run.summary);
+  out.byCheck = sum && sum.by_check && typeof sum.by_check === 'object' ? sum.by_check : null;
   runAnalysisCache = { id: run.id, out };
   return out;
 }
@@ -2557,7 +2572,7 @@ const renderNapBtn = (key, title) => `<button class="mini-btn rs-nap" type="butt
 /* ---------- the report ---------- */
 function renderRunSummary(run) {
   const a = runAnalysis(run);
-  const { roll, facts, findings, held, sits, criteria, personas, shape } = a;
+  const { roll, facts, findings, held, sits, criteria, personas, shape, byCheck } = a;
   const n = facts.length;
   const back = '<button class="mini-btn rs-back" type="button" data-run-act="all">← all runs</button>';
   const link = /^https?:\/\//i.test(String(run.run_url || ''))
@@ -2709,17 +2724,30 @@ function renderRunSummary(run) {
 
   /* the judge's notes by check — folded, at the bottom */
   const oldN = criteria.reduce((s, c) => s + c.old, 0);
+  const worded = criteria.reduce((s, c) => s + c.fail + c.pass, 0);
+  const bcKeys = byCheck ? Object.keys(byCheck).map(Number).filter(Number.isFinite).sort((x, y) => x - y) : [];
+  const allCalls = !bcKeys.length ? '' : `
+          <p class="rs-how">The judge&rsquo;s own word, over every call of this run, passed calls included:</p>
+          <table class="rs-tbl">
+            <thead><tr><th>#</th><th>the check</th><th>failed</th><th>of calls judged</th></tr></thead>
+            <tbody>${bcKeys.map(n => `
+              <tr><td>${n}</td><td>${esc(RUN_CRITERIA[n - 1] || 'check ' + n)}</td>
+              <td>${(byCheck[n] && byCheck[n].fail) || 0}</td><td>${((byCheck[n] && byCheck[n].fail) || 0) + ((byCheck[n] && byCheck[n].pass) || 0)}</td></tr>`).join('')}
+            </tbody>
+          </table>
+          <p class="rs-how">And in the failed calls kept on file:</p>`;
   const critBlock = !criteria.length ? '' : `
       <section class="rs-sec">
         <details class="rs-more rs-crit"><summary>the judge&rsquo;s notes by check</summary>
-          <p class="rs-how">The judge writes one paragraph per check, pass or fail, and they read alike. We count only the paragraphs
-            that say clearly that the check was missed. The rest is &ldquo;unclear&rdquo; — not guessed. The full notes are under
-            &ldquo;show a real call&rdquo; above and on each situation&rsquo;s card.</p>
+          <p class="rs-how">The judge writes one paragraph per check. ${worded
+            ? 'It starts each one with PASS or FAIL, and those words are what we count.'
+            : 'In this run it did not say PASS or FAIL, so we count only the paragraphs that say clearly that the check was missed. The rest is &ldquo;unclear&rdquo; &mdash; not guessed.'}
+            The full notes are under &ldquo;show a real call&rdquo; above and on each situation&rsquo;s card.</p>${allCalls}
           <table class="rs-tbl">
-            <thead><tr><th>#</th><th>the check</th><th>clearly missed</th><th>unclear</th>${oldN ? '<th>old rule</th>' : ''}</tr></thead>
+            <thead><tr><th>#</th><th>the check</th><th>failed</th><th>passed</th><th>unclear</th>${oldN ? '<th>old rule</th>' : ''}</tr></thead>
             <tbody>${criteria.map(c => `
               <tr><td>${c.idx}</td><td>${esc(RUN_CRITERIA[c.idx - 1] || 'check ' + c.idx)}</td>
-              <td>${c.plain} of ${c.paras}</td><td>${c.paras - c.plain - c.old}</td>${oldN ? `<td>${c.old || '·'}</td>` : ''}</tr>`).join('')}
+              <td>${c.fail + c.plain} of ${c.paras}</td><td>${c.pass || '·'}</td><td>${c.paras - c.fail - c.pass - c.plain - c.old || '·'}</td>${oldN ? `<td>${c.old || '·'}</td>` : ''}</tr>`).join('')}
             </tbody>
           </table>
           ${oldN ? `<p class="rs-how">${oldN} note${oldN === 1 ? '' : 's'} under check 5 counted Otto&rsquo;s greeting as a question. Graded by the old rule — the next run counts only follow-ups.</p>` : ''}

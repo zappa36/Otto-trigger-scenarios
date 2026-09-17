@@ -125,9 +125,14 @@ test('run polls the invocation, aggregates per test worst-first, and writes the 
   assert.equal(res.tests[0].why, 'The agent asked four questions and never let the tester go. It opened correctly.');
   assert.deepEqual(res.tests[0].failure, {
     test_run_id: 'run_2',
-    rationale: 'The agent asked four questions and never let the tester go. It opened correctly.\nAsked four questions.\nDid not let the tester go.',
+    rationale: 'The agent asked four questions and never let the tester go. It opened correctly.\nCriterion 1: PASS. It opened correctly.\nCriterion 2: FAIL. Asked four questions.\nCriterion 3: FAIL. Did not let the tester go.',
+    verdicts: ['pass', 'fail', 'fail'],
     transcript: [{ role: 'agent', message: 'Is it hard to park here at this time? Where did you find a spot?', tools: ['report_incident'] }],
   });
+  /* the judge's word per check, over every run that carried one — the
+   * passed run_1 included, the wordless run_3 not */
+  assert.deepEqual(res.tests[0].checks, { 1: { pass: 2, fail: 0 }, 2: { pass: 1, fail: 1 }, 3: { pass: 0, fail: 1 } });
+  assert.equal(res.tests[1].checks, null, 'no verdict words, no checks');
   assert.equal(res.tests[1].pass_rate, 1);
   assert.equal(res.tests[1].why, null);
   assert.equal(res.tests[1].failure, null, 'a test that passed every run has no failure to show');
@@ -189,15 +194,18 @@ test('publish posts the results file as one agent_runs row — the contract dash
     why: 'The agent asked four questions and never let the tester go. It opened correctly.',
     failure: {
       test_run_id: 'run_2',
-      rationale: 'The agent asked four questions and never let the tester go. It opened correctly.\nAsked four questions.\nDid not let the tester go.',
+      rationale: 'The agent asked four questions and never let the tester go. It opened correctly.\nCriterion 1: PASS. It opened correctly.\nCriterion 2: FAIL. Asked four questions.\nCriterion 3: FAIL. Did not let the tester go.',
+      verdicts: ['pass', 'fail', 'fail'],
       transcript: [{ role: 'agent', message: 'Is it hard to park here at this time? Where did you find a spot?', tools: ['report_incident'] }],
     },
+    checks: { 1: { pass: 2, fail: 0 }, 2: { pass: 1, fail: 1 }, 3: { pass: 0, fail: 1 } },
   });
-  assert.deepEqual(row.tests[1], { name: T8, test_id: 'test_pre8', kind: 'scenario', scenario_num: 8, scenario_title: 'Blocked route — turned round short of the address', situation_num: null, situation_title: null, persona: 'terse', language: 'en', runs: 3, passed: 3, pass_rate: 1, why: null, failure: null });
+  assert.deepEqual(row.tests[1], { name: T8, test_id: 'test_pre8', kind: 'scenario', scenario_num: 8, scenario_title: 'Blocked route — turned round short of the address', situation_num: null, situation_title: null, persona: 'terse', language: 'en', runs: 3, passed: 3, pass_rate: 1, why: null, failure: null, checks: null });
   assert.deepEqual(row.summary, {
     tests: 2, tests_at_100: 1, runs: 6, passed: 5, pass_rate: 5 / 6,
     by_scenario: { 1: { tests: 1, runs: 3, passed: 2, pass_rate: 2 / 3 }, 8: { tests: 1, runs: 3, passed: 3, pass_rate: 1 } },
     by_situation: {},
+    by_check: { 1: { pass: 2, fail: 0 }, 2: { pass: 1, fail: 1 }, 3: { pass: 0, fail: 1 } },
   });
   assert.equal(mock.state.agentRuns.length, 1, 'stored');
   assert.match(r.out, /5\/6 runs passed across 2 test\(s\) -> agent_runs/);
@@ -266,7 +274,8 @@ test('publish posts the results file as one agent_runs row — the contract dash
   const oldFile = path.join(dir, 'old.json');
   writeFileSync(oldFile, JSON.stringify(old));
   const oldRow = agentRunRow(old, { runUrl: '' });
-  assert.deepEqual(oldRow.tests[0], { name: 'Otto · regression · conv_old', test_id: 'test_9', kind: 'regression', scenario_num: null, scenario_title: null, situation_num: null, situation_title: null, persona: null, language: null, runs: 2, passed: 1, pass_rate: 0.5, why: 'Too long. Really.', failure: null });
+  assert.deepEqual(oldRow.tests[0], { name: 'Otto · regression · conv_old', test_id: 'test_9', kind: 'regression', scenario_num: null, scenario_title: null, situation_num: null, situation_title: null, persona: null, language: null, runs: 2, passed: 1, pass_rate: 0.5, why: 'Too long. Really.', failure: null, checks: null });
+  assert.equal(oldRow.summary.by_check, undefined, 'no verdict words anywhere, no by_check');
   assert.deepEqual(oldRow.summary, { tests: 1, tests_at_100: 0, runs: 2, passed: 1, pass_rate: 0.5, by_scenario: {}, by_situation: {} }, 'a test without a row counts in the totals and under no row');
   assert.equal(oldRow.version_id, null);
   assert.equal(oldRow.run_url, null, 'an empty --run-url is none');
@@ -921,7 +930,20 @@ test('push-tests mocks the agent\'s tools for the suite — a client tool has no
 });
 
 test('the why line names the failed criterion, not the verdict word', async () => {
-  const { whyOf } = await import('../loop.mjs');
+  const { whyOf, verdictsOf } = await import('../loop.mjs');
+  /* the judge's own word wins over the cue words: the first FAIL
+   * paragraph is the reason, whatever the passing ones say */
+  const worded = { rationale: { summary: 'Evaluation failed', messages: [
+    'Criterion 1: PASS. The first follow-up fits the report, exceeding expectations.',
+    'Criterion 2: PASS. Nothing asked twice.',
+    'Criterion 3: FAIL. Otto read the whole report back before his first question.',
+    'Criterion 5: FAIL. Four follow-up questions.',
+  ] } };
+  assert.equal(whyOf(worded), 'Criterion 3: FAIL. Otto read the whole report back before his first question.');
+  assert.deepEqual(verdictsOf(worded), ['pass', 'pass', 'fail', 'unknown', 'fail']);
+  assert.deepEqual(verdictsOf({ rationale: { messages: ['**FAIL** — no tip.', 'Verdict: PASS, fine.'] } }), ['fail', 'pass'], 'without the criterion prefix the position is the number; markdown and a "Verdict:" lead are tolerated');
+  assert.equal(verdictsOf({ rationale: { messages: ['Criterion 1: fine.', 'Criterion 2: not so fine.'] } }), null, 'no verdict word anywhere is null, and the callers read the prose');
+  assert.equal(whyOf({ rationale: { summary: 'Unsupported client tool', messages: ['Criterion 1: FAIL. x'] } }), 'Unsupported client tool', 'a summary that says something of its own still wins');
   const generic = { rationale: { summary: 'Evaluation failed', messages: [
     'Criterion 1: The agent opens with exactly the required question. Criteria met.',
     'Criterion 4: Questions asked: four — exceeding the limit of three.',

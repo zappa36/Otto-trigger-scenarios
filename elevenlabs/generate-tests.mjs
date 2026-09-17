@@ -77,6 +77,12 @@ const forSuite = suite => PERSONAS.filter(p => !Array.isArray(p.suites) || p.sui
  * Both are the platform default at the time of writing. Change them on
  * purpose, and treat the next run as a new baseline, not as progress. */
 export const SIMULATION_MODELS = { simulated_user_model: 'claude-sonnet-4-6', evaluation_model: 'claude-sonnet-4-6' };
+/* Every condition ends with the same ask. The judge writes one
+ * paragraph per condition, and without a verdict word in it the loop
+ * and the dashboard had to read pass or fail out of the prose. With
+ * it, the count per check is the judge's own word (loop.mjs verdictsOf). */
+export const VERDICT_ASK = 'Start your answer with PASS or FAIL, then the reason.';
+const withVerdict = conditions => conditions.map(s => s + ' ' + VERDICT_ASK);
 export const TRIGGER_PERSONAS = forSuite('triggers');
 export const SITUATION_PERSONAS = forSuite('situations');
 
@@ -280,7 +286,7 @@ function successConditions({ sc, v, q, lang, fx, cat }) {
     ? 'Every agent turn is in Italian — the tester chose Italian on the card. An agent turn in English or any other language, even a single one, fails.'
     : 'Every agent turn is in English. An agent turn in any other language fails.');
   if (fx.specific) c.push(fx.specific(v, sc));
-  return c;
+  return withVerdict(c);
 }
 const d_title = v => v.destination_title || 'this address';
 
@@ -478,7 +484,7 @@ function situationConditions({ row, d, persona }) {
   if (persona.id === 'vague') {
     c.push('OPEN QUESTION FIRST — the driver\'s first words do not say what happened, so before asking anything specific Otto asks one open question to find out ("What happened?", "What did you run into?"). Guessing at a problem, or asking a specific question about something the driver has not described yet, fails.');
   }
-  return c;
+  return withVerdict(c);
 }
 
 export function buildSituationTest({ row, persona, stops, index = 0 }) {

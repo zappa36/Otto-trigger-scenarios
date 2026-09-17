@@ -356,12 +356,24 @@ agent-independent; a file that carries its own mock block keeps it.
 answers per tool id — the API allows several, chosen by their
 parameter conditions, and refuses a bare object.
 
+**The judge's word per check.** Every success condition ends with
+"Start your answer with PASS or FAIL, then the reason", and the judge
+answers one paragraph per condition — "Criterion 3: FAIL. Otto read the
+whole report back…" — so the verdicts are read, not guessed
+(`verdictsOf` in `loop.mjs`). A results file carries them three ways:
+`failure.verdicts`, the word per condition on the kept failed run;
+`checks` per test, pass and fail counts per condition over every run
+of that test, passed runs included; and `summary.by_check` on the
+published `agent_runs` row, the same over the whole suite. The RUNS
+tab's "notes by check" table shows them.
+
 The **why** line on a failed test (the table, the dashboard chip) is
 the evaluator's summary when it says something of its own
-("Unsupported client tool"), and otherwise — the summary is usually
-just "Evaluation failed" — the first success condition whose paragraph
-reads as a failure ("Criterion 4: … four questions, exceeding the
-limit of three"). The whole rationale is kept under `failure`.
+("Unsupported client tool"), otherwise the first paragraph the judge
+marked FAIL, and — for a rationale from before the conditions asked
+for a verdict — the first paragraph that reads as a failure
+("Criterion 4: … four questions, exceeding the limit of three"). The
+whole rationale is kept under `failure`.
 
 ### What each command leaves behind
 

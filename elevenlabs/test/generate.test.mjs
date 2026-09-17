@@ -143,6 +143,8 @@ function validate(body, file) {
   assert.equal(body.evaluation_model, 'claude-sonnet-4-6', at + 'evaluation_model');
   assert.ok(Array.isArray(body.success_conditions) && body.success_conditions.length >= 4 && body.success_conditions.length <= 6, at + 'success_conditions count');
   body.success_conditions.forEach(c => assert.ok(typeof c === 'string' && c.trim().length > 40, at + 'condition too short'));
+  /* the judge's word per check is read, not guessed — every condition asks for it */
+  body.success_conditions.forEach(c => assert.ok(c.endsWith(' Start your answer with PASS or FAIL, then the reason.'), at + 'condition without the verdict ask'));
   assert.ok(body.dynamic_variables && typeof body.dynamic_variables === 'object', at + 'dynamic_variables');
   for (const [k, v] of Object.entries(body.dynamic_variables)) {
     assert.ok(C5_KEYS.includes(k), at + `dynamic variable ${k} is not one the phone sends`);
