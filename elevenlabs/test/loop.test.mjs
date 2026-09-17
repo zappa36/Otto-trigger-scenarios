@@ -151,14 +151,46 @@ test('run polls the invocation, aggregates per test worst-first, and writes the 
 
 test('run --branch sends the branch id and the results carry it', async () => {
   const dir = shared.dir;
-  const r = await loop(['run', '--branch', 'branch_loop1', '--repeat', '3', '--label', 'branch'], dir);
+  const r = await loop(['run', '--branch', 'agtbrch_loop1', '--repeat', '3', '--label', 'branch'], dir);
   assert.equal(r.code, 0, r.out);
-  assert.equal(sent('POST', /run-tests$/)[0].body.branch_id, 'branch_loop1');
+  assert.equal(sent('POST', /run-tests$/)[0].body.branch_id, 'agtbrch_loop1');
   const file = filesIn(path.join(dir, 'results')).find(f => f.endsWith('-branch.json'));
   const res = readJson(path.join(dir, 'results', file));
   shared.branchResults = path.join(dir, 'results', file);
-  assert.equal(res.branch_id, 'branch_loop1');
-  assert.ok(res.tests.every(t => t.branch_id === 'branch_loop1'));
+  assert.equal(res.branch_id, 'agtbrch_loop1');
+  assert.ok(res.tests.every(t => t.branch_id === 'agtbrch_loop1'));
+});
+
+test('run --branch takes the branch\'s ElevenLabs name too, and refuses the agent\'s own id by name', async () => {
+  const dir = shared.dir;
+  /* the name as typed in the dashboard: looked up, the id sent */
+  let r = await loop(['run', '--branch', 'Tip Detail', '--repeat', '2', '--label', 'branch'], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /branch "tip detail" is agtbrch_hand01/);
+  assert.equal(sent('POST', /run-tests$/)[0].body.branch_id, 'agtbrch_hand01');
+  assert.equal(sent('GET', /\/branches$/).length, 1, 'one list call');
+  /* an id is sent as it is, no lookup */
+  mock.reset();
+  r = await loop(['run', '--branch', 'agtbrch_hand01', '--repeat', '2', '--label', 'branch'], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(sent('GET', /\/branches$/).length, 0, 'an id needs no list');
+  /* the first live try pasted the agent id into the field */
+  mock.reset();
+  r = await loop(['run', '--branch', 'agent_test1', '--repeat', '2', '--label', 'branch'], dir);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /"agent_test1" is the agent's own id, not a branch\. Give the branch's name as you typed it in ElevenLabs/);
+  assert.equal(sent('POST', /run-tests$/).length, 0, 'nothing started, nothing billed');
+  /* a name that is not there: the live names, the archived one left out */
+  mock.reset();
+  r = await loop(['run', '--branch', 'tip detials', '--repeat', '2', '--label', 'branch'], dir);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /no branch named "tip detials" on agent agent_test1 — the live branches are "tip detail"/);
+  assert.doesNotMatch(r.out, /old idea/);
+  /* promote resolves the same way */
+  mock.reset();
+  r = await loop(['promote', '--branch', 'tip detail'], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(sent('POST', /\/branches\/agtbrch_hand01\/merge$/).length, 1);
 });
 
 test('run --filter narrows by name, and an empty lock is a clear message', async () => {
@@ -242,7 +274,7 @@ test('publish posts the results file as one agent_runs row — the contract dash
   assert.equal(r.code, 0, r.out);
   const branchRow = sent('POST', /agent_runs$/)[0].body[0];
   assert.equal(branchRow.label, 'branch');
-  assert.equal(branchRow.branch_id, 'branch_loop1');
+  assert.equal(branchRow.branch_id, 'agtbrch_loop1');
   assert.equal(branchRow.version_id, 'agtvrsn_b1');
   assert.equal(branchRow.verdict, 'reject', 'compare\'s word, whichever case it came in');
   assert.equal(branchRow.verdict_reason, 'no previously failing test improved');
@@ -488,22 +520,22 @@ test('branch cuts an agent branch from the current version with the proposed pro
   assert.equal(req.body.name, 'loop-test');
   assert.equal(req.body.description, 'Ask where they parked first — two field debriefs never got the spot');
   assert.equal(req.body.conversation_config.agent.prompt.prompt, readJson(shared.proposal).prompt);
-  assert.match(r.out, /branch_loop1 \(version agtvrsn_b1/);
-  assert.match(r.out, /run --branch branch_loop1/);
-  assert.equal(readJson(shared.proposal).branch.branch_id, 'branch_loop1', 'the proposal remembers its branch');
+  assert.match(r.out, /agtbrch_loop1 \(version agtvrsn_b1/);
+  assert.match(r.out, /run --branch agtbrch_loop1/);
+  assert.equal(readJson(shared.proposal).branch.branch_id, 'agtbrch_loop1', 'the proposal remembers its branch');
 });
 
 test('compare accepts an improvement without drops and rejects a drop or a standstill', async () => {
   const dir = shared.dir;
   const base = { label: 'main', tests: [{ name: T1, pass_rate: 1 / 3, runs: 3, passed: 1, rationales: [] }, { name: T8, pass_rate: 1, runs: 3, passed: 3, rationales: [] }] };
-  const better = { label: 'branch', branch_id: 'branch_loop1', tests: [{ name: T1, pass_rate: 1, runs: 3, passed: 3, rationales: [] }, { name: T8, pass_rate: 1, runs: 3, passed: 3, rationales: [] }] };
+  const better = { label: 'branch', branch_id: 'agtbrch_loop1', tests: [{ name: T1, pass_rate: 1, runs: 3, passed: 3, rationales: [] }, { name: T8, pass_rate: 1, runs: 3, passed: 3, rationales: [] }] };
   const worse = { label: 'branch', tests: [{ name: T1, pass_rate: 1 / 3, runs: 3, passed: 1, rationales: [] }, { name: T8, pass_rate: 2 / 3, runs: 3, passed: 2, rationales: ['Forgot the sign-off.'] }] };
   const same = { label: 'branch', tests: base.tests };
   const w = (n, o) => { const f = path.join(dir, n); writeFileSync(f, JSON.stringify(o)); return f; };
   let r = await loop(['compare', '--base', w('base.json', base), '--branch', w('better.json', better)], dir);
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /ACCEPT — 1 previously failing test\(s\) improved/);
-  assert.match(r.out, /promote --branch branch_loop1/);
+  assert.match(r.out, /promote --branch agtbrch_loop1/);
   r = await loop(['compare', '--base', w('base.json', base), '--branch', w('worse.json', worse)], dir);
   assert.equal(r.code, 1);
   assert.match(r.out, /REJECT — 1 test\(s\) dropped by more than 10 points/);
@@ -525,11 +557,11 @@ test('promote merges the branch into the main branch and takes the version note 
   /* the branch carries its own note: `branch` put the proposal's note
    * in its description, so nothing has to travel in a file */
   mock.state.branchDescription = 'Ask where they parked first — two field debriefs never got the spot';
-  const r = await loop(['promote', '--branch', 'branch_loop1'], dir);
+  const r = await loop(['promote', '--branch', 'agtbrch_loop1'], dir);
   assert.equal(r.code, 0, r.out);
-  const got = sent('GET', /\/branches\/branch_loop1$/)[0];
+  const got = sent('GET', /\/branches\/agtbrch_loop1$/)[0];
   assert.ok(got, 'the branch was read for its description');
-  const req = sent('POST', /\/branches\/branch_loop1\/merge$/)[0];
+  const req = sent('POST', /\/branches\/agtbrch_loop1\/merge$/)[0];
   assert.ok(req, 'merge posted');
   assert.equal(req.query.target_branch_id, 'branch_main', 'main_branch_id from GET agent');
   assert.deepEqual(req.body, { archive_source_branch: true, force: false });
@@ -539,14 +571,14 @@ test('promote merges the branch into the main branch and takes the version note 
   /* --quiet: the merge still happens, the note stays in ElevenLabs */
   mock.requests.length = 0;
   mock.state.branchDescription = 'Ask where they parked first — two field debriefs never got the spot';
-  const q = await loop(['promote', '--branch', 'branch_loop1', '--quiet'], dir);
+  const q = await loop(['promote', '--branch', 'agtbrch_loop1', '--quiet'], dir);
   assert.equal(q.code, 0, q.out);
   assert.equal(sent('POST', /\/merge$/).length, 1, 'still merged');
   assert.ok(!q.out.includes('Ask where they parked first'), 'the note is not printed under --quiet');
   assert.match(q.out, /version note is not shown \(--quiet\)/);
 
   /* the old way round is named, not silently ignored */
-  const old = await loop(['promote', '--branch', 'branch_loop1', '--proposal', shared.proposal], dir);
+  const old = await loop(['promote', '--branch', 'agtbrch_loop1', '--proposal', shared.proposal], dir);
   assert.equal(old.code, 1);
   assert.match(old.out, /--proposal is gone: promote reads the version note from the branch itself/);
 });
@@ -1045,7 +1077,7 @@ test('branch prints ids only, and never what came back from the request that car
   assert.equal(r.code, 0, r.out);
   assert.ok(!r.out.includes('secret line'), 'the prompt was printed');
   assert.ok(!r.out.includes('a note about the secret line'), 'the note was printed');
-  assert.match(r.out, /branch "loop-quiet" created: branch_loop1 \(version agtvrsn_b1, from agtvrsn_v1\)/);
+  assert.match(r.out, /branch "loop-quiet" created: agtbrch_loop1 \(version agtvrsn_b1, from agtvrsn_v1\)/);
   /* the note does reach ElevenLabs, as the branch's description — that
    * is where promote reads it from */
   assert.equal(sent('POST', /\/branches$/)[0].body.description, 'a note about the secret line');

@@ -153,7 +153,7 @@ on:
         type: number
         default: 14
       branch_id:
-        description: "try and promote: the agent branch id (from a propose run's summary, or from the ElevenLabs dashboard)"
+        description: "try and promote: the agent branch — its name as you typed it in ElevenLabs (Versioning tab), or its id (agtbrch_…, from a propose run's summary)"
         type: string
         default: ""
   schedule:
@@ -279,7 +279,7 @@ jobs:
             echo "::error::propose needs the OPENAI_API_KEY secret (the model that drafts the prompt diff) — add it under Settings → Secrets and variables → Actions → Secrets"; exit 1
           fi
           if { [ "$ACTION" = "promote" ] || [ "$ACTION" = "try" ]; } && [ -z "$BRANCH_ID" ]; then
-            echo "::error::$ACTION needs branch_id — the agent branch id printed in the propose run's summary, or one made by hand in the ElevenLabs dashboard"; exit 1
+            echo "::error::$ACTION needs branch_id — the branch's name as you typed it in ElevenLabs (Versioning tab), or its id (agtbrch_…) from a propose run's summary"; exit 1
           fi
           echo "go=true" >> "$GITHUB_OUTPUT"
           echo "## agent-suite · $ACTION · $SUITE suite${filter:+ (filter \"$filter\")}" >> "$GITHUB_STEP_SUMMARY"

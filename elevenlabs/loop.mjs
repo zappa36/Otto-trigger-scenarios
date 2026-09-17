@@ -421,6 +421,29 @@ async function pushTests(ctx, flags = {}) {
 
 /* ---------- run ---------- */
 
+/* The branch a button was given: its id (agtbrch_…), or the name it
+ * was given in the ElevenLabs dashboard, which is what the designer
+ * actually knows — the id is nowhere obvious there, and the first try
+ * pasted the AGENT's id into the field. A name is looked up in the
+ * agent's branches (the live ones), exactly and then ignoring case;
+ * anything else is refused with the names that would have worked. */
+const BRANCH_ID = /^agtbrch_/i;
+async function resolveBranch(api, agentId, given, log) {
+  const want = String(given || '').trim();
+  if (!want || BRANCH_ID.test(want)) return want;
+  if (/^agent_/i.test(want)) throw new UsageError(`"${want}" is the agent's own id, not a branch. Give the branch's name as you typed it in ElevenLabs (Versioning tab), or its id, which starts with agtbrch_`);
+  const res = await api.listBranches(agentId, { include_archived: false, limit: 100 });
+  if (!res) return want; // dry run
+  const list = (res.results || []).filter(b => b && !b.is_archived);
+  const exact = list.find(b => String(b.name || '') === want) || list.find(b => String(b.name || '').toLowerCase() === want.toLowerCase());
+  if (!exact) {
+    const names = list.map(b => `"${b.name}"`).join(', ');
+    throw new UsageError(`no branch named "${want}" on agent ${agentId}${names ? ` — the live branches are ${names}` : ' — it has no live branches'}. Give the name as ElevenLabs shows it, or the id (agtbrch_…)`);
+  }
+  log(`branch "${exact.name}" is ${exact.id}`);
+  return exact.id;
+}
+
 async function pollInvocation(api, id, ctx) {
   const every = Number(ctx.env.LOOP_POLL_MS) || 5000;
   const limit = Number(ctx.env.LOOP_TIMEOUT_MS) || 20 * 60e3;
@@ -639,10 +662,11 @@ async function run(ctx, flags) {
     return 1;
   }
   const { api, agentId } = needEleven(ctx);
+  const branchId = flags.branch ? await resolveBranch(api, agentId, flags.branch, log) : '';
   const body = { tests: entries.map(([, id]) => ({ test_id: id })) };
   if (repeat > 1) body.repeat_count = repeat;
-  if (flags.branch) body.branch_id = flags.branch;
-  log(`run — ${entries.length} test(s) × ${repeat} on ${flags.branch ? 'branch ' + flags.branch : 'main'}`);
+  if (branchId) body.branch_id = branchId;
+  log(`run — ${entries.length} test(s) × ${repeat} on ${branchId ? 'branch ' + branchId : 'main'}`);
   let started;
   try { started = await api.runTests(agentId, body); } catch (e) {
     /* the wrapper does not retry this POST — a 5xx from a gateway can
@@ -658,7 +682,7 @@ async function run(ctx, flags) {
   const file = path.join(ctx.p.results, `${stamp()}-${label}.json`);
   writeJson(file, {
     at: new Date().toISOString(), agent_id: agentId, invocation_id: started.id,
-    branch_id: flags.branch || null, label, repeat, tests,
+    branch_id: branchId || null, label, repeat, tests,
   });
   printResults(log, tests);
   const passed = tests.reduce((s, t) => s + t.passed, 0), runs = tests.reduce((s, t) => s + t.runs, 0);
@@ -1240,14 +1264,15 @@ async function promote(ctx, flags) {
   if (!flags.branch) throw new UsageError('--branch ID is required (created_branch_id from "branch")');
   if (flags.proposal) throw new UsageError('--proposal is gone: promote reads the version note from the branch itself (its description), so no file carrying the prompt has to travel; pass --branch ID alone');
   const { api, agentId } = needEleven(ctx);
+  const source = await resolveBranch(api, agentId, flags.branch, log);
   const agent = await api.getAgent(agentId);
   const target = flags.target || (agent ? agent.main_branch_id : '<main_branch_id from GET agent>');
   if (agent && !target) throw new Error(`GET agent ${agentId} returned no main_branch_id — pass --target BRANCH_ID`);
-  const branchInfo = await api.getBranch(agentId, flags.branch);
+  const branchInfo = await api.getBranch(agentId, source);
   const note = branchInfo ? String(branchInfo.description || '').trim() : '';
-  const res = await api.mergeBranch(agentId, flags.branch, target, { force: !!flags.force });
+  const res = await api.mergeBranch(agentId, source, target, { force: !!flags.force });
   if (res === null) return 0;
-  log(`merged ${flags.branch} into ${target}${flags.force ? ' (forced)' : ''}; the source branch is archived.`);
+  log(`merged ${source} into ${target}${flags.force ? ' (forced)' : ''}; the source branch is archived.`);
   log(ctx.quiet
     ? '      the branch\'s version note is not shown (--quiet): it says what the prompt changed, and it stays in ElevenLabs'
     : `      version note, from the branch: ${note || '—'}`);
@@ -1438,14 +1463,14 @@ const USAGE = `usage: node loop.mjs <command> [--dry-run] [--dir DIR] [flags]
   push-tests [--filter TEXT] [--no-mock-tools]
                                   test_configs/**.json -> ElevenLabs tests, by name; writes tests.lock.json;
                                   the agent's tools are mocked for the suite (a client tool has no phone to answer it)
-  run        [--branch ID] [--repeat N=3] [--filter TEXT] [--label TEXT]
+  run        [--branch ID|NAME] [--repeat N=3] [--filter TEXT] [--label TEXT]   (a branch by its agtbrch_ id or its ElevenLabs name)
   pull       [--since ISO | --days N=14] [--no-stamp]
   score      [--results FILE] [--field FILE]
   cut        [--field FILE]
   propose    [--results FILE] [--field FILE] [--prompt FILE | --agent] [--quiet]
   branch     --proposal FILE [--name TEXT]
   compare    --base FILE --branch FILE [--margin 0.1]
-  promote    --branch ID [--target BRANCH_ID] [--force] [--quiet]
+  promote    --branch ID|NAME [--target BRANCH_ID] [--force] [--quiet]
   publish    [--results FILE] [--run-url URL] [--verdict accept|reject] [--reason TEXT]
 
 --quiet keeps the prompt, its diff and a branch's version note off stdout — for a run whose log is

@@ -586,7 +586,8 @@ What the public side carries is the pass rates, the simulated
 conversations and the test ids. You read the prompt itself in the
 ElevenLabs dashboard. That also makes the **try** button the plain way
 to work: write a prompt version by hand on an agent branch in
-ElevenLabs, press *try* with its branch id, and the twenty situations
+ElevenLabs, press *try* with the branch's name (or its `agtbrch_…`
+id), and the twenty situations
 run against it and come back as a table with ACCEPT or REJECT — no
 model, no OpenAI key, nothing written down.
 
