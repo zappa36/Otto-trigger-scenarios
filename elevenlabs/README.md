@@ -367,6 +367,13 @@ of that test, passed runs included; and `summary.by_check` on the
 published `agent_runs` row, the same over the whole suite. The RUNS
 tab's "notes by check" table shows them.
 
+**Two calls kept per test.** `failure` is the first failed run, whole
+— the judge's notes and the turns it judged, tool calls marked. From
+now on `success` is kept the same way: the shortest passed run with
+any words in it, so the dashboard can put a good call next to the bad
+one, and a suggestion's "after" can be Otto's own words rather than a
+line written from the sheet. Null when no passed run had a transcript.
+
 The **why** line on a failed test (the table, the dashboard chip) is
 the evaluator's summary when it says something of its own
 ("Unsupported client tool"), otherwise the first paragraph the judge

@@ -440,18 +440,22 @@ async function pollInvocation(api, id, ctx) {
   }
 }
 
-/* The first failed run of a test, whole: what the evaluator said and
- * the turns it judged. A pass rate says THAT a test fails; the designer
- * reading the dashboard needs to see HOW — which turn went wrong, in
- * which words — and one run is enough for that, so the first is kept
- * and the rest only add their rationale to the list. The rationale is
- * the evaluator's summary followed by its messages (the detail), the
- * transcript the agent_responses of that run without their timings.
- * A tool the agent called (report_incident, mocked for the suite) is
- * kept too, as `tools` on the agent turn it spoke next — the API sends
- * the call as a wordless agent entry before the words — so a reader can
- * see where in the call the report went off. */
-function failureOf(r) {
+/* One run of a test, whole: what the evaluator said and the turns it
+ * judged. Two are kept per test. `failure` is the first failed run: a
+ * pass rate says THAT a test fails; the designer reading the dashboard
+ * needs to see HOW — which turn went wrong, in which words — and one
+ * run is enough for that, so the rest only add their rationale to the
+ * list. `success` is the shortest passed run with any words in it, so
+ * the same page can show what a good call looked like next to the bad
+ * one — the "after" of a suggestion in Otto's own words rather than
+ * lines written from the sheet. The rationale is the evaluator's
+ * summary followed by its messages (the detail), the transcript the
+ * agent_responses of that run without their timings. A tool the agent
+ * called (report_incident, mocked for the suite) is kept too, as
+ * `tools` on the agent turn it spoke next — the API sends the call as
+ * a wordless agent entry before the words — so a reader can see where
+ * in the call the report went off. */
+function keptRun(r) {
   const ra = ((r.condition_result || {}).rationale) || {};
   const lines = [ra.summary, ...(ra.messages || [])].map(x => String(x || '').trim()).filter(Boolean);
   const transcript = [];
@@ -545,14 +549,15 @@ function whyOf(cr) {
 
 /* one row per test: how many runs, how many passed, why the rest failed
  * (`why` is the first failure's rationale on one line, `failure` that
- * run whole — null for a test that passed every run) */
+ * run whole — null for a test that passed every run — and `success`
+ * the shortest passed run with words in it, null when none has any) */
 export { whyOf };
 export function aggregate(inv, { idToName = {}, meta = {} } = {}) {
   const byTest = new Map();
   for (const r of (inv && inv.test_runs) || []) {
     const name = idToName[r.test_id] || r.test_name || (r.metadata && r.metadata.test_name) || r.test_id;
     if (!byTest.has(r.test_id)) {
-      byTest.set(r.test_id, { name, test_id: r.test_id, runs: 0, passed: 0, pending: 0, pass_rate: 0, why: null, rationales: [], failure: null, checks: null, branch_id: r.branch_id || null, version_id: r.version_id || null, ...(meta[name] || {}) });
+      byTest.set(r.test_id, { name, test_id: r.test_id, runs: 0, passed: 0, pending: 0, pass_rate: 0, why: null, rationales: [], failure: null, success: null, checks: null, branch_id: r.branch_id || null, version_id: r.version_id || null, ...(meta[name] || {}) });
     }
     const t = byTest.get(r.test_id);
     t.runs++;
@@ -568,13 +573,16 @@ export function aggregate(inv, { idToName = {}, meta = {} } = {}) {
         c[v]++;
       });
     }
-    if (r.status === 'passed') t.passed++;
-    else if (r.status === 'pending') t.pending++;
+    if (r.status === 'passed') {
+      t.passed++;
+      const kept = keptRun(r);
+      if (kept.transcript.length && (!t.success || kept.transcript.length < t.success.transcript.length)) t.success = kept;
+    } else if (r.status === 'pending') t.pending++;
     else {
       const cr = r.condition_result || {};
       const why = whyOf(cr);
       if (!t.rationales.includes(why)) t.rationales.push(why);
-      if (!t.failure) { t.why = oneLine(why); t.failure = failureOf(r); }
+      if (!t.failure) { t.why = oneLine(why); t.failure = keptRun(r); }
     }
     if (!t.branch_id && r.branch_id) t.branch_id = r.branch_id;
     if (!t.version_id && r.version_id) t.version_id = r.version_id;
@@ -1287,6 +1295,10 @@ export function agentRunRow(results, { runUrl = null, verdict = null, reason = n
       /* an older results file has the rationales but no `why` */
       why: passed < runs ? text(oneLine(t.why != null ? t.why : (t.rationales || [])[0])) : null,
       failure: passed < runs && t.failure ? t.failure : null,
+      /* a passed run with words in it, the shortest — what a good call
+       * looked like, from Otto's own mouth; null from an older results
+       * file, or when no passed run had a transcript */
+      success: passed > 0 && t.success ? t.success : null,
       /* the judge's word per check over this test's runs; null from a
        * results file whose conditions did not ask for one */
       checks: t.checks && Object.keys(t.checks).length ? t.checks : null,

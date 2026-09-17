@@ -1245,13 +1245,22 @@ function renderAgentBlock(row, kind) {
     const turns = failure ? jsonOf(failure.transcript) : null;
     const list = Array.isArray(turns) ? turns.filter(u => u && typeof u === 'object') : [];
     const rationale = String((failure && failure.rationale) || '').trim();
+    /* the passed run the loop keeps next to the failed one, folded the same way */
+    const s = jsonOf(t.success);
+    const goodRaw = s && typeof s === 'object' ? jsonOf(s.transcript) : null;
+    const good = Array.isArray(goodRaw) ? goodRaw.filter(u => u && typeof u === 'object') : [];
+    const turnHtml = u => `<div class="msg-turn ${u.role === 'user' ? 'me' : 'ai'}"><b>${u.role === 'user' ? 'TESTER' : 'OTTO'}</b>${esc(u.message || '')}${runToolNote(u)}</div>`;
     return `
             <div class="agent-fail">
               <span class="agent-fail-who">${esc(agentWho(t))}</span><span class="agent-why-tag" title="The evaluator writes one paragraph per criterion, passed or failed. This is only the FIRST LINE of that text, so it can quote a criterion that passed — it is not the reason the test failed. The full reasons, criterion by criterion, are on the RUNS tab.">FIRST LINE OF THE EVALUATOR’S REASONS · NOT THE VERDICT</span><span class="agent-why">${esc(why)}</span>
               ${list.length ? `<details class="msg-convo agent-convo">
                 <summary>THE CONVERSATION · ${list.length} TURNS</summary>
-                ${list.map(u => `<div class="msg-turn ${u.role === 'user' ? 'me' : 'ai'}"><b>${u.role === 'user' ? 'TESTER' : 'OTTO'}</b>${esc(u.message || '')}${runToolNote(u)}</div>`).join('')}
+                ${list.map(turnHtml).join('')}
                 ${rationale && rationale !== why ? `<p class="agent-rationale"><b>EVALUATOR</b>${esc(rationale)}</p>` : ''}
+              </details>` : ''}
+              ${good.length ? `<details class="msg-convo agent-convo agent-good">
+                <summary>A CALL THAT PASSED · ${good.length} TURNS</summary>
+                ${good.map(turnHtml).join('')}
               </details>` : ''}
             </div>`;
   }).join('');
@@ -2125,6 +2134,43 @@ function runCloseLine(row) {
   return `For the next driver: ${tip}. Thanks, safe trip.`;
 }
 
+/* ---------- a call that passed ----------
+ * The loop keeps one passed run per test (`success`, the shortest with
+ * words in it). Per situation, the shortest of those — the call the
+ * "after" side of a suggestion can quote instead of lines written from
+ * the sheet: Otto's own words, judged good. */
+function runGoodCalls(run) {
+  const out = {};
+  agentRunTests(run).forEach(t => {
+    const s = jsonOf(t.success);
+    const raw = s && typeof s === 'object' ? jsonOf(s.transcript) : null;
+    const turns = Array.isArray(raw) ? raw.filter(u => u && typeof u === 'object' && u.message) : [];
+    if (!turns.length) return;
+    const k = String(t.situation_num);
+    if (!out[k] || turns.length < out[k].turns.length) out[k] = { turns, test: t };
+  });
+  return out;
+}
+/* the same moment in a call that passed, in the shape the pattern's
+ * "today" side has: the report and Otto's next line for the patterns
+ * about the middle of the call, the last exchange for the ones about
+ * the tip, the report and Otto's questions for the count */
+function runGoodSlice(id, turns) {
+  const iU = turns.findIndex(u => u.role === 'user');
+  if (iU < 0) return null;
+  const L = u => runLine(u.role === 'user' ? 'DRIVER' : 'OTTO', runClip(u.message));
+  const after = turns.slice(iU + 1);
+  const otto = after.filter(u => u.role !== 'user');
+  if (!otto.length) return null;
+  if (id === 'tip-partial' || id === 'tip-none') {
+    const iL = turns.lastIndexOf(otto[otto.length - 1]);
+    const prev = iL > 0 ? turns[iL - 1] : null;
+    return [...(prev && prev.role === 'user' ? [L(prev)] : []), L(turns[iL])];
+  }
+  if (id === 'questions') return [L(turns[iU]), ...otto.slice(0, 4).map(L)];
+  return [L(turns[iU]), L(otto[0])];
+}
+
 /* ---------- Today / After the change ----------
  * The "Today" side is a REAL call from this run — the shortest one the
  * pattern has. The "After" side is the same moment, written the way
@@ -2133,7 +2179,7 @@ function runCloseLine(row) {
 const runShorter = (a, b) => a.turns.length - b.turns.length
   || a.turns.reduce((n, u) => n + String(u.message || '').length, 0) - b.turns.reduce((n, u) => n + String(u.message || '').length, 0);
 const runLine = (who, text) => ({ who, text });
-function runExample(id, f) {
+function runExample(id, f, good) {
   if (!f) return null;
   const t = f.turns;
   const iU = t.findIndex(u => u.role === 'user');
@@ -2191,7 +2237,15 @@ function runExample(id, f) {
     today.push(runLine('DRIVER', report), runLine('OTTO', runClip(f.follow)));
     after.push(runLine('DRIVER', report), runLine('OTTO', q ? 'Sorry to hear that. ' + q : close));
   } else return null;
-  return { today, after, note, who: agentWho(f.test), title: String((row && row.title) || f.test.situation_title || '').trim() };
+  /* a call from this run that passed, same situation: the "after" side
+   * becomes Otto's own words instead of lines written from the sheet */
+  let real = null;
+  const g = good && good[String(f.test.situation_num)];
+  if (g) {
+    const slice = runGoodSlice(id, g.turns);
+    if (slice && slice.length) { after.length = 0; after.push(...slice); real = agentWho(g.test); }
+  }
+  return { today, after, note, real, who: agentWho(f.test), title: String((row && row.title) || f.test.situation_title || '').trim() };
 }
 
 /* ---------- what went wrong: the patterns ----------
@@ -2233,6 +2287,7 @@ function runFindings(run, facts) {
     return hits.length ? { ...p, count: hits.length, n, hits } : null;
   }).filter(Boolean).sort((a, b) => b.count - a.count);
   const used = new Set();
+  const good = runGoodCalls(run);
   out.forEach((fd, i) => {
     fd.text = fd.line(fd.count, i === 0 ? `the ${n} failed call${n === 1 ? '' : 's'}` : `${n} call${n === 1 ? '' : 's'}`);
     /* the shortest call that has the pattern AND yields a Today / After
@@ -2242,7 +2297,7 @@ function runFindings(run, facts) {
     fd.ex = null;
     let first = null;
     for (const h of fd.hits) {
-      const e = runExample(fd.id, h);
+      const e = runExample(fd.id, h, good);
       if (!e) continue;
       if (!first) first = { e, h };
       if (!used.has(e.title)) { first = { e, h }; break; }
@@ -2454,8 +2509,10 @@ function renderRunExampleBox(ex) {
     `<div class="rs-ex-line ${l.who === 'DRIVER' ? 'me' : 'ai'}"><b>${l.who}</b><span>${esc(l.text)}</span></div>`).join('')}</div>`;
   return `
       <div class="rs-ex-wrap">
-        <p class="rs-sug-p"><b>Example</b>${ex.title ? `<span class="rs-ex-from">“Today” is a real call from this run — the ${esc(ex.who)} driver, “${esc(ex.title)}”.</span>` : ''}</p>
-        <div class="rs-ex2">${side('Today', '', ex.today)}${side('After the change', ' after', ex.after)}</div>
+        <p class="rs-sug-p"><b>Example</b>${ex.title ? `<span class="rs-ex-from">“Today” is a real call from this run — the ${esc(ex.who)} driver, “${esc(ex.title)}”.${ex.real
+          ? ` “After” is a real call too: one from this run that passed, the ${esc(ex.real)} driver at the same situation.`
+          : ' “After” is written from the situation\'s row — no call at this situation passed in this run.'}</span>` : ''}</p>
+        <div class="rs-ex2">${side('Today', '', ex.today)}${side(ex.real ? 'After — a call that passed' : 'After the change', ' after', ex.after)}</div>
         ${ex.note ? `<p class="rs-how">${esc(ex.note)}</p>` : ''}
       </div>`;
 }
