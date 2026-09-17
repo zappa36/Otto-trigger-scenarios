@@ -57,6 +57,8 @@ function validate(body, file) {
   assert.match(body.simulation_scenario, /pressed the big REPORT button/, at + 'why they are talking to Otto');
   assert.match(body.simulation_scenario, /What you know if Otto asks, and only when he asks: /, at + 'what is held back');
   assert.match(body.simulation_scenario, /Ground rules: stay in character as the driver; never mention being simulated/, at + 'ground rules');
+  /* the judge's word per check is read, not guessed — every condition asks for it */
+  body.success_conditions.forEach(c => assert.ok(c.endsWith(' Start your answer with PASS or FAIL, then the reason.'), at + 'condition without the verdict ask'));
   assert.match(body.simulation_scenario, /when Otto lets you go, say a short goodbye and stop\.$/, at + 'the end of the call');
   const heads = body.success_conditions.map(c => c.split(' — ')[0]);
   assert.deepEqual(heads.slice(0, 6), HEADS, at + 'the six conditions, in order');

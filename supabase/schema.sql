@@ -260,8 +260,8 @@ create table if not exists public.agent_runs (
   verdict text check (verdict in ('accept', 'reject')),  -- compare's word, on a branch run from propose; null otherwise
   verdict_reason text,              -- compare's reason line
   note text,                        -- unused, and always null: the prompt is confidential and this table is world-readable, so what a branch changed stays in ElevenLabs (the branch's own description)
-  tests jsonb not null,             -- per test: [{name,test_id,kind,scenario_num,scenario_title,situation_num,situation_title,persona,language,runs,passed,pass_rate,why,failure:{test_run_id,rationale,transcript:[{role,message}]}|null}]
-  summary jsonb,                    -- {tests,tests_at_100,runs,passed,pass_rate,by_scenario:{"<num>":{…}},by_situation:{"<num>":{tests,runs,passed,pass_rate}}}
+  tests jsonb not null,             -- per test: [{name,test_id,kind,scenario_num,scenario_title,situation_num,situation_title,persona,language,runs,passed,pass_rate,why,failure:{test_run_id,rationale,verdicts:[pass|fail|unknown]?,transcript:[{role,message,tools?:[name]}]}|null,checks:{"<n>":{pass,fail}}|null}]
+  summary jsonb,                    -- {tests,tests_at_100,runs,passed,pass_rate,by_scenario:{"<num>":{…}},by_situation:{"<num>":{tests,runs,passed,pass_rate}},by_check?:{"<n>":{pass,fail}}} — by_check is the judge's own PASS/FAIL per condition over every call, since the conditions asked for one
   ran_at timestamptz not null,      -- when the suite ran (the results file's stamp)
   created_at timestamptz not null default now()
 );

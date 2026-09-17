@@ -566,6 +566,8 @@ land on the situation's own card, the same way the trigger suite's do.
 suite run into a report in plain words: what went well, what went
 wrong (how many calls showed each problem), and what to change in the
 prompt — each suggestion with its reason and a before/after example.
+The judge starts every note with PASS or FAIL, so the report's counts
+per check are the judge's own word, not a reading of its prose.
 Some of what it flags you will not agree with: Otto's first message
 "Hello! How can I help you today?" is the platform's greeting, spoken
 before his first turn, and it is correct by design. Every finding and

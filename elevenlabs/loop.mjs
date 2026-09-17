@@ -472,9 +472,11 @@ function failureOf(r) {
     const last = [...transcript].reverse().find(t => t.role === 'agent');
     if (last) last.tools = [...(last.tools || []), ...pending];
   }
+  const verdicts = verdictsOf(r.condition_result);
   return {
     test_run_id: r.test_run_id || null,
     rationale: [...new Set(lines)].join('\n') || 'no rationale returned',
+    ...(verdicts ? { verdicts } : {}),
     transcript,
   };
 }
@@ -486,6 +488,36 @@ const oneLine = x => String(x == null ? '' : x).replace(/\s+/g, ' ').trim();
  * worth a chip; a summary that says something of its own ("Unsupported
  * client tool") stands. */
 const GENERIC_SUMMARY = /^(evaluation failed|failed|failure|test failed)\.?$/i;
+/* The judge's own word per condition. Every condition the generator
+ * writes ends with "Start your answer with PASS or FAIL", and the judge
+ * answers one paragraph per condition, "Criterion N: FAIL. …" — so the
+ * verdicts are read, not guessed, wherever it complied. A paragraph
+ * without the word is 'unknown'; a rationale without a single verdict
+ * is null, and the callers fall back to reading the prose. */
+const VERDICT = /^\s*(?:criteri(?:on|a|o)\s+(\d+)\s*[:.\-–—]\s*)?(?:\*{0,2}|_{0,2})(?:verdict\s*:\s*)?(PASS|FAIL)\b/i;
+export function verdictsOf(cr) {
+  const msgs = (((cr && cr.rationale) || {}).messages || []).map(oneLine);
+  const out = [];
+  let any = false;
+  msgs.forEach((m, i) => {
+    const hit = VERDICT.exec(m);
+    const n = hit && hit[1] ? Number(hit[1]) : i + 1;
+    const result = hit ? hit[2].toLowerCase() : 'unknown';
+    if (hit) any = true;
+    out[n - 1] = result;
+  });
+  if (!any) return null;
+  for (let i = 0; i < out.length; i++) if (!out[i]) out[i] = 'unknown';
+  return out;
+}
+const firstFail = cr => {
+  const v = verdictsOf(cr);
+  if (!v) return null;
+  const msgs = (((cr && cr.rationale) || {}).messages || []).map(oneLine);
+  const i = v.indexOf('fail');
+  if (i < 0) return null;
+  return msgs.find(m => { const h = VERDICT.exec(m); return h && (h[1] ? Number(h[1]) === i + 1 : true) && h[2].toLowerCase() === 'fail'; }) || null;
+};
 /* The evaluator writes one paragraph per condition, for the ones it was
  * happy with as well as the ones it was not, in the same prose voice —
  * so a loose search for failure words picks the wrong paragraph and the
@@ -501,7 +533,9 @@ function whyOf(cr) {
   const summary = oneLine(ra.summary);
   const msgs = (ra.messages || []).map(oneLine).filter(Boolean);
   if (summary && !GENERIC_SUMMARY.test(summary)) return summary;
-  const failed = msgs.find(m => /^criteri(on|a|o) \d+/i.test(m) && FAIL_CUES.test(m) && !NEGATED.test(m));
+  /* the judge's own FAIL, where it wrote one; the cue words below are
+   * for rationales from before the conditions asked for a verdict */
+  const failed = firstFail(cr) || msgs.find(m => /^criteri(on|a|o) \d+/i.test(m) && FAIL_CUES.test(m) && !NEGATED.test(m));
   /* no summary at all: the messages are the whole rationale, as before */
   const line = failed
     || (summary ? (msgs.length ? 'the reasons name no single condition — read them in full' : '') : msgs.join(' '))
@@ -518,10 +552,22 @@ export function aggregate(inv, { idToName = {}, meta = {} } = {}) {
   for (const r of (inv && inv.test_runs) || []) {
     const name = idToName[r.test_id] || r.test_name || (r.metadata && r.metadata.test_name) || r.test_id;
     if (!byTest.has(r.test_id)) {
-      byTest.set(r.test_id, { name, test_id: r.test_id, runs: 0, passed: 0, pending: 0, pass_rate: 0, why: null, rationales: [], failure: null, branch_id: r.branch_id || null, version_id: r.version_id || null, ...(meta[name] || {}) });
+      byTest.set(r.test_id, { name, test_id: r.test_id, runs: 0, passed: 0, pending: 0, pass_rate: 0, why: null, rationales: [], failure: null, checks: null, branch_id: r.branch_id || null, version_id: r.version_id || null, ...(meta[name] || {}) });
     }
     const t = byTest.get(r.test_id);
     t.runs++;
+    /* the judge's word per condition, over every run of the test that
+     * carried one — passed runs included, so a check's fail count has
+     * the whole test as its denominator */
+    const verdicts = r.status === 'pending' ? null : verdictsOf(r.condition_result);
+    if (verdicts) {
+      t.checks = t.checks || {};
+      verdicts.forEach((v, i) => {
+        if (v === 'unknown') return;
+        const c = t.checks[i + 1] || (t.checks[i + 1] = { pass: 0, fail: 0 });
+        c[v]++;
+      });
+    }
     if (r.status === 'passed') t.passed++;
     else if (r.status === 'pending') t.pending++;
     else {
@@ -1241,8 +1287,17 @@ export function agentRunRow(results, { runUrl = null, verdict = null, reason = n
       /* an older results file has the rationales but no `why` */
       why: passed < runs ? text(oneLine(t.why != null ? t.why : (t.rationales || [])[0])) : null,
       failure: passed < runs && t.failure ? t.failure : null,
+      /* the judge's word per check over this test's runs; null from a
+       * results file whose conditions did not ask for one */
+      checks: t.checks && Object.keys(t.checks).length ? t.checks : null,
     };
   });
+  /* the same, over the whole suite: "check 3 failed in 120 of 240 calls" */
+  const byCheck = {};
+  for (const t of tests) for (const [n, c] of Object.entries(t.checks || {})) {
+    const o = byCheck[n] || (byCheck[n] = { pass: 0, fail: 0 });
+    o.pass += c.pass || 0; o.fail += c.fail || 0;
+  }
   const tally = list => {
     const runs = list.reduce((n, t) => n + t.runs, 0), passed = list.reduce((n, t) => n + t.passed, 0);
     return { tests: list.length, runs, passed, pass_rate: rate(passed, runs) };
@@ -1278,6 +1333,7 @@ export function agentRunRow(results, { runUrl = null, verdict = null, reason = n
       runs: all.runs, passed: all.passed, pass_rate: all.pass_rate,
       by_scenario: byNum(perScenario),
       by_situation: byNum(perSituation),
+      ...(Object.keys(byCheck).length ? { by_check: byCheck } : {}),
     },
     ran_at: results.at || new Date().toISOString(),
   };
