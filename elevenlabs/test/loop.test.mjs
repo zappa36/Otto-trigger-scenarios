@@ -133,6 +133,15 @@ test('run polls the invocation, aggregates per test worst-first, and writes the 
    * passed run_1 included, the wordless run_3 not */
   assert.deepEqual(res.tests[0].checks, { 1: { pass: 2, fail: 0 }, 2: { pass: 1, fail: 1 }, 3: { pass: 0, fail: 1 } });
   assert.equal(res.tests[1].checks, null, 'no verdict words, no checks');
+  /* one passed run kept too — the shortest with any words in it; run_3
+   * passed but said nothing, so run_1 is the one */
+  assert.deepEqual(res.tests[0].success, {
+    test_run_id: 'run_1',
+    rationale: 'Criterion 1: PASS. Opened with the question.\nCriterion 2: PASS. Got a parking tip.',
+    verdicts: ['pass', 'pass'],
+    transcript: [{ role: 'agent', message: 'Is it hard to park here at this time? Where did you find a spot?' }],
+  });
+  assert.equal(res.tests[1].success, null, 'passed every run, but no run had a word to keep');
   assert.equal(res.tests[1].pass_rate, 1);
   assert.equal(res.tests[1].why, null);
   assert.equal(res.tests[1].failure, null, 'a test that passed every run has no failure to show');
@@ -198,9 +207,15 @@ test('publish posts the results file as one agent_runs row — the contract dash
       verdicts: ['pass', 'fail', 'fail'],
       transcript: [{ role: 'agent', message: 'Is it hard to park here at this time? Where did you find a spot?', tools: ['report_incident'] }],
     },
+    success: {
+      test_run_id: 'run_1',
+      rationale: 'Criterion 1: PASS. Opened with the question.\nCriterion 2: PASS. Got a parking tip.',
+      verdicts: ['pass', 'pass'],
+      transcript: [{ role: 'agent', message: 'Is it hard to park here at this time? Where did you find a spot?' }],
+    },
     checks: { 1: { pass: 2, fail: 0 }, 2: { pass: 1, fail: 1 }, 3: { pass: 0, fail: 1 } },
   });
-  assert.deepEqual(row.tests[1], { name: T8, test_id: 'test_pre8', kind: 'scenario', scenario_num: 8, scenario_title: 'Blocked route — turned round short of the address', situation_num: null, situation_title: null, persona: 'terse', language: 'en', runs: 3, passed: 3, pass_rate: 1, why: null, failure: null, checks: null });
+  assert.deepEqual(row.tests[1], { name: T8, test_id: 'test_pre8', kind: 'scenario', scenario_num: 8, scenario_title: 'Blocked route — turned round short of the address', situation_num: null, situation_title: null, persona: 'terse', language: 'en', runs: 3, passed: 3, pass_rate: 1, why: null, failure: null, success: null, checks: null });
   assert.deepEqual(row.summary, {
     tests: 2, tests_at_100: 1, runs: 6, passed: 5, pass_rate: 5 / 6,
     by_scenario: { 1: { tests: 1, runs: 3, passed: 2, pass_rate: 2 / 3 }, 8: { tests: 1, runs: 3, passed: 3, pass_rate: 1 } },
@@ -274,7 +289,7 @@ test('publish posts the results file as one agent_runs row — the contract dash
   const oldFile = path.join(dir, 'old.json');
   writeFileSync(oldFile, JSON.stringify(old));
   const oldRow = agentRunRow(old, { runUrl: '' });
-  assert.deepEqual(oldRow.tests[0], { name: 'Otto · regression · conv_old', test_id: 'test_9', kind: 'regression', scenario_num: null, scenario_title: null, situation_num: null, situation_title: null, persona: null, language: null, runs: 2, passed: 1, pass_rate: 0.5, why: 'Too long. Really.', failure: null, checks: null });
+  assert.deepEqual(oldRow.tests[0], { name: 'Otto · regression · conv_old', test_id: 'test_9', kind: 'regression', scenario_num: null, scenario_title: null, situation_num: null, situation_title: null, persona: null, language: null, runs: 2, passed: 1, pass_rate: 0.5, why: 'Too long. Really.', failure: null, success: null, checks: null });
   assert.equal(oldRow.summary.by_check, undefined, 'no verdict words anywhere, no by_check');
   assert.deepEqual(oldRow.summary, { tests: 1, tests_at_100: 0, runs: 2, passed: 1, pass_rate: 0.5, by_scenario: {}, by_situation: {} }, 'a test without a row counts in the totals and under no row');
   assert.equal(oldRow.version_id, null);
