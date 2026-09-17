@@ -1861,7 +1861,7 @@ const RUN_NOTNAME = new Set(('thanks thank sorry okay oh wow perfect got glad gr
 function runToolNote(u) {
   const tools = Array.isArray(u && u.tools) ? u.tools.filter(Boolean) : [];
   if (!tools.length) return '';
-  const words = tools.map(t => (t === 'report_incident' ? 'sent the report to the app just before this line' : `used ${t} just before this line`));
+  const words = tools.map(t => (t === 'report_incident' ? 'sent the report to the app just before this line' : t === 'end_call' ? 'ended the call here' : `used ${t} just before this line`));
   return `<i class="rs-tool">${esc(words.join('; '))}</i>`;
 }
 
