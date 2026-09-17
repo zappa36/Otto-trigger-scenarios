@@ -174,13 +174,15 @@ then on. Each row carries:
 | `tip` | the one line Otto should end up confirming |
 | `active` | false = kept on the tab, left out of the suite |
 
-**Four personas** (`personas.json`), one test each, so a row is four
+**Five personas** (`personas.json`), one test each, so a row is five
 conversations: **cooperative** (answers fully, adds the one useful
 detail), **terse** (three to six words, volunteers nothing),
-**sidetracked** (opens with the weather, then answers) and **vague** —
-new for this suite — who opens with *"it didn't really work out at that
-one"* and only says what happened when Otto asks. Eight turns each, ten
-for the vague one, whose first exchange says nothing yet.
+**sidetracked** (opens with the weather, then answers), **vague** —
+who opens with *"it didn't really work out at that one"* and only says
+what happened when Otto asks — and **annoyed**, fed up and behind on
+the round: short, sharp answers, an irritated remark, asks to be let
+go, never abusive. The last two exist only in this suite. Eight turns
+each, ten for the vague one, whose first exchange says nothing yet.
 
 The test carries **no `chat_history`**: Otto opens with his own first
 message from the agent config, the way the button flow leaves him to,

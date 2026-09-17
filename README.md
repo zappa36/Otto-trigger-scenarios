@@ -535,12 +535,13 @@ the control — loadable in one tap, idempotent by title, editable in
 place. The suite is generated from the *rows*, not from the file, so an
 edit on the dashboard is in the next run.
 
-Each row becomes four simulation tests, one per voice: **cooperative**
+Each row becomes five simulation tests, one per voice: **cooperative**
 (answers fully), **terse** (three to six words, the detail only comes
 out when Otto asks for it), **sidetracked** (opens with something else
-and keeps chatting if Otto takes the bait) and **vague** ("it didn't
+and keeps chatting if Otto takes the bait), **vague** ("it didn't
 really work out at that one" — and nothing more until Otto asks what
-happened). No first message is sent: Otto opens out of your prompt,
+happened) and **annoyed** (fed up, behind on the round, short and
+sharp, asks to be let go — never abusive). No first message is sent: Otto opens out of your prompt,
 exactly as the phone will. Six things are judged, and all of them have
 to hold:
 
