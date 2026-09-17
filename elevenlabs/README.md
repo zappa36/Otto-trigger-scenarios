@@ -302,7 +302,7 @@ row edited on the dashboard is in the next press.
 | **baseline** | `generate --situations` → `push-tests` → `run --label main` → `publish` (`repeat`, `filter` from the form; Mondays 06:00 UTC too) | the suite's pass rates |
 | **field** | `pull --days N` → `score` → `cut` → `push-tests` | what was pulled, scored and cut |
 | **propose** | the field again → `propose --quiet` → `branch` → `run --branch … --label branch` → `compare` against the latest baseline → `publish` with the verdict | the branch run's table, **ACCEPT** or **REJECT** with the branch id, and the next button — *not* the proposal, the diff or the note |
-| **try** | `run --branch <branch_id from the form> --label branch` → `compare` against the latest baseline → `publish` with the verdict | the same, for a branch that already exists: a prompt edited by hand in the ElevenLabs dashboard, tried without a model and without `OPENAI_API_KEY` |
+| **try** | `run --branch <branch from the form> --label branch` → `compare` against the latest baseline → `publish` with the verdict | the same, for a branch that already exists: a prompt edited by hand in the ElevenLabs dashboard, tried without a model and without `OPENAI_API_KEY`. The form takes the branch's **name** as typed in ElevenLabs or its `agtbrch_…` id; the agent's own id is refused by name |
 | **promote** | `promote --branch <branch_id from the form> --quiet` → `run --label main` → `publish` | the new baseline |
 
 One-time setup, in the browser: Settings → Secrets and variables →

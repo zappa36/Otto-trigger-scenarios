@@ -162,8 +162,19 @@ export async function startMock(fixtureDir) {
       if (state.branchRefuses) return [state.branchRefuses, { detail: [{ loc: ['body', 'conversation_config', 'agent', 'prompt', 'prompt'], msg: 'string too long', input: ((((body.conversation_config || {}).agent || {}).prompt || {}).prompt) || '' }] }];
       if (!body.parent_version_id || !body.name || body.description == null) return [422, { detail: [{ loc: ['body'], msg: 'parent_version_id, name and description are required', type: 'value_error' }] }];
       state.branches.push(body);
-      return [200, { created_branch_id: 'branch_loop1', created_version_id: 'agtvrsn_b1' }];
+      return [200, { created_branch_id: 'agtbrch_loop1', created_version_id: 'agtvrsn_b1' }];
     }],
+    /* the live branches, as GET branches lists them — the ones made in
+     * this mock's lifetime plus one made "by hand in the dashboard",
+     * which is what a designer types the NAME of into the try button */
+    ['GET', /^\/v1\/convai\/agents\/([^/]+)\/branches$/, m => [200, {
+      results: [
+        { id: 'agtbrch_hand01', name: 'tip detail', agent_id: m[1], description: 'the tip keeps its detail', is_archived: false },
+        { id: 'agtbrch_old01', name: 'old idea', agent_id: m[1], description: '', is_archived: true },
+        ...state.branches.map((b, i) => ({ id: 'agtbrch_loop' + (i + 1), name: b.name, agent_id: m[1], description: b.description, is_archived: false })),
+      ],
+      meta: { count: 2 + state.branches.length },
+    }]],
     /* the branch as GET branches/{id} answers it: `description` is the
      * version note `branch` gave it, which is where promote reads it
      * from now that no proposal file travels */
