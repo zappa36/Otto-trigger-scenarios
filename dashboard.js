@@ -1250,7 +1250,7 @@ function renderAgentBlock(row, kind) {
               <span class="agent-fail-who">${esc(agentWho(t))}</span><span class="agent-why-tag" title="The evaluator writes one paragraph per criterion, passed or failed. This is only the FIRST LINE of that text, so it can quote a criterion that passed — it is not the reason the test failed. The full reasons, criterion by criterion, are on the RUNS tab.">FIRST LINE OF THE EVALUATOR’S REASONS · NOT THE VERDICT</span><span class="agent-why">${esc(why)}</span>
               ${list.length ? `<details class="msg-convo agent-convo">
                 <summary>THE CONVERSATION · ${list.length} TURNS</summary>
-                ${list.map(u => `<div class="msg-turn ${u.role === 'user' ? 'me' : 'ai'}"><b>${u.role === 'user' ? 'TESTER' : 'OTTO'}</b>${esc(u.message || '')}</div>`).join('')}
+                ${list.map(u => `<div class="msg-turn ${u.role === 'user' ? 'me' : 'ai'}"><b>${u.role === 'user' ? 'TESTER' : 'OTTO'}</b>${esc(u.message || '')}${runToolNote(u)}</div>`).join('')}
                 ${rationale && rationale !== why ? `<p class="agent-rationale"><b>EVALUATOR</b>${esc(rationale)}</p>` : ''}
               </details>` : ''}
             </div>`;
@@ -1846,6 +1846,16 @@ const RUN_NOTNAME = new Set(('thanks thank sorry okay oh wow perfect got glad gr
  * first that failed), so every share below is over those conversations
  * — said in as many words wherever a share is printed, because "50% of
  * the failing tests" and "50% of the 240 runs" are different claims. */
+/* A tool Otto used just before this line — the loop keeps the names on
+ * the turn (`tools`). report_incident is the one that matters: it is
+ * how the report leaves the call, so the reader sees where it went. */
+function runToolNote(u) {
+  const tools = Array.isArray(u && u.tools) ? u.tools.filter(Boolean) : [];
+  if (!tools.length) return '';
+  const words = tools.map(t => (t === 'report_incident' ? 'sent the report to the app just before this line' : `used ${t} just before this line`));
+  return `<i class="rs-tool">${esc(words.join('; '))}</i>`;
+}
+
 function runFacts(run) {
   return agentRunTests(run).map(t => {
     const f = jsonOf(t.failure);
@@ -2412,7 +2422,7 @@ function renderRunCall(f) {
   return `
       <details class="rs-more rs-call"><summary>show a real call</summary>
         <p class="rs-call-who">${esc(who)}</p>
-        ${f.turns.map(u => `<div class="msg-turn ${u.role === 'user' ? 'me' : 'ai'}"><b>${u.role === 'user' ? 'DRIVER' : 'OTTO'}</b>${esc(u.message || '')}</div>`).join('')}
+        ${f.turns.map(u => `<div class="msg-turn ${u.role === 'user' ? 'me' : 'ai'}"><b>${u.role === 'user' ? 'DRIVER' : 'OTTO'}</b>${esc(u.message || '')}${runToolNote(u)}</div>`).join('')}
       </details>
       ${paras.length || f.rationale ? `<details class="rs-more rs-notes"><summary>the judge&rsquo;s notes on this call</summary>
         <p class="rs-how">Word for word, one paragraph per check. Nothing is shortened.</p>

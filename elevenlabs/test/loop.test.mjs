@@ -126,7 +126,7 @@ test('run polls the invocation, aggregates per test worst-first, and writes the 
   assert.deepEqual(res.tests[0].failure, {
     test_run_id: 'run_2',
     rationale: 'The agent asked four questions and never let the tester go. It opened correctly.\nAsked four questions.\nDid not let the tester go.',
-    transcript: [{ role: 'agent', message: 'Is it hard to park here at this time? Where did you find a spot?' }],
+    transcript: [{ role: 'agent', message: 'Is it hard to park here at this time? Where did you find a spot?', tools: ['report_incident'] }],
   });
   assert.equal(res.tests[1].pass_rate, 1);
   assert.equal(res.tests[1].why, null);
@@ -190,7 +190,7 @@ test('publish posts the results file as one agent_runs row — the contract dash
     failure: {
       test_run_id: 'run_2',
       rationale: 'The agent asked four questions and never let the tester go. It opened correctly.\nAsked four questions.\nDid not let the tester go.',
-      transcript: [{ role: 'agent', message: 'Is it hard to park here at this time? Where did you find a spot?' }],
+      transcript: [{ role: 'agent', message: 'Is it hard to park here at this time? Where did you find a spot?', tools: ['report_incident'] }],
     },
   });
   assert.deepEqual(row.tests[1], { name: T8, test_id: 'test_pre8', kind: 'scenario', scenario_num: 8, scenario_title: 'Blocked route — turned round short of the address', situation_num: null, situation_title: null, persona: 'terse', language: 'en', runs: 3, passed: 3, pass_rate: 1, why: null, failure: null });
@@ -897,7 +897,9 @@ test('push-tests mocks the agent\'s tools for the suite — a client tool has no
   assert.deepEqual(sim.tool_mock_config, { mocking_strategy: 'all', fallback_strategy: 'raise_error' });
   assert.ok(Array.isArray(sim.tool_mock_overrides.tool_report), 'the API wants a list of answers per tool, not one object');
   assert.equal(sim.tool_mock_overrides.tool_report.length, 1);
-  assert.match(sim.tool_mock_overrides.tool_report[0].mock_result, /report_incident/);
+  /* a receipt that asks to be kept quiet — not a sentence in the tool's name the agent would repeat to the driver */
+  assert.match(sim.tool_mock_overrides.tool_report[0].mock_result, /^OK\. Handled in the background\. Do not tell the driver/);
+  assert.doesNotMatch(sim.tool_mock_overrides.tool_report[0].mock_result, /report_incident|client side|carry on/);
   assert.equal(sim.tool_mock_overrides.tool_report[0].is_error, false);
   assert.equal(sim.tool_mock_overrides.tool_end, undefined, 'system tools are never mocked');
   assert.equal(sim._otto, undefined);

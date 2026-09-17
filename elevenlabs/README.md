@@ -341,8 +341,15 @@ simulation tests"): the first live baseline lost 21 of 33 tests to
 exactly that, not to the prompt. So `push-tests` looks up the tools the
 agent carries and sends every simulation test with `tool_mock_config`
 (mock all, error when a tool has no mock) and one `tool_mock_overrides`
-entry per tool, answering in the tool's name; system tools are left
-out, ElevenLabs never mocks those. The mocks are keyed by tool id, so
+entry per tool; system tools are left out, ElevenLabs never mocks
+those. The answer is a receipt that asks to be kept quiet ("OK. Handled
+in the background. Do not tell the driver…"): an answer that read like
+a sentence in the tool's name came back out of the agent's mouth as
+"I've noted that" mid-call in 57 of 78 failed calls on the first
+situations baseline, so what the suite measures was partly its own
+mock. The tool calls themselves are kept on the saved failed run — as
+`tools` on the agent turn spoken next — and the dashboard shows "sent
+the report to the app just before this line" there. The mocks are keyed by tool id, so
 they are added at push time and the files under `test_configs/` stay
 agent-independent; a file that carries its own mock block keeps it.
 `--no-mock-tools` sends the files as they are. Each entry is a LIST of
