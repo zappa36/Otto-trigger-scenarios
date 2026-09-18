@@ -132,7 +132,9 @@ situation improves; anything else is **REJECT**, exit code 1. It is
 judged by situation, not by test, because a test is three calls: a
 score out of three can only be 0, 33, 67 or 100, and the same agent
 loses single calls by chance on every run, so a per-test rule rejected
-everything. `promote` merges the branch
+everything. Only tests present in both runs count: a driver type added
+since the baseline is left out of the verdict and named in the output,
+so the baseline need not be re-run for it. `promote` merges the branch
 into the agent's main branch and archives it, then tells you to pull the
 config into git with the note as the version description.
 

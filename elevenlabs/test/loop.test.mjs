@@ -737,6 +737,13 @@ test('aggregate, compareResults, scoreData and gradeSummary as pure functions', 
   assert.equal(drop.rows[0].dropped, true, 'four calls of twelve lost is a drop');
   assert.equal(drop.accept, false);
   assert.match(drop.reason, /^1 situation\(s\) dropped by more than 25 points \(#1 x: −4 calls\)/);
+  /* a driver type added since the baseline: its tests exist only on the
+   * branch and are left out, so the rows compare like for like */
+  const extra = { name: 'Otto · situation #1 x · annoyed', situation_num: 1, situation_title: 'x', persona: 'annoyed', runs: 3, passed: 0, pass_rate: 0, rationales: [] };
+  const fair = compareResults(baseR, { tests: [...sit(1, [0, 1, 1, 1]), ...sit(2, [1, 0, 1, 0]), extra] });
+  assert.deepEqual(fair.leftOut, { branch: ['Otto · situation #1 x · annoyed'], base: [] });
+  assert.equal(fair.rows[0].calls, '3/12', 'the annoyed tests do not count in the row');
+  assert.equal(fair.accept, true);
   const s = scoreData({ tests: [{ scenario_num: 3, scenario_title: 'T', runs: 2, passed: 1, rationales: ['Too long. Really.'] }] }, null);
   assert.equal(s[0].key, '#3');
   assert.equal(s[0].reasons[0].reason, 'too long');
