@@ -135,8 +135,9 @@
 .dt-hint { font-size: 13px; color: #94a1b2; }
 .dt-hint[hidden] { display: none; }
 
-/* the dart: its point is the transform origin, so the flight moves the
- * point to where the dart lands and the tilt swings the tail */
+/* the dart: its point is the transform origin, so the drag and the
+ * flight move the point and the tilt swings the tail. Held, it is the
+ * thumb's — the bob stops and darts.js writes the transform per frame */
 .dt-dart {
   position: absolute;
   left: calc(50% - 11px);
@@ -151,9 +152,9 @@
 .dt-dart svg { display: block; }
 @keyframes dt-bob {
   0%, 100% { transform: rotate(-9deg) translateY(0); }
-  50% { transform: rotate(-9deg) translateY(-8px); }
+  50% { transform: rotate(-9deg) translateY(-5px); }
 }
-.dt-dart.dt-flying, .dt-dart.dt-stuck, .dt-dart.dt-missed { animation: none; }
+.dt-dart.dt-held, .dt-dart.dt-flying, .dt-dart.dt-stuck, .dt-dart.dt-missed { animation: none; }
 /* on the way it grows, then shrinks into the board — a little depth */
 .dt-dart.dt-flying svg { animation: dt-depth 380ms ease-out forwards; }
 @keyframes dt-depth {
