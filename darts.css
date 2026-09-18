@@ -294,3 +294,30 @@
   letter-spacing: .14em;
   color: #ffd95e;
 }
+
+/* ---------- Otto on the screen (the voice throw) ----------
+ * By voice the card shows nothing but Otto — the voice widget's own
+ * orb and bubbles (voice-note.css) — and the words. The board and the
+ * hand stay for the thumb version. */
+#darts.dt-by-voice .dt-stage, #darts.dt-by-voice .dt-best, #darts.dt-by-voice .dt-meter,
+#darts.dt-by-voice .dt-hand, #darts.dt-by-voice .dt-dart, #darts.dt-by-voice .dt-score { display: none !important; }
+.dt-otto { display: none; flex: 1; min-height: 0; }
+#darts.dt-by-voice .dt-otto { display: flex; }
+.dt-otto .vn-stage { gap: 24px; padding-top: 0; }
+.dt-chat {
+  width: 100%;
+  max-height: 300px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.dt-chat .vn-bubble { gap: 6px; flex: none; }
+.dt-chat .vn-text { font-size: 20px; line-height: 1.35; }
+.dt-chat .vn-bubble-me .vn-text {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 16px;
+  letter-spacing: .06em;
+  color: #7fd6ea;
+}

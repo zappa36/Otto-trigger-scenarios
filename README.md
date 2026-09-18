@@ -937,8 +937,9 @@ shut the ear while he speaks, and the ear looks away for the first
 moment of each number he counts, so his own voice is never a stop.
 The numbers are clips from the reading function (his real voice),
 fetched once per session; without it the phone's own voice counts.
-The lines and the meter on screen follow the count, for anyone who
-looks. Switched off in settings,
+On screen there is only Otto then, as on the report call: his face
+and the words — his lines and his count as he says them, each stop as
+the driver's line — no board, nothing to look at. Switched off in settings,
 the throw is a flick instead: the dart rides under the thumb, follows
 the drag, and flies on from where it is let go while moving — the
 speed and the direction at that moment decide where it lands, and

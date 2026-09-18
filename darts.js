@@ -15,7 +15,10 @@
  * driver says "stop" on the number they want — for the height (one
  * is the bottom, five the top), for the side (one left, five right)
  * and for the strength (four is the sweet spot) — and Otto announces
- * the throw. Rings score, the bullseye most, a miss nothing. The score
+ * the throw. On screen there is only Otto then, as on the report
+ * call: his face and the words — his lines and his count as he says
+ * them, each stop as the driver's line. Rings score, the bullseye
+ * most, a miss nothing. The score
  * shows for a second, then the card slides away by itself. Before
  * the throw the × in the corner closes it (a tap elsewhere does
  * nothing — it may be a flick that never got going), and a card
@@ -329,6 +332,17 @@ const Darts = (() => {
           <div class="dt-tip dt-tip-empty"><b>FOR THE NEXT DRIVER</b><span class="dt-tip-text">…</span></div>
           <button class="dt-x" type="button" aria-label="Close">×</button>
         </div>
+        <div class="dt-otto vn">
+          <div class="vn-stage">
+            <div class="vn-orb">
+              <span class="vn-glow"></span><span class="vn-ring vn-ring1" hidden></span><span class="vn-ring vn-ring2" hidden></span>
+              <span class="vn-blob"></span><span class="vn-sheen"></span>
+              <div class="vn-face"><span class="vn-eyes"><span class="vn-eye"><i></i></span><span class="vn-eye"><i></i></span></span></div>
+            </div>
+            <div class="dt-chat"></div>
+          </div>
+          <div class="vn-bar"><div class="vn-labels"><div class="vn-caption"></div><div class="vn-sub"></div></div></div>
+        </div>
         <div class="dt-stage">${boardSvg()}</div>
         <div class="dt-best"></div>
         <div class="dt-meter" hidden><i class="dt-meter-sweet" style="left:${VOICE.sweet[0] * 100}%;width:${(VOICE.sweet[1] - VOICE.sweet[0]) * 100}%"></i><i class="dt-meter-fill"></i></div>
@@ -345,6 +359,7 @@ const Darts = (() => {
       score: q('.dt-score'), num: q('.dt-score-num'), word: q('.dt-score-word'), lbRows: q('.dt-lb-rows'),
       best: q('.dt-best'), hint: q('.dt-hint'), dart: q('.dt-dart'), x: q('.dt-x'),
       swY: q('.dt-sw-y'), swX: q('.dt-sw-x'), aim: q('.dt-aim'), meter: q('.dt-meter'), meterFill: q('.dt-meter-fill'),
+      chat: q('.dt-chat'), caption: q('.dt-otto .vn-caption'), sub: q('.dt-otto .vn-sub'), rings: [...r.querySelectorAll('.dt-otto .vn-ring')],
     };
     ui.x.addEventListener('click', () => hide());
     /* a touch that begins on the × is the button's, not a swipe's */
@@ -352,7 +367,7 @@ const Darts = (() => {
     const start = (x, y) => {
       if (!state) return;
       if (state.thrown) { hide(); return; } // the score is up — any touch moves on
-      if (state.voice) { voiceStop(now()); return; } // a tap is a stop too
+      if (state.voice) { voiceStop(now(), 'tap'); return; } // a tap is a stop too
       down = { t: now(), x, y };
       samples = [down];
       drag = { fx: x, fy: y, angle: -9, raf: 0 };
@@ -454,7 +469,7 @@ const Darts = (() => {
    * The microphone as a level meter, nothing more: no words, no
    * recording, nothing leaves the phone. A burst well above the room's
    * level is a stop. */
-  const ear = { ctx: null, stream: null, src: null, an: null, buf: null, timer: 0, ambient: 0, frames: [], hot: false, lastStop: 0, born: 0, dodge: 0, on: null, ok: null, mute: false };
+  const ear = { ctx: null, stream: null, src: null, an: null, buf: null, timer: 0, base: 0, otto: 0, dodgeMax: 0, hot: false, lastStop: 0, born: 0, dodge: 0, on: null, ok: null, mute: false };
   /* an AudioContext born outside a tap may never run — make it in one */
   function primeEar() {
     try {
@@ -483,8 +498,9 @@ const Darts = (() => {
       ear.src.connect(ear.an);
       ear.buf = new Uint8Array(ear.an.fftSize);
     } catch (e) { console.warn('darts: no level meter —', e.message); closeEar(); ear.ok = false; return false; }
-    ear.ambient = 0;
-    ear.frames = [];
+    ear.base = 0;
+    ear.otto = 0;
+    ear.dodgeMax = 0;
     ear.hot = false;
     ear.dodge = 0;
     ear.born = now();
@@ -499,25 +515,30 @@ const Darts = (() => {
     for (let i = 0; i < ear.buf.length; i++) { const v = (ear.buf[i] - 128) / 128; sum += v * v; }
     const rms = Math.sqrt(sum / ear.buf.length);
     const t = now();
-    if (ear.mute) { ear.frames = []; return; } // Otto is talking: his sentence is not a stop, nor the room's level
-    /* the room's level, learned slowly and only between bursts — and
-     * the last half second, so a stop has to rise sharply above what
-     * was just there (Otto's count, a bus going by), not merely be
-     * loud. The newest frames are left out: they may be the rise. */
-    if (!ear.hot) ear.ambient = ear.ambient ? ear.ambient * 0.96 + rms * 0.04 : rms;
-    const before = ear.frames.slice(0, -8);
-    const recent = before.length ? Math.max(...before) : 0;
-    const thr = Math.max(0.04, ear.ambient * 3, recent * 2.2);
-    if (t < ear.dodge) {
-      /* the first moment of a number Otto counts — not a stop */
-    } else if (!ear.hot && rms > thr && t - ear.born > 300) {
+    if (ear.mute) { ear.base = ear.base * 0.8 + rms * 0.2; ear.hot = false; return; } // Otto is talking: his sentence is not a stop
+    /* The floor: what was there a moment ago. It follows a level that
+     * falls at once and a level that rises only slowly — so a bus
+     * building up is absorbed, and a stop has to jump clear of it.
+     * While Otto counts a number (the dodge), the floor takes his level
+     * at once, and his level at the microphone is remembered: inside
+     * one of his numbers, only a voice clearly louder than his counts. */
+    const inDodge = t < ear.dodge;
+    const thr = Math.max(0.04, ear.base * 2.2, inDodge ? (ear.otto || 1) * 2.5 : 0);
+    ear.level = rms; // for the self-test and the field: what the ear hears right now
+    ear.thr = thr;
+    if (!ear.hot && rms > thr && t - ear.born > 300) {
       ear.hot = true;
       if (t - ear.lastStop > VOICE.debounce) { ear.lastStop = t; if (ear.on) ear.on(t); }
     } else if (ear.hot && rms < thr * 0.6) {
       ear.hot = false;
     }
-    ear.frames.push(rms);
-    if (ear.frames.length > 25) ear.frames.shift();
+    if (inDodge) {
+      ear.base = Math.max(ear.base, rms);
+      ear.dodgeMax = Math.max(ear.dodgeMax, rms);
+    } else {
+      if (ear.dodgeMax > 0) { ear.otto = Math.max(ear.dodgeMax, ear.otto * 0.9); ear.dodgeMax = 0; }
+      ear.base = rms > ear.base ? ear.base + (rms - ear.base) * 0.03 : ear.base * 0.8 + rms * 0.2;
+    }
   }
 
   /* ---------- Otto counting ----------
@@ -591,6 +612,33 @@ const Darts = (() => {
   }
 
   const hintFor = g => (g.mic === false ? 'TAP TO STOP · ' : 'SAY STOP · ') + STEP[g.phase] + (g.counting ? ' · ' + (g.step + 1) : '');
+
+  /* ---------- Otto on the screen ----------
+   * The voice throw shows nothing but Otto — his face, as on the report
+   * call — and the words: his lines and his count as he says them, each
+   * stop as the driver's line. Speech as text; nothing a driver would
+   * have to look at. The last few lines stay up. */
+  function bubble(who, text) {
+    const b = document.createElement('div');
+    b.className = 'vn-bubble vn-bubble-' + who;
+    const w = document.createElement('span');
+    w.className = 'vn-who';
+    w.textContent = who === 'ai' ? 'OTTO' : 'YOU';
+    const t = document.createElement('div');
+    t.className = 'vn-text';
+    t.textContent = text;
+    b.append(w, t);
+    ui.chat.appendChild(b);
+    while (ui.chat.children.length > 4) ui.chat.removeChild(ui.chat.firstChild);
+    ui.chat.scrollTop = ui.chat.scrollHeight;
+    return t;
+  }
+  function caption(cap, sub, listening) {
+    ui.caption.textContent = cap;
+    ui.sub.textContent = sub || '';
+    ui.rings.forEach(ring => { ring.hidden = !listening; }); // the rings say "the line is open", as on the call
+  }
+  const listeningSub = g => (g.mic === false ? 'tap to stop' : 'say stop on your number');
   function draw(g, v) {
     if (g.phase === 'p') { ui.meterFill.style.width = (v * 100).toFixed(1) + '%'; return; }
     const u = (-VOICE.span + v * 2 * VOICE.span).toFixed(1);
@@ -607,11 +655,14 @@ const Darts = (() => {
     ui.hint.hidden = false;
     ui.swY.classList.add('dt-on');
     prefetchCounts();
-    openEar(t => voiceStop(t)).then(ok => {
+    openEar(t => voiceStop(t, 'voice')).then(ok => {
       if (!state || state.voice !== g) return;
       g.mic = ok;
       if (g.phase !== 'done') ui.hint.textContent = hintFor(g);
+      if (g.counting) caption('Listening…', listeningSub(g), true);
     });
+    bubble('ai', CUES.y);
+    caption('Otto is talking', '', false);
     say(CUES.y, () => startCount(g));
     g.raf = requestAnimationFrame(voiceFrame);
   }
@@ -625,6 +676,8 @@ const Darts = (() => {
     g.stepAt = g.t0 = now();
     g.trail = [];
     playCount(0);
+    g.countText = bubble('ai', COUNT[0]);
+    caption('Listening…', listeningSub(g), true);
     ui.hint.textContent = hintFor(g);
     /* a first count nobody stops: no throw, nothing spent */
     if (g.phase === 'y') later(VOICE.silence, () => { if (state && state.voice === g && g.phase === 'y') hide(); });
@@ -638,6 +691,7 @@ const Darts = (() => {
       g.step = bounce(g.k);
       g.stepAt += VOICE.beat;
       playCount(g.step);
+      if (g.countText) g.countText.textContent += ', ' + COUNT[g.step];
       ui.hint.textContent = hintFor(g);
     }
     const v = stepValue(g.phase, g.step);
@@ -647,7 +701,7 @@ const Darts = (() => {
     if (g.counting) {
       g.trail.push({ t, v });
       while (g.trail.length && t - g.trail[0].t > 1500) g.trail.shift();
-      if (g.phase !== 'y' && t - g.t0 > VOICE.autoStop) { voiceStop(t + VOICE.countLag); return; } // on the number it is at
+      if (g.phase !== 'y' && t - g.t0 > VOICE.autoStop) { voiceStop(t + VOICE.countLag, 'auto'); return; } // on the number it is at
     }
     g.raf = requestAnimationFrame(voiceFrame);
   }
@@ -656,13 +710,14 @@ const Darts = (() => {
     for (const p of g.trail) { if (p.t <= at) hit = p; else break; }
     return hit ? hit.v : stepValue(g.phase, 0);
   };
-  function voiceStop(t) {
+  function voiceStop(t, how) {
     const g = state && state.voice;
     if (!g || g.phase === 'done' || !g.counting) return; // no count yet: Otto is still saying what this step is
     const v = valueAt(g, t - VOICE.countLag);
     try { if (navigator.vibrate) navigator.vibrate(20); } catch { /* optional */ }
     g.counting = false;
     stopCount();
+    if (how !== 'auto') bubble('me', how === 'tap' ? '(tap)' : '“stop”');
     if (g.phase === 'y') {
       g.y = -VOICE.span + v * 2 * VOICE.span;
       ui.swY.setAttribute('y1', g.y.toFixed(1));
@@ -673,6 +728,8 @@ const Darts = (() => {
       g.step = 0;
       g.shown = null;
       ui.hint.textContent = hintFor(g);
+      bubble('ai', CUES.x);
+      caption('Otto is talking', '', false);
       say(CUES.x, () => startCount(g));
     } else if (g.phase === 'x') {
       g.x = -VOICE.span + v * 2 * VOICE.span;
@@ -688,6 +745,8 @@ const Darts = (() => {
       g.step = 0;
       g.shown = null;
       ui.hint.textContent = hintFor(g);
+      bubble('ai', CUES.p);
+      caption('Otto is talking', '', false);
       say(CUES.p, () => startCount(g));
     } else {
       g.phase = 'done';
@@ -769,6 +828,10 @@ const Darts = (() => {
     ui.tipText.textContent = tip || '…';
     ui.tip.classList.toggle('dt-tip-empty', !tip);
     ui.best.textContent = bestLine(boardOf(ctx.rows));
+    /* by voice there is only Otto on the screen; by thumb, the board */
+    r.classList.toggle('dt-by-voice', !!ctx.byVoice);
+    ui.chat.innerHTML = '';
+    caption('', '', false);
     state = { ...ctx, thrown: false, timers: [] };
     r.hidden = false;
     void r.offsetHeight; // the slide needs a frame in the hidden position first
@@ -893,8 +956,11 @@ const Darts = (() => {
     ui.score.hidden = false;
     if (state.counted) save(ring, bx, by, player);
     if (state.voice) {
-      /* Otto announces it, and the card leaves once he is done */
-      say(announce(ring, board), () => later(VOICE.settle, hide));
+      /* Otto announces it — on the screen too — and the card leaves once he is done */
+      const line = announce(ring, board);
+      bubble('ai', line);
+      caption('Thrown', ring.word, false);
+      say(line, () => later(VOICE.settle, hide));
       later(VOICE.cap, hide);
     } else {
       later(T.score, hide);
@@ -979,7 +1045,7 @@ const Darts = (() => {
     },
     dismiss() { gen++; cancelPending(); hide(); },
     /* a stop from outside — a hardware button, a wrapper, a test */
-    stop() { if (state && state.voice) voiceStop(now()); },
+    stop() { if (state && state.voice) voiceStop(now(), 'voice'); },
     setTip(text) {
       tip = String(text || '').trim();
       if (ui) { ui.tipText.textContent = tip || '…'; ui.tip.classList.toggle('dt-tip-empty', !tip); }
@@ -989,7 +1055,11 @@ const Darts = (() => {
      * prints it, so a "the flick does nothing" report comes with numbers */
     stats() {
       const f = flicks();
-      return { flicks: f.length, sweet: Math.round(sweetSpeed() * 100) / 100, last: lastFlick, mic: ear.ok === null ? null : ear.ok ? 'ok' : 'refused', counts: clips.buf.size };
+      return {
+        flicks: f.length, sweet: Math.round(sweetSpeed() * 100) / 100, last: lastFlick,
+        mic: ear.ok === null ? null : ear.ok ? 'ok' : 'refused', counts: clips.buf.size,
+        level: ear.timer ? Math.round((ear.level || 0) * 1000) / 1000 : null, threshold: ear.timer ? Math.round((ear.thr || 0) * 1000) / 1000 : null,
+      };
     },
   };
 })();
