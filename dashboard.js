@@ -1917,17 +1917,22 @@ function runFacts(run) {
       if (prev && runHits(runBag(prev.message), turns[i].message) >= 3) readback = runStrip(turns[i].message);
     }
 
-    /* the closing line against the tip this row exists to produce */
+    /* the closing line against the tip this row exists to produce — but
+     * only the part of the tip the driver actually said in this call: a
+     * fact Otto never asked about is not in the call, and the judge does
+     * not hold it against the tip either (the CLOSE check). The address
+     * label in front of a tip is dropped for the same reason. */
     const last = runStrip(agent[agent.length - 1] && agent[agent.length - 1].message);
-    const tip = String((row && row.tip) || '').trim();
+    const tip = String((row && row.tip) || '').trim().replace(/^[^:]{3,48}:\s+(?=[a-zäöü])/, '');
     let tipState = '';
     let tipHit = 0;
     let tipOf = 0;
     if (tip) {
-      const w = runBag(tip);
+      const saidBag = runBag(turns.filter(u => u.role === 'user').map(u => u.message).join(' '));
+      const w = new Set([...runBag(tip)].filter(x => saidBag.has(x)));
       tipOf = w.size;
       tipHit = runHits(w, last);
-      tipState = tipHit === 0 ? 'none' : tipHit * 2 < tipOf ? 'partial' : 'ok';
+      tipState = !tipOf ? '' : tipHit === 0 ? 'none' : tipHit * 2 < tipOf ? 'partial' : 'ok';
     }
 
     /* did the first follow-up go where the row says a relevant one goes?
@@ -2279,7 +2284,7 @@ const RUN_PATTERNS = [
     how: 'We looked for a turn where Otto used three or more of the same words as the driver\'s last answer. Otto\'s last line is not counted — there he should say the tip back.' },
   { id: 'tip-partial', test: f => f.tipState === 'partial', label: 'Tip missing its detail', name: 'Otto\'s last line has only part of the tip',
     line: (k, of) => `In ${k} of ${of}, Otto\'s last line had only part of the tip — the place without the time, the day, the door or the distance.`,
-    how: 'We compared Otto\'s last line with the tip on the situation\'s row. At least one of the tip\'s main words was there, but fewer than half of them.' },
+    how: 'We compared Otto\'s last line with the tip on the situation\'s row, counting only the tip\'s words the driver actually said in this call. At least one of those was there, but fewer than half of them.' },
   { id: 'filed', test: f => f.filed, label: 'Said "I have noted that"', name: 'Otto says "I have noted that"',
     line: (k, of) => `In ${k} of ${of}, Otto said "I have noted that" or "I\'ll file that".`,
     how: 'We looked in Otto\'s turns for "I have noted / logged / filed / recorded", "noted that", "noted down" or "I\'ll note / log / file".' },

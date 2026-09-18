@@ -215,7 +215,10 @@ rule, no measurements, no "Otto says" line.
    the driver has already said the rest. The opening greeting is not a
    question and is not counted. Four follow-ups fails.
 6. **CLOSE** — he confirms the tip in one line, consistent with what the
-   driver said, and lets the driver go.
+   driver said, and lets the driver go. Judged on what the driver said
+   in that call: a fact the driver never gave is not missing, and the
+   address need not be said. What fails is no tip, a wrong tip, or
+   thanks alone.
 
 The **control row** (#20, "nothing to report") turns three of them
 round: at most one confirming question, no probing, and a close that

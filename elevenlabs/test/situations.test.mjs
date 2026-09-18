@@ -118,6 +118,13 @@ test('a situation is set at its own stop, and the driver reports it in its own w
   assert.ok(dog.body.success_conditions[0].includes(row.follow_up[0]), 'relevance names what a fitting follow-up asks about');
   assert.ok(dog.body.success_conditions[0].includes(row.off_topic[0]), 'and what would not fit');
   assert.ok(dog.body.success_conditions[5].includes(row.tip.replace(/\.$/, '')), 'the close names the tip');
+  /* judged on what the driver said, not on the sheet as a checklist */
+  assert.match(dog.body.success_conditions[5], /a fact the driver never mentioned is not missing, and the address need not be said/);
+  assert.match(dog.body.success_conditions[5], /What fails: no tip at all, a tip that contradicts the driver, or a closing that is only thanks\./);
+  /* a tip that leads with the address label loses the label in the yardstick */
+  const labelled = buildSituationTests([{ num: 9, title: 'Labelled tip', driver_says: 'x', driver_knows: 'y', follow_up: ['a'], off_topic: ['b'], tip: 'Rykestraße 13: the practice takes parcels only until three.' }], { stops })[0].body;
+  assert.match(labelled.success_conditions[5], /the tip is something like: “the practice takes parcels only until three”/);
+  assert.doesNotMatch(labelled.success_conditions[5], /something like: “Rykestraße 13:/);
   /* the platform speaks the greeting before Otto's first turn — it is not one of his questions */
   assert.match(dog.body.success_conditions[4], /^LENGTH — after the driver has said what happened, Otto asks at most three follow-up questions/);
   assert.match(dog.body.success_conditions[4], /One good question is enough/);
