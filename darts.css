@@ -1,0 +1,172 @@
+/* ============================================================
+ * The dart game — the card that slides up after a report.
+ *
+ * Self-contained and prefixed with .dt; darts.js builds the DOM
+ * inside #darts, an overlay over the whole phone that catches the
+ * flick (and the tap that closes it). Colours follow index.html.
+ * ============================================================ */
+
+#darts {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  background: rgba(5, 8, 14, 0);
+  transition: background 280ms ease;
+  touch-action: none;             /* the flick is ours, not the page's scroll */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: #eef2f7;
+}
+#darts[hidden] { display: none; }
+#darts.dt-in { background: rgba(5, 8, 14, .5); }
+
+/* the card slides up from below the screen and back down again */
+.dt-card {
+  position: absolute;
+  left: 12px; right: 12px; bottom: 14px;
+  padding: 12px 14px 0;
+  border-radius: 22px;
+  background: #0a1220;            /* opaque: the REPORT button sits right under it */
+  border: 1px solid rgba(140, 165, 200, .22);
+  box-shadow: 0 -18px 50px rgba(0, 0, 0, .45);
+  overflow: hidden;
+  transform: translateY(115%);
+  transition: transform 280ms cubic-bezier(.2, .8, .2, 1);
+}
+#darts.dt-in .dt-card { transform: none; }
+#darts.dt-out .dt-card {
+  transform: translateY(115%);
+  transition-timing-function: cubic-bezier(.5, 0, .8, .4);
+}
+
+/* the one-line slot at the top: the tip Otto filed for the next driver */
+.dt-tip {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 22px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.dt-tip b {
+  flex: none;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 9px;
+  letter-spacing: .13em;
+  font-weight: 400;
+  color: #7fd6ea;
+}
+.dt-tip-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  color: #d8eef4;
+}
+.dt-tip-empty .dt-tip-text { color: #5f6b7a; }
+
+/* the board */
+.dt-stage {
+  position: relative;
+  height: 236px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dt-board {
+  width: 220px;
+  height: 220px;
+  display: block;
+  filter: drop-shadow(0 10px 24px rgba(0, 0, 0, .5));
+}
+.dt-board.dt-hit { animation: dt-thud 240ms ease-out; }
+@keyframes dt-thud {
+  0% { transform: scale(1); }
+  35% { transform: scale(.96) rotate(-1deg); }
+  100% { transform: scale(1); }
+}
+
+/* the score pops where the thumb just was — the hand zone, empty once
+ * the dart has left it — so the board and the dart stuck in it stay in
+ * full view */
+.dt-score {
+  position: absolute;
+  left: 50%; bottom: 22px;
+  transform: translateX(-50%);
+  text-align: center;
+  padding: 8px 18px;
+  border-radius: 16px;
+  background: rgba(5, 8, 14, .84);
+  border: 1px solid rgba(255, 217, 94, .5);
+  animation: dt-pop 320ms cubic-bezier(.2, 1.4, .4, 1);
+  pointer-events: none;
+}
+.dt-score[hidden] { display: none; }
+.dt-score-num {
+  display: block;
+  font-size: 42px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: .02em;
+  color: #ffd95e;
+}
+.dt-score-word { display: block; margin-top: 4px; font-size: 13px; color: #f4ead0; }
+.dt-score.dt-miss { border-color: rgba(140, 165, 200, .35); }
+.dt-score.dt-miss .dt-score-num { font-size: 30px; color: #94a1b2; }
+@keyframes dt-pop {
+  0% { transform: translateX(-50%) scale(.5); opacity: 0; }
+  100% { transform: translateX(-50%) scale(1); opacity: 1; }
+}
+
+/* the depot's best today */
+.dt-best {
+  min-height: 16px;
+  text-align: center;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 10.5px;
+  letter-spacing: .08em;
+  color: #ffd95e;
+}
+
+/* the hand: where the dart waits, and the hint */
+.dt-hand {
+  height: 108px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 12px;
+}
+.dt-hint { font-size: 12px; color: #94a1b2; }
+.dt-hint[hidden] { display: none; }
+
+/* the dart: its point is the transform origin, so the flight moves the
+ * point to where the dart lands and the tilt swings the tail */
+.dt-dart {
+  position: absolute;
+  left: calc(50% - 11px);
+  bottom: 38px;
+  width: 22px;
+  height: 64px;
+  transform-origin: 11px 0;
+  will-change: transform;
+  animation: dt-bob 1.3s ease-in-out infinite;
+  pointer-events: none;
+}
+.dt-dart svg { display: block; }
+@keyframes dt-bob {
+  0%, 100% { transform: rotate(-9deg) translateY(0); }
+  50% { transform: rotate(-9deg) translateY(-8px); }
+}
+.dt-dart.dt-flying, .dt-dart.dt-stuck, .dt-dart.dt-missed { animation: none; }
+/* on the way it grows, then shrinks into the board — a little depth */
+.dt-dart.dt-flying svg { animation: dt-depth 380ms ease-out forwards; }
+@keyframes dt-depth {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.35); }
+  100% { transform: scale(.8); }
+}
+.dt-dart.dt-stuck svg, .dt-dart.dt-missed svg { transform: scale(.8); }
+.dt-dart.dt-missed { opacity: .55; }

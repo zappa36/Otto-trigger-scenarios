@@ -57,6 +57,17 @@ const VISIT = { arriveRadius: 30 }; // m — inside this ring the phone counts a
 const nearSince = new Map(); // destination id -> first fix time inside the arrival ring
 const localId = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
+/* ---------- settings (this phone) ----------
+ * Two things a driver sets once, on the ⚙ sheet: their first name, for
+ * the dart game's scoreboard ("someone" until they do), and whether the
+ * game plays at all after a report — on unless switched off. Per phone,
+ * in localStorage, like the language and the route toggle. */
+const LS_SETTINGS = 'od_settings';
+const settings = { name: '', darts: true };
+try { Object.assign(settings, JSON.parse(localStorage.getItem(LS_SETTINGS) || '{}')); } catch { /* private mode */ }
+const saveSettings = () => { try { localStorage.setItem(LS_SETTINGS, JSON.stringify(settings)); } catch { /* private mode */ } };
+const playerName = () => String(settings.name || '').trim().slice(0, 24) || 'someone';
+
 /* Trigger scenarios (defined on dashboard.html) — read-only here. A
  * destination that belongs to a scenario carries the test steps on its
  * card, and Otto opens the debrief with the scenario's own question. */
@@ -1494,6 +1505,7 @@ function mountOtto(recorderOnly) {
 let voice = VoiceNote.mount(voiceOpts());
 
 function openOtto(d, asReport) {
+  if (typeof Darts !== 'undefined') Darts.dismiss(); // a dart card still up yields the screen
   /* whose debrief this is, for as long as it lasts — every caller but
    * openReport opens the destination's own */
   reporting = !!asReport;
@@ -1540,6 +1552,7 @@ function closeOtto() {
    * left standing: the agent files what was said AFTER this returns. */
   if (current && !reporting) openCard(current); // the card, now with the new message
   renderReport();
+  if (reporting) offerDartThrow(); // the report was the chore; this is the reward
 }
 
 /* ---------- the REPORT button ----------
@@ -1577,6 +1590,24 @@ function openReport() {
   openOtto(reportContext(), true);
 }
 
+/* ---------- the dart game (darts.js) ----------
+ * A report is a chore, so the reward comes right after it: when the
+ * REPORT call's screen closes, a dartboard slides up for one flick of
+ * the thumb — three seconds, then the route again. What is decided
+ * here is only WHETHER a throw is offered: the game is on in settings,
+ * and the report belonged to a stop. One throw per STOP is the rule,
+ * and a report made on the road (no stop within 150 m, no card open)
+ * belongs to none, so it earns none — otherwise ten reports from the
+ * road would be ten throws. The throw is tied to the stop's visit (the
+ * Delivered tap) when it has one; darts.js keeps the rest of the rules:
+ * once per stop, only while the phone is still, any tap dismisses. */
+function offerDartThrow() {
+  if (typeof Darts === 'undefined' || settings.darts === false) return; // no darts.js on this page, or switched off
+  const d = current; // the stop the report was filed against — null on the road
+  if (!d) return;
+  Darts.offer({ stop: d, visit: visitsByDest[d.id] || null, player: playerName() });
+}
+
 /* Always on the map, never over Otto — the one thing on this screen
  * that must not be hidden. */
 function renderReport() {
@@ -1594,6 +1625,7 @@ function setScTab(t) {
 
 function openCard(d) {
   current = d;
+  if (el('settings')) el('settings').hidden = true; // same slot
   el('card-title').textContent = (d.stop != null ? 'Stop ' + d.stop + ' · ' : '') + scenarioNumPrefix(d) + d.title;
   el('card-addr').textContent = d.addr || `${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}`;
   updateCardDistance();
@@ -1839,6 +1871,26 @@ for (const [id, fn] of [['card-deliver', () => markVisit('delivered')], ['card-f
   if (node) node.onclick = fn;
 }
 el('otto-back').onclick = closeOtto;
+/* the ⚙ sheet — guarded like the blocks above: an index.html from
+ * before the sheet has none of these, and app.js must still boot */
+if (el('settings-chip') && el('settings')) {
+  el('settings-chip').onclick = () => {
+    const sheet = el('settings');
+    if (!sheet.hidden) { sheet.hidden = true; return; }
+    el('st-name').value = settings.name || '';
+    el('st-darts').checked = settings.darts !== false;
+    el('card').hidden = true; // same slot
+    sheet.hidden = false;
+  };
+  el('st-close').onclick = () => { el('settings').hidden = true; };
+  el('st-name').oninput = () => { settings.name = el('st-name').value.trim().slice(0, 24); saveSettings(); };
+  el('st-darts').onchange = () => { settings.darts = el('st-darts').checked; saveSettings(); };
+  /* see the game before a report earns a throw — nothing is saved */
+  el('st-practice').onclick = () => {
+    el('settings').hidden = true;
+    if (typeof Darts !== 'undefined') Darts.practice({ player: playerName() });
+  };
+}
 
 /* ↻ — pull fresh scenarios, pins and debriefs without reloading the
  * page. The dashboard cuts new versions mid-session; testers were

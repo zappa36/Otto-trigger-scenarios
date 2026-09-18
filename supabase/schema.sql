@@ -232,6 +232,37 @@ create table if not exists public.visits (
 create index if not exists visits_dest_idx on public.visits (destination_id, created_at desc);
 create index if not exists visits_route_idx on public.visits (route, delivered_at desc);
 
+-- One row per dart thrown — the three-second game the phone plays
+-- after a report (darts.js): when the REPORT call ends, a dartboard
+-- slides up, one flick of the thumb throws, rings score. The rule is
+-- one throw per STOP, not per call: a row is tied to the stop's visit
+-- (the Delivered tap above) when the stop had one, and to the stop
+-- and the day otherwise — pressing REPORT ten times at one door still
+-- earns one throw. `player` is the driver's first name from the app's
+-- settings, "someone" when none was typed. Nothing updates or deletes
+-- a throw; "Best today" under the board is the day's top score across
+-- the depot, read from here.
+create table if not exists public.dart_throws (
+  id uuid primary key default gen_random_uuid(),
+  visit_id uuid references public.visits (id) on delete set null,  -- the visit this throw rewards; null when the stop had no Delivered tap yet
+  destination_id uuid references public.destinations (id) on delete set null,
+  route text,                       -- copied from the stop, like visits
+  stop integer,
+  player text not null default 'someone',
+  score integer not null,           -- 50 bullseye · 25 · 10 · 5 · 1 · 0 for a miss
+  ring text,                        -- bull | inner | middle | outer | rim | miss
+  hit_x integer,                    -- where it landed, in board units (the rim is 100 from the centre)
+  hit_y integer,
+  thrown_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+-- one throw per visit, enforced where it counts
+create unique index if not exists dart_throws_visit_idx on public.dart_throws (visit_id) where visit_id is not null;
+-- the card's two questions: this stop's throws today, and the day's best
+create index if not exists dart_throws_dest_idx on public.dart_throws (destination_id, thrown_at desc);
+create index if not exists dart_throws_day_idx on public.dart_throws (thrown_at desc, score desc);
+
 -- Every run of the agent suite (elevenlabs/loop.mjs run — the ElevenLabs
 -- simulation tests cut from the scenario and situation sheets), published by
 -- `loop.mjs publish`: the agent-suite workflow does it after every
@@ -291,6 +322,7 @@ alter table public.scenarios enable row level security;
 alter table public.situations enable row level security;
 alter table public.runs enable row level security;
 alter table public.visits enable row level security;
+alter table public.dart_throws enable row level security;
 alter table public.agent_runs enable row level security;
 alter table public.accepted_findings enable row level security;
 
@@ -397,6 +429,16 @@ create policy "anyone adds visits" on public.visits
 drop policy if exists "anyone deletes visits" on public.visits;
 create policy "anyone deletes visits" on public.visits
   for delete to anon, authenticated using (true);
+
+-- the dart game: every phone reads the day's best and adds its throw;
+-- a throw, once thrown, is neither edited nor taken back
+drop policy if exists "anyone reads dart_throws" on public.dart_throws;
+create policy "anyone reads dart_throws" on public.dart_throws
+  for select to anon, authenticated using (true);
+
+drop policy if exists "anyone adds dart_throws" on public.dart_throws;
+create policy "anyone adds dart_throws" on public.dart_throws
+  for insert to anon, authenticated with check (true);
 
 drop policy if exists "anyone reads agent_runs" on public.agent_runs;
 create policy "anyone reads agent_runs" on public.agent_runs

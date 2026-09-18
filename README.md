@@ -915,6 +915,44 @@ it is one bulk insert — re-run
 [`supabase/schema.sql`](supabase/schema.sql) once first for the two
 route columns (`route`, `stop`) and the `visits` table.
 
+## The dart game — one throw after a report
+
+A report is a small chore, and drivers are on their own all day. So
+the moment the REPORT call's screen closes, a card slides up with a
+dartboard. One flick of the thumb throws the dart — the speed and the
+angle of the flick decide where it lands. Rings score (1, 5, 10, 25;
+the bullseye 50), a miss scores nothing. The score shows for a second,
+then the card slides away on its own, or on any tap, so the driver is
+back on the route within five seconds. No sounds. The line at the top
+of the card, **FOR THE NEXT DRIVER**, is the slot for the tip Otto
+filed; it stays empty until the report tool is wired to the app.
+
+The rules around it:
+
+- **One throw per stop, not per call.** The throw is tied to the
+  stop's visit (the ✓ Delivered tap) when the stop has one, and to the
+  stop and the day otherwise; pressing REPORT ten times at one door
+  earns one throw. A report made on the road, filed against no stop,
+  earns none — the road is not a stop.
+- **Only while the phone is still.** The card never comes up on the
+  move: activity recognition (below) says IN_VEHICLE or ON_FOOT and
+  the card waits, up to forty seconds, for STILL. If the driver never
+  stops, there is no card — and the throw is not spent, so the next
+  report at that stop still gets it.
+- **Off in one tap.** The ⚙ chip opens the phone's settings: the
+  driver's **first name** (on the scoreboard; "someone" until typed),
+  the game's **switch** (on by default), and a **practice throw** that
+  is not counted, so anyone can see the game without filing a report.
+
+Every counted throw is one row in the `dart_throws` table — the stop,
+the visit, the player, the score, where the dart landed — with the same
+open pilot policies as the other tables, and **Best today: NAME
+SCORE** under the board is the depot's top score of the day, read from
+there. Keyless, throws stay in localStorage and the best is this
+phone's. Re-run [`supabase/schema.sql`](supabase/schema.sql) once
+(or paste just its `dart_throws` block) to add the table; until then
+the phone plays and warns in the console that nothing was saved.
+
 ## The dispatcher dashboard — map and notes, live
 
 [`parcelvox-dashboard.html`](parcelvox-dashboard.html) is the ParcelVox
@@ -1229,7 +1267,8 @@ The composition happens entirely through the kits' public seams:
 | File | Purpose |
 |---|---|
 | `index.html` | Phone shell: the REPORT button, map, HUD, card, Otto screen (pins come from the dashboard) |
-| `app.js` | Destinations, messages, the card (incl. the Delivered tap on route stops), the REPORT flow, Otto wiring |
+| `app.js` | Destinations, messages, the card (incl. the Delivered tap on route stops), the REPORT flow, Otto wiring, the ⚙ settings sheet |
+| `darts.js/.css` | The dart game after a report: the card, the flick, the rings, one throw per stop, only while still, the depot's best today |
 | `otto-agent.js` | Otto as a live ElevenLabs agent conversation — the kit's mount seams over a WebSocket, with the scenario as its context |
 | `dashboard.html` | Desktop shell: scenario list, map, form / address / import sheets |
 | `dashboard.js` | Trigger scenarios and situations (their own tab): CRUD, describe→draft, tunable-value sliders, voice feedback → proposed versions, history, spec export, Excel paste-import, address pinning, compare + verdict — and loading the starter sheet / demo route |
@@ -1251,5 +1290,5 @@ The composition happens entirely through the kits' public seams:
 | `scripts/migrate_supabase.py` | Moves the rows to another Supabase project, ids intact (`schema.sql` does the tables) |
 | `voice-note.js/.css` | from voice-notes-kit + hands-free pause-to-send |
 | `geolocate.js`, `field-map.js/.css` | verbatim from field-map-kit |
-| `supabase/schema.sql` | `destinations` (incl. pre-arrival notes: consignee / floor / notes, and route / stop) + `messages` (incl. the agent conversation, its ElevenLabs `conversation_id` and the dashboard's `grade` of it) + `scenarios` (incl. params / versions / feedback) + `runs` + `visits` (the Delivered tap) + `agent_runs` (one row per suite run the agent loop published), RLS |
+| `supabase/schema.sql` | `destinations` (incl. pre-arrival notes: consignee / floor / notes, and route / stop) + `messages` (incl. the agent conversation, its ElevenLabs `conversation_id` and the dashboard's `grade` of it) + `scenarios` (incl. params / versions / feedback) + `runs` + `visits` (the Delivered tap) + `dart_throws` (one row per dart thrown after a report) + `agent_runs` (one row per suite run the agent loop published), RLS |
 | `supabase/functions/` | `voice-note` (kit + trailing-"stop" strip + a text path for agent conversations) + `geocode` (verbatim) + `scenario-ai` (draft, revise & the 🇮🇹 question translation) + `elevenlabs-token` (signed URLs for a private agent) + `elevenlabs-tts` (the pre-arrival notes read in Otto's real voice) |
