@@ -1216,9 +1216,21 @@ async function branch(ctx, flags) {
  * row counts as worse only when it loses more than `margin` of its
  * calls (0.25: more than three of twelve). On top of that the total
  * must not fall, and at least one row that was not perfect must gain.
- * A test file without runs (rate only) is compared on its rate. */
+ * A test file without runs (rate only) is compared on its rate. Only
+ * tests present on BOTH sides count: a driver type added since the
+ * baseline (its tests exist only on the branch) would otherwise change
+ * every row's mix, and the baseline would have to be re-run for no
+ * reason; those tests are counted and named in `leftOut`. */
 export function compareResults(base, branch, margin = 0.25) {
   const num = x => (x == null || x === '' ? null : x);
+  const nameOf = t => String(t.name || t.test_id || '');
+  const inBase = new Set((base.tests || []).map(nameOf)), inBranch = new Set((branch.tests || []).map(nameOf));
+  const leftOut = {
+    branch: (branch.tests || []).filter(t => !inBase.has(nameOf(t))).map(nameOf),
+    base: (base.tests || []).filter(t => !inBranch.has(nameOf(t))).map(nameOf),
+  };
+  base = { ...base, tests: (base.tests || []).filter(t => inBranch.has(nameOf(t))) };
+  branch = { ...branch, tests: (branch.tests || []).filter(t => inBase.has(nameOf(t))) };
   const rowOf = t => (num(t.situation_num) != null ? `situation #${t.situation_num}${t.situation_title ? ' ' + t.situation_title : ''}`
     : num(t.scenario_num) != null ? `scenario #${t.scenario_num}${t.scenario_title ? ' ' + t.scenario_title : ''}`
       : String(t.name || t.test_id || '?'));
@@ -1268,7 +1280,7 @@ export function compareResults(base, branch, margin = 0.25) {
       : !wasFailing.length ? 'nothing was failing on the base run, so there is nothing for the branch to improve'
         : !improved.length ? `no ${unit} improved (${totals})`
           : `${improved.length} ${unit}(s) improved, none dropped by more than ${pts} points, and the total went up: ${totals}`;
-  return { rows, accept, reason, drops: drops.length, improved: improved.length, totalDown, totals: { base: totalA, branch: totalB } };
+  return { rows, accept, reason, drops: drops.length, improved: improved.length, totalDown, totals: { base: totalA, branch: totalB }, leftOut };
 }
 
 async function compare(ctx, flags) {
@@ -1277,8 +1289,11 @@ async function compare(ctx, flags) {
   const margin = flags.margin != null ? Number(flags.margin) : 0.25;
   if (Number.isNaN(margin) || margin < 0 || margin > 1) throw new UsageError('--margin is a fraction of a row\'s calls, 0.25 = a quarter (more than three of twelve is a drop)');
   const base = readJson(flags.base), branch = readJson(flags.branch);
-  const { rows, accept, reason } = compareResults(base, branch, margin);
+  const { rows, accept, reason, leftOut } = compareResults(base, branch, margin);
   log(`compare — base ${path.basename(flags.base)} (${base.label || ''}) vs branch ${path.basename(flags.branch)} (${branch.label || ''}${branch.branch_id ? ', ' + branch.branch_id : ''})\n`);
+  const personasOf = names => [...new Set(names.map(n => (n.match(/ · ([a-z]+)$/) || [])[1]).filter(Boolean))];
+  if (leftOut.branch.length) log(`  ${leftOut.branch.length} test(s) only on the branch left out of the verdict${personasOf(leftOut.branch).length ? ` — the ${personasOf(leftOut.branch).join(', ')} driver(s), not in the baseline; the next baseline will have them` : ''}`);
+  if (leftOut.base.length) log(`  ${leftOut.base.length} test(s) only in the baseline left out of the verdict`);
   log(table(rows, [
     { key: 'name', label: 'situation / row (every driver type and repeat together)', width: 52 },
     { get: r => pct(r.base), label: 'base', width: 5, right: true },
