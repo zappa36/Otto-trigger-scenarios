@@ -26,6 +26,7 @@
 .dt-card {
   position: absolute;
   left: 12px; right: 12px; bottom: 14px;
+  touch-action: none;
   padding: 12px 14px 0;
   border-radius: 22px;
   background: #0a1220;            /* opaque: the REPORT button sits right under it */

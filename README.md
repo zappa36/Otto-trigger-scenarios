@@ -920,8 +920,12 @@ route columns (`route`, `stop`) and the `visits` table.
 A report is a small chore, and drivers are on their own all day. So
 the moment the REPORT call's screen closes, a card slides up with a
 dartboard. One flick of the thumb throws the dart — the speed and the
-angle of the flick decide where it lands. Rings score (1, 5, 10, 25;
-the bullseye 50), a miss scores nothing. The score shows for a second,
+angle of the flick decide where it lands. The speed is the flick's
+fastest stretch, not its average (a thumb slows down before it lifts),
+and the phone learns how hard its driver usually flicks: after a few
+throws a normal flick for that thumb lands near the middle, harder
+flies long, softer falls short. Rings score (1, 5, 10, 25; the
+bullseye 50), a miss scores nothing. The score shows for a second,
 then the card slides away on its own, or on any tap, so the driver is
 back on the route within five seconds. No sounds. The line at the top
 of the card, **FOR THE NEXT DRIVER**, is the slot for the tip Otto

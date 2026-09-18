@@ -1832,6 +1832,16 @@ el('build').onclick = async () => {
     out.push('notes reading voice: device TTS (backend OFF)');
   }
   out.push('wrapper TTS: ' + (window.OttoTTS ? 'yes' : 'no (browser)'));
+  /* the dart game's own numbers: how many flicks this phone has seen,
+   * what it takes for a normal one, and the last throw — a report that
+   * "the flick does nothing" then comes with something to read */
+  if (typeof Darts !== 'undefined' && Darts.stats) {
+    const st = Darts.stats();
+    out.push('dart game: ' + (settings.darts === false ? 'OFF' : 'on') + ' · ' + st.flicks + ' flick' + (st.flicks === 1 ? '' : 's')
+      + ' seen · a normal flick is ' + st.sweet + ' px/ms'
+      + (st.last ? ' · last throw ' + st.last.speed + ' px/ms = ' + st.last.pts + ' pts' : '')
+      + ' · pointer events: ' + (typeof PointerEvent !== 'undefined' ? 'yes' : 'NO (touch fallback)'));
+  }
   const md = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
   out.push('mediaDevices.getUserMedia: ' + (md ? 'yes' : 'MISSING'));
   out.push('MediaRecorder: ' + (typeof MediaRecorder !== 'undefined' ? 'yes' : 'MISSING'));
