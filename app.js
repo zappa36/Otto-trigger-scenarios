@@ -1600,7 +1600,7 @@ function openReport() {
  * belongs to none, so it earns none — otherwise ten reports from the
  * road would be ten throws. The throw is tied to the stop's visit (the
  * Delivered tap) when it has one; darts.js keeps the rest of the rules:
- * once per stop, only while the phone is still, any tap dismisses. */
+ * once per stop, only while the phone is still, the × closes it. */
 function offerDartThrow() {
   if (typeof Darts === 'undefined' || settings.darts === false) return; // no darts.js on this page, or switched off
   const d = current; // the stop the report was filed against — null on the road
@@ -1832,6 +1832,16 @@ el('build').onclick = async () => {
     out.push('notes reading voice: device TTS (backend OFF)');
   }
   out.push('wrapper TTS: ' + (window.OttoTTS ? 'yes' : 'no (browser)'));
+  /* the dart game's own numbers: how many flicks this phone has seen,
+   * what it takes for a normal one, and the last throw — a report that
+   * "the flick does nothing" then comes with something to read */
+  if (typeof Darts !== 'undefined' && Darts.stats) {
+    const st = Darts.stats();
+    out.push('dart game: ' + (settings.darts === false ? 'OFF' : 'on') + ' · ' + st.flicks + ' flick' + (st.flicks === 1 ? '' : 's')
+      + ' seen · a normal flick is ' + st.sweet + ' px/ms'
+      + (st.last ? ' · last throw ' + st.last.speed + ' px/ms = ' + st.last.pts + ' pts' : '')
+      + ' · pointer events: ' + (typeof PointerEvent !== 'undefined' ? 'yes' : 'NO (touch fallback)'));
+  }
   const md = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
   out.push('mediaDevices.getUserMedia: ' + (md ? 'yes' : 'MISSING'));
   out.push('MediaRecorder: ' + (typeof MediaRecorder !== 'undefined' ? 'yes' : 'MISSING'));
