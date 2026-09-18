@@ -5,11 +5,13 @@
  *
  * A report is a chore: the driver pressed REPORT, told Otto what
  * they found, and got the route back. Now they get a dart first.
- * The card slides up with a board; one flick of the thumb throws,
- * and the speed and the angle of the flick decide where it lands.
- * Rings score, the bullseye most, a miss nothing. The score shows
- * for a second, then the card slides away — on its own, or on any
- * tap. Back on the route in five seconds.
+ * A full-screen card slides up with a board; one flick of the thumb
+ * throws, and the speed and the angle of the flick decide where it
+ * lands. Rings score, the bullseye most, a miss nothing. The score
+ * shows for a second, then the card slides away by itself. Before
+ * the throw the × in the corner closes it (a tap elsewhere does
+ * nothing — it may be a flick that never got going), and a card
+ * nobody plays leaves on its own after a while.
  *
  * app.js decides WHEN a throw is offered (the game is on in
  * settings, the report belonged to a stop); this file does the
@@ -22,7 +24,7 @@
  *   - only while the phone is STILL (activity-rec.js) — never on
  *     the move. It waits a while for the driver to stop; if they
  *     do not, there is no card and the throw is not spent,
- *   - any tap dismisses; nothing plays a sound.
+ *   - the × closes it; nothing plays a sound.
  *
  * Scores land in the dart_throws table with the driver's first
  * name from settings ("someone" otherwise), and the line under the
@@ -52,7 +54,7 @@ const Darts = (() => {
   const MISS = { r: Infinity, pts: 0, name: 'miss', word: 'The wall took it.' };
 
   const T = {
-    show: 3500,   // ms — no flick by then and the card leaves on its own
+    wait: 20e3,   // ms — no flick by then and the card leaves on its own (the × is the way out before that)
     flight: 380,  // ms — launch to landing
     score: 1000,  // ms — the score stays up this long
     slide: 280,   // ms — the card's slide in and out (darts.css agrees)
@@ -187,10 +189,13 @@ const Darts = (() => {
     if (!r || ui) return !!ui;
     r.innerHTML = `
       <div class="dt-card">
-        <div class="dt-tip dt-tip-empty"><b>FOR THE NEXT DRIVER</b><span class="dt-tip-text">…</span></div>
+        <div class="dt-top">
+          <div class="dt-tip dt-tip-empty"><b>FOR THE NEXT DRIVER</b><span class="dt-tip-text">…</span></div>
+          <button class="dt-x" type="button" aria-label="Close">×</button>
+        </div>
         <div class="dt-stage">${boardSvg()}</div>
         <div class="dt-best"></div>
-        <div class="dt-hand"><span class="dt-hint">flick up to throw · tap to skip</span></div>
+        <div class="dt-hand"><span class="dt-hint">flick up to throw</span></div>
         <div class="dt-dart">${DART_SVG}</div>
         <div class="dt-score" hidden><b class="dt-score-num"></b><span class="dt-score-word"></span></div>
       </div>`;
@@ -198,8 +203,11 @@ const Darts = (() => {
     ui = {
       card: q('.dt-card'), tip: q('.dt-tip'), tipText: q('.dt-tip-text'), board: q('.dt-board'),
       score: q('.dt-score'), num: q('.dt-score-num'), word: q('.dt-score-word'),
-      best: q('.dt-best'), hint: q('.dt-hint'), dart: q('.dt-dart'),
+      best: q('.dt-best'), hint: q('.dt-hint'), dart: q('.dt-dart'), x: q('.dt-x'),
     };
+    ui.x.addEventListener('click', () => hide());
+    /* a touch that begins on the × is the button's, not a swipe's */
+    const onX = t => !!(t && t.closest && t.closest('.dt-x'));
     const start = (x, y) => {
       if (!state) return;
       down = { t: now(), x, y };
@@ -220,7 +228,7 @@ const Darts = (() => {
     };
     if (typeof PointerEvent !== 'undefined') {
       r.addEventListener('pointerdown', e => {
-        if (!state) return;
+        if (!state || onX(e.target)) return;
         e.preventDefault();
         try { r.setPointerCapture(e.pointerId); } catch { /* optional */ }
         start(e.clientX, e.clientY);
@@ -234,14 +242,14 @@ const Darts = (() => {
     } else {
       /* a WebView old enough to have no pointer events at all */
       const at = e => (e.changedTouches && e.changedTouches[0]) || (e.touches && e.touches[0]) || e;
-      r.addEventListener('touchstart', e => { const t = at(e); start(t.clientX, t.clientY); }, { passive: true });
+      r.addEventListener('touchstart', e => { if (onX(e.target)) return; const t = at(e); start(t.clientX, t.clientY); }, { passive: true });
       r.addEventListener('touchmove', e => { const t = at(e); move(t.clientX, t.clientY); }, { passive: true });
       r.addEventListener('touchend', e => { const t = at(e); end(t.clientX, t.clientY, false); });
       r.addEventListener('touchcancel', e => { const t = at(e); end(t.clientX, t.clientY, true); });
     }
     /* belt to touch-action's braces: while the card is up, a swipe on
      * it scrolls nothing and rubber-bands nothing, in every browser */
-    r.addEventListener('touchmove', e => { if (state && e.cancelable) e.preventDefault(); }, { passive: false });
+    r.addEventListener('touchmove', e => { if (state && e.cancelable && !onX(e.target)) e.preventDefault(); }, { passive: false });
     return true;
   }
 
@@ -291,7 +299,7 @@ const Darts = (() => {
     r.hidden = false;
     void r.offsetHeight; // the slide needs a frame in the hidden position first
     r.classList.add('dt-in');
-    later(T.show, () => { if (state && !state.thrown) hide(); });
+    later(T.wait, () => { if (state && !state.thrown) hide(); });
     return true;
   }
 
@@ -315,14 +323,14 @@ const Darts = (() => {
 
   /* ---------- the thumb lifts: a tap, or a throw ---------- */
   function release(s, cancelled) {
-    if (state.thrown) { if (!cancelled) hide(); return; } // the score is up — any touch closes
+    if (state.thrown) { if (!cancelled) hide(); return; } // the score is up — any touch moves on
     const first = s[0], last = s[s.length - 1];
     const travel = Math.hypot(last.x - first.x, last.y - first.y);
     const speed = peakSpeed(s);
     if (travel < FLICK.minTravel || speed < FLICK.minSpeed) {
-      /* a tap: the card leaves — unless the browser cut the touch short,
-       * which is nobody's tap */
-      if (cancelled) ui.hint.hidden = false; else hide();
+      /* a tap, or a swipe that never got going: not a throw, and not a
+       * way out either — the × is; the hint comes back */
+      ui.hint.hidden = false;
       return;
     }
     /* the direction is the swipe's as a whole — where the thumb went,

@@ -1,17 +1,16 @@
 /* ============================================================
- * The dart game — the card that slides up after a report.
+ * The dart game — the full-screen card that slides up after a
+ * report.
  *
  * Self-contained and prefixed with .dt; darts.js builds the DOM
  * inside #darts, an overlay over the whole phone that catches the
- * flick (and the tap that closes it). Colours follow index.html.
+ * flick. Colours follow index.html (the Otto screen's backdrop).
  * ============================================================ */
 
 #darts {
   position: absolute;
   inset: 0;
   z-index: 15;
-  background: rgba(5, 8, 14, 0);
-  transition: background 280ms ease;
   touch-action: none;             /* the flick is ours, not the page's scroll */
   user-select: none;
   -webkit-user-select: none;
@@ -20,41 +19,47 @@
   color: #eef2f7;
 }
 #darts[hidden] { display: none; }
-#darts.dt-in { background: rgba(5, 8, 14, .5); }
 
-/* the card slides up from below the screen and back down again */
+/* the card is the whole screen; it slides up from below and back down */
 .dt-card {
   position: absolute;
-  left: 12px; right: 12px; bottom: 14px;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 0 calc(8px + env(safe-area-inset-bottom, 0px));
+  background: radial-gradient(130% 60% at 50% 0%, #101a2c 0%, #0a121d 55%, #070c14 100%);
   touch-action: none;
-  padding: 12px 14px 0;
-  border-radius: 22px;
-  background: #0a1220;            /* opaque: the REPORT button sits right under it */
-  border: 1px solid rgba(140, 165, 200, .22);
-  box-shadow: 0 -18px 50px rgba(0, 0, 0, .45);
   overflow: hidden;
-  transform: translateY(115%);
-  transition: transform 280ms cubic-bezier(.2, .8, .2, 1);
+  transform: translateY(100%);
+  transition: transform 300ms cubic-bezier(.2, .8, .2, 1);
 }
 #darts.dt-in .dt-card { transform: none; }
 #darts.dt-out .dt-card {
-  transform: translateY(115%);
+  transform: translateY(100%);
   transition-timing-function: cubic-bezier(.5, 0, .8, .4);
 }
 
-/* the one-line slot at the top: the tip Otto filed for the next driver */
+/* the top row: the one-line slot for the tip Otto filed, and the × */
+.dt-top {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 16px 4px;
+}
 .dt-tip {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: baseline;
   gap: 8px;
-  min-height: 22px;
   white-space: nowrap;
   overflow: hidden;
 }
 .dt-tip b {
   flex: none;
   font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-  font-size: 9px;
+  font-size: 9.5px;
   letter-spacing: .13em;
   font-weight: 400;
   color: #7fd6ea;
@@ -64,24 +69,40 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 13px;
+  font-size: 13.5px;
   color: #d8eef4;
 }
 .dt-tip-empty .dt-tip-text { color: #5f6b7a; }
+.dt-x {
+  flex: none;
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  border: 1px solid rgba(140, 165, 200, .3);
+  background: rgba(255, 255, 255, .05);
+  color: #cfe9f2;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.dt-x:active { background: rgba(255, 255, 255, .12); }
 
-/* the board */
+/* the board takes the middle of the screen */
 .dt-stage {
+  flex: 1;
+  min-height: 0;
   position: relative;
-  height: 236px;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 8px 16px;
 }
 .dt-board {
-  width: 220px;
-  height: 220px;
+  width: min(84%, 330px, calc(100dvh - 310px));
+  height: auto;
+  aspect-ratio: 1 / 1;
   display: block;
-  filter: drop-shadow(0 10px 24px rgba(0, 0, 0, .5));
+  filter: drop-shadow(0 14px 30px rgba(0, 0, 0, .55));
 }
 .dt-board.dt-hit { animation: dt-thud 240ms ease-out; }
 @keyframes dt-thud {
@@ -90,57 +111,28 @@
   100% { transform: scale(1); }
 }
 
-/* the score pops where the thumb just was — the hand zone, empty once
- * the dart has left it — so the board and the dart stuck in it stay in
- * full view */
-.dt-score {
-  position: absolute;
-  left: 50%; bottom: 22px;
-  transform: translateX(-50%);
-  text-align: center;
-  padding: 8px 18px;
-  border-radius: 16px;
-  background: rgba(5, 8, 14, .84);
-  border: 1px solid rgba(255, 217, 94, .5);
-  animation: dt-pop 320ms cubic-bezier(.2, 1.4, .4, 1);
-  pointer-events: none;
-}
-.dt-score[hidden] { display: none; }
-.dt-score-num {
-  display: block;
-  font-size: 42px;
-  font-weight: 800;
-  line-height: 1;
-  letter-spacing: .02em;
-  color: #ffd95e;
-}
-.dt-score-word { display: block; margin-top: 4px; font-size: 13px; color: #f4ead0; }
-.dt-score.dt-miss { border-color: rgba(140, 165, 200, .35); }
-.dt-score.dt-miss .dt-score-num { font-size: 30px; color: #94a1b2; }
-@keyframes dt-pop {
-  0% { transform: translateX(-50%) scale(.5); opacity: 0; }
-  100% { transform: translateX(-50%) scale(1); opacity: 1; }
-}
-
 /* the depot's best today */
 .dt-best {
-  min-height: 16px;
+  flex: none;
+  padding: 6px 16px;
   text-align: center;
   font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-  font-size: 10.5px;
+  font-size: 11px;
   letter-spacing: .08em;
   color: #ffd95e;
+  min-height: 16px;
 }
 
 /* the hand: where the dart waits, and the hint */
 .dt-hand {
-  height: 108px;
+  flex: none;
+  height: 150px;
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  padding-bottom: 12px;
+  padding-bottom: 18px;
 }
-.dt-hint { font-size: 12px; color: #94a1b2; }
+.dt-hint { font-size: 13px; color: #94a1b2; }
 .dt-hint[hidden] { display: none; }
 
 /* the dart: its point is the transform origin, so the flight moves the
@@ -148,7 +140,7 @@
 .dt-dart {
   position: absolute;
   left: calc(50% - 11px);
-  bottom: 38px;
+  bottom: calc(66px + env(safe-area-inset-bottom, 0px));
   width: 22px;
   height: 64px;
   transform-origin: 11px 0;
@@ -171,3 +163,36 @@
 }
 .dt-dart.dt-stuck svg, .dt-dart.dt-missed svg { transform: scale(.8); }
 .dt-dart.dt-missed { opacity: .55; }
+
+/* the score pops where the thumb just was — the hand zone, empty once
+ * the dart has left it — so the board and the dart stuck in it stay in
+ * full view */
+.dt-score {
+  position: absolute;
+  left: 50%;
+  bottom: calc(40px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  text-align: center;
+  padding: 10px 22px;
+  border-radius: 18px;
+  background: rgba(5, 8, 14, .84);
+  border: 1px solid rgba(255, 217, 94, .5);
+  animation: dt-pop 320ms cubic-bezier(.2, 1.4, .4, 1);
+  pointer-events: none;
+}
+.dt-score[hidden] { display: none; }
+.dt-score-num {
+  display: block;
+  font-size: 50px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: .02em;
+  color: #ffd95e;
+}
+.dt-score-word { display: block; margin-top: 4px; font-size: 14px; color: #f4ead0; }
+.dt-score.dt-miss { border-color: rgba(140, 165, 200, .35); }
+.dt-score.dt-miss .dt-score-num { font-size: 34px; color: #94a1b2; }
+@keyframes dt-pop {
+  0% { transform: translateX(-50%) scale(.5); opacity: 0; }
+  100% { transform: translateX(-50%) scale(1); opacity: 1; }
+}

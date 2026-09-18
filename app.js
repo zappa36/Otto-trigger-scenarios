@@ -1600,7 +1600,7 @@ function openReport() {
  * belongs to none, so it earns none — otherwise ten reports from the
  * road would be ten throws. The throw is tied to the stop's visit (the
  * Delivered tap) when it has one; darts.js keeps the rest of the rules:
- * once per stop, only while the phone is still, any tap dismisses. */
+ * once per stop, only while the phone is still, the × closes it. */
 function offerDartThrow() {
   if (typeof Darts === 'undefined' || settings.darts === false) return; // no darts.js on this page, or switched off
   const d = current; // the stop the report was filed against — null on the road
