@@ -1205,42 +1205,85 @@ async function branch(ctx, flags) {
 
 /* ---------- compare ---------- */
 
-export function compareResults(base, branch, margin = 0.1) {
-  const a = new Map((base.tests || []).map(t => [t.name, t]));
-  const b = new Map((branch.tests || []).map(t => [t.name, t]));
+/* The verdict on a branch run against the baseline — judged by ROW,
+ * not by test. A row is a situation (or a trigger scenario, or a lone
+ * regression test) with every driver type and every repeat together:
+ * twelve calls or more. A test is one driver type at three calls, and
+ * a score out of three can only be 0, 33, 67 or 100: losing one call
+ * by chance was a "33-point drop", and the same agent, unchanged,
+ * loses single calls on every run — so a per-test rule said REJECT to
+ * everything (run 62: eleven "drops", the totals two calls apart). A
+ * row counts as worse only when it loses more than `margin` of its
+ * calls (0.25: more than three of twelve). On top of that the total
+ * must not fall, and at least one row that was not perfect must gain.
+ * A test file without runs (rate only) is compared on its rate. */
+export function compareResults(base, branch, margin = 0.25) {
+  const num = x => (x == null || x === '' ? null : x);
+  const rowOf = t => (num(t.situation_num) != null ? `situation #${t.situation_num}${t.situation_title ? ' ' + t.situation_title : ''}`
+    : num(t.scenario_num) != null ? `scenario #${t.scenario_num}${t.scenario_title ? ' ' + t.scenario_title : ''}`
+      : String(t.name || t.test_id || '?'));
+  const tally = tests => {
+    const m = new Map();
+    for (const t of tests || []) {
+      const k = rowOf(t);
+      const g = m.get(k) || { name: k, runs: 0, passed: 0, rateSum: 0, n: 0, why: '' };
+      const runs = Number(t.runs) || 0;
+      const rate = Number(t.pass_rate) || 0;
+      g.runs += runs; g.passed += runs ? (t.passed != null ? Number(t.passed) || 0 : Math.round(rate * runs)) : 0;
+      g.rateSum += rate; g.n++;
+      if (!g.why) g.why = (t.rationales && t.rationales[0]) || t.why || '';
+      m.set(k, g);
+    }
+    for (const g of m.values()) g.rate = g.runs ? g.passed / g.runs : (g.n ? g.rateSum / g.n : 0);
+    return m;
+  };
+  const a = tally(base.tests), b = tally(branch.tests);
   const names = [...new Set([...a.keys(), ...b.keys()])].sort();
   const rows = names.map(name => {
     const x = a.get(name), y = b.get(name);
-    const delta = x && y ? y.pass_rate - x.pass_rate : null;
+    const delta = x && y ? y.rate - x.rate : null;
     return {
-      name, base: x ? x.pass_rate : null, branch: y ? y.pass_rate : null, delta,
+      name, base: x ? x.rate : null, branch: y ? y.rate : null, delta,
+      calls: y ? `${y.passed}/${y.runs}` : (x ? `–/${x.runs}` : ''),
+      lost: x && y ? Math.max(0, x.passed - y.passed) : 0,
       dropped: delta != null && delta < -margin - 1e-9,
-      improved: delta != null && x.pass_rate < 1 - 1e-9 && delta > 1e-9,
-      why: y && y.rationales && y.rationales[0] ? y.rationales[0] : '',
+      improved: delta != null && x.rate < 1 - 1e-9 && delta > 1e-9,
+      why: y ? y.why : '',
     };
   });
+  const both = rows.filter(r => r.base != null && r.branch != null);
+  const sum = (m, keys) => keys.reduce((o, k) => { const g = m.get(k); o.passed += g.passed; o.runs += g.runs; o.rate += g.rate; return o; }, { passed: 0, runs: 0, rate: 0 });
+  const A = sum(a, both.map(r => r.name)), B = sum(b, both.map(r => r.name));
+  const totalA = A.runs ? A.passed / A.runs : (both.length ? A.rate / both.length : 0);
+  const totalB = B.runs ? B.passed / B.runs : (both.length ? B.rate / both.length : 0);
+  const totalDown = totalB < totalA - 1e-9;
   const drops = rows.filter(r => r.dropped), improved = rows.filter(r => r.improved);
   const wasFailing = rows.filter(r => r.base != null && r.base < 1 - 1e-9);
-  const accept = !drops.length && improved.length > 0;
-  const reason = drops.length ? `${drops.length} test(s) dropped by more than ${Math.round(margin * 100)} points`
-    : !wasFailing.length ? 'nothing was failing on the base run, so there is nothing for the branch to improve'
-      : !improved.length ? 'no previously failing test improved'
-        : `${improved.length} previously failing test(s) improved and none dropped by more than ${Math.round(margin * 100)} points`;
-  return { rows, accept, reason, drops: drops.length, improved: improved.length };
+  const unit = rows.length && rows.every(r => /^situation #/.test(r.name)) ? 'situation' : 'row';
+  const pts = Math.round(margin * 100);
+  const totals = A.runs ? `${B.passed} of ${B.runs} calls against ${A.passed} of ${A.runs}` : `${Math.round(totalB * 100)}% against ${Math.round(totalA * 100)}%`;
+  const accept = !drops.length && !totalDown && improved.length > 0;
+  const reason = drops.length ? `${drops.length} ${unit}(s) dropped by more than ${pts} points (${drops.map(r => `${r.name.replace(/^(situation|scenario) /, '')}: −${r.lost} call${r.lost === 1 ? '' : 's'}`).slice(0, 4).join(', ')}${drops.length > 4 ? ', …' : ''})`
+    : totalDown ? `the branch passed fewer calls overall: ${totals}`
+      : !wasFailing.length ? 'nothing was failing on the base run, so there is nothing for the branch to improve'
+        : !improved.length ? `no ${unit} improved (${totals})`
+          : `${improved.length} ${unit}(s) improved, none dropped by more than ${pts} points, and the total went up: ${totals}`;
+  return { rows, accept, reason, drops: drops.length, improved: improved.length, totalDown, totals: { base: totalA, branch: totalB } };
 }
 
 async function compare(ctx, flags) {
   const { log } = ctx;
   if (!flags.base || !flags.branch) throw new UsageError('--base FILE and --branch FILE are both required (two results/ files)');
-  const margin = flags.margin != null ? Number(flags.margin) : 0.1;
-  if (Number.isNaN(margin) || margin < 0 || margin > 1) throw new UsageError('--margin is a fraction, 0.1 = ten points');
+  const margin = flags.margin != null ? Number(flags.margin) : 0.25;
+  if (Number.isNaN(margin) || margin < 0 || margin > 1) throw new UsageError('--margin is a fraction of a row\'s calls, 0.25 = a quarter (more than three of twelve is a drop)');
   const base = readJson(flags.base), branch = readJson(flags.branch);
   const { rows, accept, reason } = compareResults(base, branch, margin);
   log(`compare — base ${path.basename(flags.base)} (${base.label || ''}) vs branch ${path.basename(flags.branch)} (${branch.label || ''}${branch.branch_id ? ', ' + branch.branch_id : ''})\n`);
   log(table(rows, [
-    { key: 'name', label: 'test', width: 52 },
+    { key: 'name', label: 'situation / row (every driver type and repeat together)', width: 52 },
     { get: r => pct(r.base), label: 'base', width: 5, right: true },
     { get: r => pct(r.branch), label: 'branch', width: 6, right: true },
+    { key: 'calls', label: 'calls', width: 7, right: true },
     { get: r => (r.delta == null ? 'n/a' : signed(r.delta * 100)), label: 'delta', width: 5, right: true },
     { get: r => (r.dropped ? '✗ dropped' : r.improved ? '✓ improved' : ''), label: '', width: 10 },
     { key: 'why', label: 'why (branch, first failure)', width: 60 },
@@ -1469,7 +1512,7 @@ const USAGE = `usage: node loop.mjs <command> [--dry-run] [--dir DIR] [flags]
   cut        [--field FILE]
   propose    [--results FILE] [--field FILE] [--prompt FILE | --agent] [--quiet]
   branch     --proposal FILE [--name TEXT]
-  compare    --base FILE --branch FILE [--margin 0.1]
+  compare    --base FILE --branch FILE [--margin 0.25]   (by situation: a drop is more than a quarter of its calls lost)
   promote    --branch ID|NAME [--target BRANCH_ID] [--force] [--quiet]
   publish    [--results FILE] [--run-url URL] [--verdict accept|reject] [--reason TEXT]
 

@@ -408,9 +408,12 @@ the safe way to see what a command does.
    prompt on an agent **branch** cut from the version the agent is on;
    `run --branch ID --label branch` runs the suite there; `compare
    --base results/<main>.json --branch results/<branch>.json` says
-   **ACCEPT** when no test drops by more than the margin (ten points;
-   `--margin 0.1`) *and* at least one previously failing test
-   improves, **REJECT** otherwise (exit 1). `promote --branch ID
+   **ACCEPT** when no situation (every driver type and repeat
+   together, twelve calls or more) loses more than a quarter of its
+   calls (`--margin 0.25`), the total does not fall, *and* at least one
+   situation improves; **REJECT** otherwise (exit 1). Judged by
+   situation, not by test: a test is three calls, and the same agent
+   loses single calls by chance on every run. `promote --branch ID
    --proposal FILE` merges into the agent's main branch and archives
    the branch — by hand, every time; nothing in the loop touches the
    live prompt on its own — and tells you to pull the config into git
