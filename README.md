@@ -919,27 +919,24 @@ route columns (`route`, `stop`) and the `visits` table.
 
 A report is a small chore, and drivers are on their own all day. So
 the moment the REPORT call's screen closes, a full-screen card slides
-up with a dartboard. The throw is by voice, and needs no eyes: Otto
-counts one to five and back, in his own voice, and the driver says
-"stop" on the number they want — "Height, bottom to top: one, two,
-three…" — stop — "Side, left to right: one…" — stop — "Strength:
-one…" — stop, and the dart flies. Three and three is the middle; on
-the strength meter four is the sweet spot (its green band lands the
-dart where it was aimed, weaker falls short, harder flies high), so
-"three, three, four" is the perfect throw, if the timing is right —
-the count moves on every 0.7 seconds. The phone does not have to
-understand the word: any sharp rise above the last half second is a
-stop (a whistle, a tongue click), measured on the phone as a level,
-nothing recorded — which is instant, and works in the Android app,
-where browsers cannot recognise speech. A tap is a stop too, for a
-loud street or a phone that refuses the microphone. Otto's sentences
-shut the ear while he speaks, and the ear looks away for the first
-moment of each number he counts, so his own voice is never a stop.
-The numbers are clips from the reading function (his real voice),
-fetched once per session; without it the phone's own voice counts.
-On screen there is only Otto then, as on the report call: his face
-and the words — his lines and his count as he says them, each stop as
-the driver's line — no board, nothing to look at. Switched off in settings,
+up with a dartboard. The throw is by voice, and needs no eyes: a sound
+travels from the left ear to the right and back — say "stop" when it
+is in the middle, and that is the side — then a tone climbs from low
+to high and back — "stop" in the middle, and that is the height. The
+dart lands where the two stops put it; a stop in the middle both
+times is the bullseye. The sounds are the phone's own: left-to-right
+is stereo, so it needs earbuds or a phone with two speakers, while
+low-to-high works through anything. The phone does not have to
+understand the word: any sharp jump above what was there a moment ago
+is a stop (a whistle, a tongue click), measured on the phone as a
+level, nothing recorded — which is instant, and works in the Android
+app, where browsers cannot recognise speech. A tap is a stop too, for
+a loud street or a phone that refuses the microphone. Otto's sentences
+shut the ear while he speaks, and when a sound starts the ear takes
+its level at once, so the phone's own sound is never a stop. On screen
+there is only Otto then, as on the report call: his face and the
+words — his lines, each stop as the driver's line — no board, nothing
+to look at. Switched off in settings,
 the throw is a flick instead: the dart rides under the thumb, follows
 the drag, and flies on from where it is let go while moving — the
 speed and the direction at that moment decide where it lands, and

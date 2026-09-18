@@ -247,54 +247,6 @@
   100% { transform: scale(1); opacity: 1; }
 }
 
-/* ---------- the voice throw ---------- */
-/* the sweeping lines and the aim, drawn on the board */
-.dt-sw-y, .dt-sw-x {
-  display: none;
-  stroke: #ffd95e;
-  stroke-width: 2.5;
-  stroke-linecap: round;
-  filter: drop-shadow(0 0 4px rgba(255, 217, 94, .85));
-}
-.dt-sw-y.dt-on, .dt-sw-x.dt-on { display: inline; }
-.dt-sw-y.dt-set, .dt-sw-x.dt-set { display: inline; stroke-opacity: .5; stroke-width: 1.5; filter: none; }
-.dt-aim { display: none; fill: none; stroke: #ffd95e; stroke-width: 2.5; filter: drop-shadow(0 0 4px rgba(255, 217, 94, .85)); }
-.dt-aim.dt-on { display: inline; }
-
-/* the strength meter, in the best-today line's place */
-.dt-meter {
-  position: absolute;
-  left: 40px; right: 40px;
-  bottom: calc(166px + env(safe-area-inset-bottom, 0px));
-  height: 16px;
-  border-radius: 999px;
-  border: 1px solid rgba(140, 165, 200, .3);
-  background: rgba(140, 165, 200, .16);
-  overflow: hidden;
-}
-.dt-meter[hidden] { display: none; }
-.dt-meter-sweet {
-  position: absolute;
-  top: 0; bottom: 0;
-  background: rgba(70, 211, 154, .35);
-  border-left: 1px solid rgba(70, 211, 154, .85);
-  border-right: 1px solid rgba(70, 211, 154, .85);
-}
-.dt-meter-fill {
-  position: absolute;
-  top: 0; bottom: 0; left: 0;
-  width: 0;
-  background: linear-gradient(90deg, #ffd95e, #ff8c5e);
-}
-
-/* the step the driver is at, said the way the chips say things */
-.dt-hint.dt-say {
-  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-  font-size: 13px;
-  letter-spacing: .14em;
-  color: #ffd95e;
-}
-
 /* ---------- Otto on the screen (the voice throw) ----------
  * By voice the card shows nothing but Otto — the voice widget's own
  * orb and bubbles (voice-note.css) — and the words. The board and the
