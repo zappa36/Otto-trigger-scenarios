@@ -58,12 +58,14 @@ const nearSince = new Map(); // destination id -> first fix time inside the arri
 const localId = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
 /* ---------- settings (this phone) ----------
- * Two things a driver sets once, on the ⚙ sheet: their first name, for
- * the dart game's scoreboard ("someone" until they do), and whether the
- * game plays at all after a report — on unless switched off. Per phone,
- * in localStorage, like the language and the route toggle. */
+ * What a driver sets once, on the ⚙ sheet: their first name, for the
+ * dart game's scoreboard ("someone" until they do), whether the game
+ * plays at all after a report, and whether the dart is thrown by voice
+ * (three "stop"s: height, side, strength) or by a flick of the thumb —
+ * both on unless switched off. Per phone, in localStorage, like the
+ * language and the route toggle. */
 const LS_SETTINGS = 'od_settings';
-const settings = { name: '', darts: true };
+const settings = { name: '', darts: true, voice: true };
 try { Object.assign(settings, JSON.parse(localStorage.getItem(LS_SETTINGS) || '{}')); } catch { /* private mode */ }
 const saveSettings = () => { try { localStorage.setItem(LS_SETTINGS, JSON.stringify(settings)); } catch { /* private mode */ } };
 const playerName = () => String(settings.name || '').trim().slice(0, 24) || 'someone';
@@ -1605,7 +1607,8 @@ function offerDartThrow() {
   if (typeof Darts === 'undefined' || settings.darts === false) return; // no darts.js on this page, or switched off
   const d = current; // the stop the report was filed against — null on the road
   if (!d) return;
-  Darts.offer({ stop: d, visit: visitsByDest[d.id] || null, player: playerName() });
+  warmReadingVoice(); // Otto calls the throw in his own voice — boot the function now
+  Darts.offer({ stop: d, visit: visitsByDest[d.id] || null, player: playerName(), voice: settings.voice !== false });
 }
 
 /* Always on the map, never over Otto — the one thing on this screen
@@ -1837,7 +1840,7 @@ el('build').onclick = async () => {
    * "the flick does nothing" then comes with something to read */
   if (typeof Darts !== 'undefined' && Darts.stats) {
     const st = Darts.stats();
-    out.push('dart game: ' + (settings.darts === false ? 'OFF' : 'on') + ' · ' + st.flicks + ' flick' + (st.flicks === 1 ? '' : 's')
+    out.push('dart game: ' + (settings.darts === false ? 'OFF' : 'on') + ' · ' + (settings.voice === false ? 'thrown by flick' : 'thrown by voice, mic ' + (st.mic || 'not tried yet')) + ' · ' + st.flicks + ' flick' + (st.flicks === 1 ? '' : 's')
       + ' seen · a normal flick is ' + st.sweet + ' px/ms'
       + (st.last ? ' · last throw ' + st.last.speed + ' px/ms = ' + st.last.pts + ' pts' : '')
       + ' · pointer events: ' + (typeof PointerEvent !== 'undefined' ? 'yes' : 'NO (touch fallback)'));
@@ -1889,16 +1892,19 @@ if (el('settings-chip') && el('settings')) {
     if (!sheet.hidden) { sheet.hidden = true; return; }
     el('st-name').value = settings.name || '';
     el('st-darts').checked = settings.darts !== false;
+    if (el('st-voice')) el('st-voice').checked = settings.voice !== false;
     el('card').hidden = true; // same slot
     sheet.hidden = false;
   };
   el('st-close').onclick = () => { el('settings').hidden = true; };
   el('st-name').oninput = () => { settings.name = el('st-name').value.trim().slice(0, 24); saveSettings(); };
   el('st-darts').onchange = () => { settings.darts = el('st-darts').checked; saveSettings(); };
+  if (el('st-voice')) el('st-voice').onchange = () => { settings.voice = el('st-voice').checked; saveSettings(); };
   /* see the game before a report earns a throw — nothing is saved */
   el('st-practice').onclick = () => {
     el('settings').hidden = true;
-    if (typeof Darts !== 'undefined') Darts.practice({ player: playerName() });
+    warmReadingVoice();
+    if (typeof Darts !== 'undefined') Darts.practice({ player: playerName(), voice: settings.voice !== false });
   };
 }
 
