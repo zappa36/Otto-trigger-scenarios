@@ -478,9 +478,19 @@ function situationConditions({ row, d, persona }) {
   c.push(control
     ? 'LENGTH — after his opening message Otto asks at most one question, then closes. Two or more questions fails.'
     : 'LENGTH — after the driver has said what happened, Otto asks at most three follow-up questions in total, one at a time (two questions in one turn count as two), and then he closes. One good question is enough when the driver has already said the rest. His opening greeting — “Hello! How can I help you today?” or similar — is not a follow-up and does not count. Four or more follow-up questions fails.');
+  /* The tip on the sheet is a checklist only of what the driver actually
+   * said in THIS call: the simulated driver gives a fact only when asked,
+   * so a fact Otto never asked about is not in the call, and a tip that
+   * omits it is not a worse tip — the first baselines failed closings
+   * for "omits the two-month duration" and "omits the address" that
+   * nobody had mentioned. The address is dropped from the yardstick
+   * altogether (both sides know which stop this is; on the phone it is
+   * never said), and the check says what fails: no tip, a wrong tip, or
+   * thanks alone. */
+  const tipBody = noStop(row.tip).replace(/^[^:]{3,48}:\s+(?=[a-zäöü])/, '');
   c.push(control
     ? `CLOSE — Otto ends by confirming that there is nothing to note about ${where} and lets the driver go with a short goodbye. Inventing a tip for a stop where nothing happened fails.`
-    : `CLOSE — Otto ends by confirming the tip in one line — what the next driver should know about ${where} — and it is consistent with what the driver said (for this situation something like: “${noStop(row.tip)}”; equivalent wording is fine, the facts are what count). Then he lets the driver go with a short goodbye.`);
+    : `CLOSE — Otto ends by confirming the tip in one line — what the next driver should know about ${where} — and it is consistent with what the driver said. For this situation the tip is something like: “${tipBody}”; equivalent wording is fine. Judge it only on what the driver said in this conversation: a fact the driver never mentioned is not missing, and the address need not be said, both sides know which stop this is. What fails: no tip at all, a tip that contradicts the driver, or a closing that is only thanks. Then he lets the driver go with a short goodbye.`);
   if (persona.id === 'vague') {
     c.push('OPEN QUESTION FIRST — the driver\'s first words do not say what happened, so before asking anything specific Otto asks one open question to find out ("What happened?", "What did you run into?"). Guessing at a problem, or asking a specific question about something the driver has not described yet, fails.');
   }

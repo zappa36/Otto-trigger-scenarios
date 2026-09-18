@@ -559,6 +559,8 @@ to hold:
    said what happened; one good one is enough, and the opening greeting
    does not count.
 6. **Close** — the tip confirmed in one line, then the driver let go.
+   Judged on what the driver said in that call: a fact the driver never
+   gave is not missing, and the address need not be said.
 
 The control row swaps the first, fifth and sixth for "accept that there
 is nothing to report and let them go"; the vague voice adds a seventh —
