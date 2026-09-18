@@ -264,5 +264,26 @@ const Backend = (() => {
     }),
     deleteVisit: id => rest('/rest/v1/visits?id=eq.' + encodeURIComponent(id), { method: 'DELETE' }),
     listVisits: limit => rest(`/rest/v1/visits?select=*&order=created_at.desc&limit=${limit || 1000}`),
+
+    /* ---------- the dart game (darts.js) ----------
+     * One row per dart thrown after a report: the stop, the visit the
+     * throw is tied to, who threw (a first name from settings, else
+     * "someone") and the score. Nothing updates or deletes a throw.
+     * The two reads are the card's two questions — has this stop had
+     * its throw today, and what is the depot's best today — boxed, so
+     * a slow network delays the card by seconds at most. A 404 means
+     * the table is not created yet: paste its block of schema.sql
+     * into the SQL editor. */
+    insertDartThrow: row => rest('/rest/v1/dart_throws', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify([row]),
+    }),
+    dartThrowsFor: (destId, sinceISO) => rest('/rest/v1/dart_throws?select=id,visit_id,destination_id,thrown_at'
+      + '&destination_id=eq.' + encodeURIComponent(destId)
+      + '&thrown_at=gte.' + encodeURIComponent(sinceISO) + '&limit=20', { signal: timeoutSignal(3000) }),
+    bestDartToday: sinceISO => rest('/rest/v1/dart_throws?select=player,score,thrown_at'
+      + '&thrown_at=gte.' + encodeURIComponent(sinceISO)
+      + '&order=score.desc,thrown_at.asc&limit=1', { signal: timeoutSignal(3000) }),
   };
 })();
