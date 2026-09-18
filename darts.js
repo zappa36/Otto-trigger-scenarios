@@ -5,9 +5,12 @@
  *
  * A report is a chore: the driver pressed REPORT, told Otto what
  * they found, and got the route back. Now they get a dart first.
- * A full-screen card slides up with a board; one flick of the thumb
- * throws, and the speed and the angle of the flick decide where it
- * lands. Rings score, the bullseye most, a miss nothing. The score
+ * A full-screen card slides up with a board. The dart rides under
+ * the thumb — it follows the drag, tilting into its direction — and
+ * when the thumb lets go while it is moving, it flies on from there:
+ * the speed and the direction at that moment decide where it lands.
+ * Let go standing still and it drifts back to the hand instead.
+ * Rings score, the bullseye most, a miss nothing. The score
  * shows for a second, then the card slides away by itself. Before
  * the throw the × in the corner closes it (a tap elsewhere does
  * nothing — it may be a flick that never got going), and a card
@@ -61,21 +64,29 @@ const Darts = (() => {
     still: 40e3,  // ms — how long to wait for the phone to stand still
     box: 3000,    // ms — a network answer later than this is not waited for
   };
-  /* A flick is a swipe at least this far and this fast (CSS px per
-   * ms). Slower is a tap, and a tap closes the card. Speed is the
-   * fastest `span` ms of the swipe, not its average: a thumb slows
-   * down just before it lifts, and an average over that tail read
-   * every real flick as a weak one. `sweet` is the speed that carries
-   * the dart exactly to the centre — faster overshoots, slower falls
-   * short — but only the default: after a few throws the phone's own
-   * usual flick (the median of the last ten, LS_FLICKS) becomes the
-   * sweet spot, so a normal flick for THIS thumb on THIS screen lands
-   * near the middle, whatever its pixel speed. `curve` keeps it
-   * forgiving (twice the speed is 32 % more distance), `reach` keeps
-   * any speed at all on the card, and `aim` softens the sideways
-   * part of a flick — thumbs arc, and a dart a few degrees off should
-   * still make the board. */
-  const FLICK = { minTravel: 20, minSpeed: 0.2, sweet: 2, span: 40, curve: 0.4, reach: [0.35, 1.7], aim: 0.75 };
+  /* A throw is a drag that is still moving when the thumb lets go:
+   * the dart's speed at that moment (CSS px per ms — a straight line
+   * fitted through the last `window` ms of the drag, which shrugs off
+   * the jitter a two-point difference would amplify) and its
+   * direction. Slower than `minSpeed`, or a drag shorter than
+   * `minTravel`, and the dart was set down, not thrown: it drifts back
+   * to the hand. The speed decides how far the dart travels IN ALL,
+   * hand to landing, and the stretch it was carried under the thumb
+   * counts towards that — so a normal flick lands the same whether it
+   * was let go early or late, and carrying the dart onto the board
+   * and dropping it there earns nothing (it still flies `minFlight`
+   * on). `sweet` is the speed whose distance is exactly hand to
+   * centre — faster overshoots, slower falls short — but only the
+   * default: after a few throws the phone's own usual release speed
+   * (the median of the last ten, LS_FLICKS) becomes the sweet spot, so
+   * a normal flick for THIS thumb on THIS screen lands near the
+   * middle, whatever its pixel speed. `curve` keeps it forgiving
+   * (twice the speed is 32 % more distance), `reach` keeps any speed
+   * at all on the card, and `aim` softens the sideways part of a
+   * throw — thumbs arc, and a dart a few degrees off should still
+   * make the board. */
+  const FLICK = { minTravel: 20, minSpeed: 0.2, minFlight: 24, sweet: 2, window: 100, hold: 80, curve: 0.4, reach: [0.35, 1.7], aim: 0.75 };
+  const HINTS = { idle: 'flick the dart up', still: 'let go while the dart is still moving' };
   const LS_FLICKS = 'od_dart_flicks';
   const flicks = () => { try { return (JSON.parse(localStorage.getItem(LS_FLICKS)) || []).filter(v => v > 0); } catch { return []; } };
   const rememberFlick = v => { try { localStorage.setItem(LS_FLICKS, JSON.stringify([...flicks(), v].slice(-10))); } catch { /* private mode */ } };
@@ -182,7 +193,8 @@ const Darts = (() => {
                         // depot when Otto takes the screen must not show up over him
   let tip = '';
   let down = null;      // where the thumb came down
-  let samples = null;   // its last moments before lifting
+  let samples = null;   // the drag, sample by sample
+  let drag = null;      // while the thumb holds the dart: { fx, fy, angle, raf }
 
   function build() {
     const r = root();
@@ -195,7 +207,7 @@ const Darts = (() => {
         </div>
         <div class="dt-stage">${boardSvg()}</div>
         <div class="dt-best"></div>
-        <div class="dt-hand"><span class="dt-hint">flick up to throw</span></div>
+        <div class="dt-hand"><span class="dt-hint">${HINTS.idle}</span></div>
         <div class="dt-dart">${DART_SVG}</div>
         <div class="dt-score" hidden><b class="dt-score-num"></b><span class="dt-score-word"></span></div>
       </div>`;
@@ -210,21 +222,39 @@ const Darts = (() => {
     const onX = t => !!(t && t.closest && t.closest('.dt-x'));
     const start = (x, y) => {
       if (!state) return;
+      if (state.thrown) { hide(); return; } // the score is up — any touch moves on
       down = { t: now(), x, y };
       samples = [down];
+      drag = { fx: x, fy: y, angle: -9, raf: 0 };
+      /* the thumb has the dart: the bob stops, and from here on the
+       * transform is written by hand, without transitions */
+      ui.dart.classList.add('dt-held');
+      ui.dart.style.transition = 'none';
+      ui.dart.style.transform = 'translate(0px, 0px) rotate(-9deg)';
       ui.hint.hidden = true;
     };
     const move = (x, y) => {
-      if (!samples) return;
+      if (!samples || !drag) return;
       samples.push({ t: now(), x, y });
-      if (samples.length > 40) samples.splice(0, samples.length - 40);
+      if (samples.length > 60) samples.splice(0, samples.length - 60);
+      drag.fx = x;
+      drag.fy = y;
+      if (!drag.raf) drag.raf = requestAnimationFrame(follow);
     };
     const end = (x, y, cancelled) => {
-      const s = samples;
+      const s = samples, d = drag;
       samples = null;
-      if (!s || !state) return;
-      s.push({ t: now(), x, y });
-      release(s, cancelled);
+      drag = null;
+      if (d && d.raf) cancelAnimationFrame(d.raf);
+      if (!s || !d || !state) return;
+      /* the lift adds a sample only if the thumb moved since the last
+       * one: a lift at the same spot a few ms later says nothing about
+       * speed and would only flatten it. A thumb that PAUSED before
+       * lifting sends no moves at all while it rests — the gap between
+       * the last move and the lift is what says it stood still. */
+      const prev = s[s.length - 1], t = now();
+      if (x !== prev.x || y !== prev.y) s.push({ t, x, y });
+      release(s, cancelled, t - s[s.length - 1].t > FLICK.hold);
     };
     if (typeof PointerEvent !== 'undefined') {
       r.addEventListener('pointerdown', e => {
@@ -253,21 +283,39 @@ const Darts = (() => {
     return true;
   }
 
-  /* the speed of a swipe: its fastest stretch of at least `span` ms —
-   * the whole swipe when it was over faster than that */
-  function peakSpeed(s) {
-    let best = 0;
-    for (let i = 0; i < s.length - 1; i++) {
-      for (let j = i + 1; j < s.length; j++) {
-        const dt = s[j].t - s[i].t;
-        if (dt < FLICK.span) continue;
-        best = Math.max(best, Math.hypot(s[j].x - s[i].x, s[j].y - s[i].y) / dt);
-        break;
-      }
+  /* The dart under the thumb: it moves exactly as the thumb moves —
+   * from wherever it rests, so the thumb need not cover it — and tilts
+   * into the direction it is heading, eased so a jittery thumb does
+   * not make it twitch. One update per frame, however many events. */
+  function follow() {
+    if (!drag) return;
+    drag.raf = 0;
+    const dx = drag.fx - down.x, dy = drag.fy - down.y;
+    const v = velocity(samples, 60);
+    if (Math.hypot(v.vx, v.vy) > 0.15) {
+      const target = Math.atan2(v.vx, -v.vy) * 180 / Math.PI;
+      const turn = ((target - drag.angle + 540) % 360) - 180; // the short way round
+      drag.angle += turn * 0.35;
     }
-    if (best > 0) return best;
-    const a = s[0], b = s[s.length - 1];
-    return Math.hypot(b.x - a.x, b.y - a.y) / Math.max(1, b.t - a.t);
+    ui.dart.style.transform = `translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px) rotate(${drag.angle.toFixed(1)}deg)`;
+  }
+
+  /* the dart's velocity (px per ms) over the last `win` ms of the drag:
+   * a straight line fitted through the samples in that window */
+  function velocity(s, win) {
+    const last = s[s.length - 1];
+    let pts = s.filter(p => last.t - p.t <= win);
+    if (pts.length < 2) pts = s.slice(-2);
+    if (pts.length < 2) return { vx: 0, vy: 0 };
+    const t0 = pts[0].t;
+    let n = 0, st = 0, sx = 0, sy = 0, stt = 0, stx = 0, sty = 0;
+    pts.forEach(p => { const t = p.t - t0; n++; st += t; sx += p.x; sy += p.y; stt += t * t; stx += t * p.x; sty += t * p.y; });
+    const den = n * stt - st * st;
+    if (den < 1e-6) {
+      const a = pts[0], dt = Math.max(1, last.t - a.t);
+      return { vx: (last.x - a.x) / dt, vy: (last.y - a.y) / dt };
+    }
+    return { vx: (n * stx - st * sx) / den, vy: (n * sty - st * sy) / den };
   }
 
   const later = (ms, fn) => { if (state) state.timers.push(setTimeout(fn, ms)); };
@@ -281,7 +329,10 @@ const Darts = (() => {
     ui.score.hidden = true;
     ui.score.classList.remove('dt-miss');
     ui.board.classList.remove('dt-hit');
+    ui.hint.textContent = HINTS.idle;
     ui.hint.hidden = false;
+    if (drag && drag.raf) cancelAnimationFrame(drag.raf);
+    drag = null;
     samples = null;
     down = null;
   }
@@ -299,7 +350,12 @@ const Darts = (() => {
     r.hidden = false;
     void r.offsetHeight; // the slide needs a frame in the hidden position first
     r.classList.add('dt-in');
-    later(T.wait, () => { if (state && !state.thrown) hide(); });
+    const leaveIfIdle = () => {
+      if (!state || state.thrown) return;
+      if (drag) { later(5000, leaveIfIdle); return; } // never yank a dart out of a hand
+      hide();
+    };
+    later(T.wait, leaveIfIdle);
     return true;
   }
 
@@ -321,47 +377,68 @@ const Darts = (() => {
     }, T.slide + 40);
   }
 
-  /* ---------- the thumb lifts: a tap, or a throw ---------- */
-  function release(s, cancelled) {
-    if (state.thrown) { if (!cancelled) hide(); return; } // the score is up — any touch moves on
+  /* ---------- the thumb lets go: a throw, or a dart set down ---------- */
+  function release(s, cancelled, paused) {
+    if (state.thrown) return;
     const first = s[0], last = s[s.length - 1];
-    const travel = Math.hypot(last.x - first.x, last.y - first.y);
-    const speed = peakSpeed(s);
-    if (travel < FLICK.minTravel || speed < FLICK.minSpeed) {
-      /* a tap, or a swipe that never got going: not a throw, and not a
-       * way out either — the × is; the hint comes back */
-      ui.hint.hidden = false;
-      return;
-    }
-    /* the direction is the swipe's as a whole — where the thumb went,
-     * which is where the driver aimed */
-    throwDart((last.x - first.x) / travel, (last.y - first.y) / travel, speed);
+    const off = { x: last.x - first.x, y: last.y - first.y }; // where the thumb carried the dart
+    const v = velocity(s, FLICK.window);
+    const speed = Math.hypot(v.vx, v.vy);
+    if (paused || Math.hypot(off.x, off.y) < FLICK.minTravel || speed < FLICK.minSpeed) { settle(cancelled); return; }
+    throwDart(v.vx / speed, v.vy / speed, speed, off);
   }
 
-  function throwDart(ux, uy, speed) {
+  /* set down rather than thrown, or the browser cut the touch short:
+   * the dart drifts back to the hand, the hint says what a throw needs,
+   * and nothing is spent */
+  function settle(cancelled) {
+    ui.dart.style.transition = 'transform 320ms cubic-bezier(.2, .8, .3, 1)';
+    ui.dart.style.transform = 'translate(0px, 0px) rotate(-9deg)';
+    ui.hint.textContent = cancelled ? HINTS.idle : HINTS.still;
+    ui.hint.hidden = false;
+    later(340, () => {
+      if (!state || state.thrown || drag) return;
+      /* back in the hand: the bob resumes from its first frame, which
+       * is the very pose the dart settled into */
+      ui.dart.style.transition = 'none';
+      ui.dart.style.transform = '';
+      ui.dart.classList.remove('dt-held');
+      void ui.dart.offsetWidth;
+      ui.dart.style.transition = '';
+    });
+  }
+
+  function throwDart(ux, uy, speed, off) {
     state.thrown = true;
     state.timers.forEach(clearTimeout);
     state.timers = [];
     ui.hint.hidden = true;
     const card = ui.card.getBoundingClientRect();
     const board = ui.board.getBoundingClientRect();
-    /* launch = the dart's point, where it rests in the hand (its
-     * transform origin, so a rotation keeps the point where it landed) */
+    /* the dart's point at rest in the hand (its transform origin, so a
+     * rotation keeps the point where it is), and where the thumb has
+     * carried it — which is where the flight begins */
     const L = { x: ui.dart.offsetLeft + ui.dart.offsetWidth / 2, y: ui.dart.offsetTop };
+    const from = { x: L.x + off.x, y: L.y + off.y };
     const C = { x: board.left + board.width / 2 - card.left, y: board.top + board.height / 2 - card.top };
     const R = board.width / 2 * (100 / 110); // the SVG keeps a 10-unit margin round the rim
+    /* hand to centre is the yardstick: the sweet speed travels exactly
+     * that far in all, the carried stretch included */
     const D = Math.hypot(C.x - L.x, C.y - L.y);
-    const dist = D * clamp(Math.pow(speed / sweetSpeed(), FLICK.curve), FLICK.reach[0], FLICK.reach[1]);
-    rememberFlick(speed); // this thumb's usual flick becomes the sweet spot
-    const P = { x: L.x + ux * FLICK.aim * dist, y: L.y + uy * dist };
+    const total = D * clamp(Math.pow(speed / sweetSpeed(), FLICK.curve), FLICK.reach[0], FLICK.reach[1]);
+    const flight = Math.max(FLICK.minFlight, total - Math.hypot(off.x, off.y));
+    rememberFlick(speed); // this thumb's usual release becomes the sweet spot
+    const P = { x: from.x + ux * FLICK.aim * flight, y: from.y + uy * flight };
     const bx = (P.x - C.x) / R * 100, by = (P.y - C.y) / R * 100;
     const ring = RINGS.find(g => Math.hypot(bx, by) <= g.r) || MISS;
     /* a miss still lands somewhere on the card, not off the screen */
     const to = { x: clamp(P.x, 12, card.width - 12), y: clamp(P.y, 12, card.height - 24) };
     const angle = Math.atan2(ux, -uy) * 180 / Math.PI; // 0 = straight up
     state.speed = Math.round(speed * 100) / 100;
+    /* the flight carries on from under the thumb: the same transform
+     * shape the drag wrote, so the transition runs on from there */
     ui.dart.classList.add('dt-flying');
-    ui.dart.style.transition = `transform ${T.flight}ms cubic-bezier(.15, .75, .35, 1)`;
+    ui.dart.style.transition = `transform ${T.flight}ms cubic-bezier(.1, .7, .3, 1)`;
     ui.dart.style.transform = `translate(${(to.x - L.x).toFixed(1)}px, ${(to.y - L.y).toFixed(1)}px) rotate(${angle.toFixed(1)}deg)`;
     later(T.flight, () => land(ring, bx, by));
   }
