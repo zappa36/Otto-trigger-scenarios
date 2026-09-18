@@ -11,13 +11,14 @@
  * the speed and the direction at that moment decide where it lands.
  * Let go standing still and it drifts back to the hand instead.
  * That is the thumb version. The voice version, on by default, needs
- * neither thumb nor eyes: a sound travels from the left ear to the
- * right — the driver says "stop" when it is in the middle, and that
- * is the side — then a tone climbs from low to high — "stop" in the
- * middle, and that is the height — and Otto announces the throw. On
- * screen there is only Otto then, as on the report call: his face and
- * the words, his lines and each stop as the driver's line. Rings
- * score, the bullseye most, a miss nothing. The score
+ * neither thumb nor eyes: Otto says "start" and counts one to five,
+ * and the driver says "stop" on the number they want — for the side
+ * (one left, five right), the height (one top, five bottom) and the
+ * strength (four is the sweet spot); a count nobody stops ends on
+ * five. Otto announces the throw. On screen there is only Otto then,
+ * as on the report call: his face and the words, his lines and each
+ * stop as the driver's line — never the numbers. Rings score, the
+ * bullseye most, a miss nothing. The score
  * shows for a second, then the card slides away by itself. Before
  * the throw the × in the corner closes it (a tap elsewhere does
  * nothing — it may be a flick that never got going), and a card
@@ -111,44 +112,52 @@ const Darts = (() => {
   const HINTS = { idle: 'flick the dart up', still: 'let go while the dart is still moving' };
 
   /* ---------- the voice throw ----------
-   * Two sounds, two stops, no thumb and no eyes. A hum travels from
-   * the left ear to the right and back; the driver says "stop" when it
-   * is in the middle — that is the side. Then a tone climbs from low
-   * to high and back; "stop" in the middle — that is the height. The
-   * dart lands where the two stops put it, and Otto announces the
-   * throw. The sounds are the phone's own (the audio engine; nothing
-   * to fetch): left-to-right is stereo, so it needs earbuds or a phone
-   * with two speakers; low-to-high works through anything. The phone
-   * does not have to understand "stop": the microphone is a level
-   * meter and any sharp jump above what was there a moment ago is a
-   * stop — instant, records nothing, and it works in the Android app,
-   * where browsers cannot recognise speech. A tap is a stop too, for a
-   * loud street or a phone that refuses the microphone. The ear is
-   * shut while Otto speaks a sentence and takes a tone's level at
-   * once when it starts. On screen there is only Otto — his lines,
-   * each stop as the driver's line — as on the report call. */
+   * Otto counts, the driver says stop — blind. "Side, left to right.
+   * Start. One, two, three, four, five." A stop on the number they
+   * want is the side; no stop, and five is the side: a count that
+   * reaches its end stops there. Then "Height, top to bottom. Start."
+   * and the count again; then "Strength. Start." — four is the sweet
+   * spot (its band lands the dart where it was aimed, weaker falls
+   * short, five flies high). "Three, three, four" is the perfect
+   * throw, if the timing is right: the count moves on every beat, and
+   * a stop belongs to the number heard a moment before. The numbers
+   * are clips of Otto's own voice from the reading function, decoded
+   * once and played through the audio engine, which keeps time;
+   * without them the phone's own voice counts. Nothing of the count
+   * is shown: on screen there is only Otto and the words — his lines,
+   * each stop as the driver's line — as on the report call. The
+   * phone does not have to understand "stop": the microphone is a
+   * level meter and any sharp jump above what was there a moment ago
+   * is a stop — instant, records nothing, and it works in the Android
+   * app, where browsers cannot recognise speech. A tap is a stop too,
+   * for a loud street or a phone that refuses the microphone. The ear
+   * is shut while Otto speaks a sentence and takes each number's level
+   * at once as he says it. A throw nobody stopped at all — every
+   * count ran to its end — is no throw, and nothing is spent. */
   const VOICE = {
-    pass: 2400,      // ms — the sound's way from one end to the other (then back)
-    span: 105,       // board units — the ends of a sweep sit this far each side of the centre
-    lag: 150,        // ms — hearing where the sound is and saying stop: a stop belongs to this long before it was heard
-    dodge: 400,      // ms — when a tone starts, the ear takes its level at once and looks for no stop meanwhile
+    beat: 700,       // ms — one number of the count
+    span: 105,       // board units — one and five sit this far each side of the centre
+    countLag: 450,   // ms — hearing a number, deciding, saying stop: a stop belongs to the number this long before it was heard
+    dodge: 180,      // ms — the ear takes a number's level at once as Otto says it, and looks for no stop meanwhile
     debounce: 650,   // ms — one stop at a time
-    silence: 10e3,   // ms — no stop in the first sweep for this long: no throw, nothing spent
-    autoStop: 8e3,   // ms — the second sweep stops by itself after this, wherever the sound is
-    gain: 0.18,      // the tones' volume, well under Otto's voice
-    hum: 440,        // Hz — the side sweep's tone
-    low: 160,        // Hz — the height sweep's bottom…
-    octaves: 3,      //      …and how far up it climbs (160 → 1280 Hz)
+    sweet: [0.6, 0.8],  // the strength band that lands the dart where it was aimed — four of five is in it
+    drift: 130,      // board units — a strength fully short or fully over lands this far low or high
+    gain: 0.7,       // the count's volume, under Otto's sentences
     settle: 1500,    // ms — the card stays this long after Otto has announced the throw
-    cap: 16e3,       // ms — and leaves by then whatever the voice did
+    cap: 22e3,       // ms — and leaves by then whatever the voice did
   };
   const CUES = {
-    x: 'Dart! A sound goes from left to right. Say stop when it is in the middle.',
-    y: 'Now it goes from low to high. Say stop in the middle.',
+    x: 'Dart! Say stop while I count. Side, left to right. Start.',
+    y: 'Height, top to bottom. Start.',
+    p: 'Strength. Start.',
+    none: 'No stop, no throw. Next time.',
     practice: ' Just practice.',
   };
-  const STEP = { x: 'SIDE', y: 'HEIGHT' };
-  const sweepAt = (t, period) => { const u = (t / period) % 2; return u <= 1 ? u : 2 - u; }; // 0 → 1 → 0 → …
+  const COUNT = ['one', 'two', 'three', 'four', 'five'];
+  const STEP = { x: 'SIDE', y: 'HEIGHT', p: 'STRENGTH' };
+  /* what a number means: the side's one is the left, the height's one
+   * is the top, the strength's five notches run one to five */
+  const stepValue = (phase, i) => (phase === 'p' ? 0.1 + i * 0.2 : i / 4);
   const LS_FLICKS = 'od_dart_flicks';
   const flicks = () => { try { return (JSON.parse(localStorage.getItem(LS_FLICKS)) || []).filter(v => v > 0); } catch { return []; } };
   const rememberFlick = v => { try { localStorage.setItem(LS_FLICKS, JSON.stringify([...flicks(), v].slice(-10))); } catch { /* private mode */ } };
@@ -528,52 +537,48 @@ const Darts = (() => {
     }
   }
 
-  /* ---------- the sounds ----------
-   * The phone's own tones through the audio engine: a hum that travels
-   * between the ears (a stereo panner), a tone that climbs three
-   * octaves. Started when a sweep starts, faded out at its stop. */
-  const tone = { osc: null, gain: null, pan: null, kind: null };
-  function startTone(kind) {
-    stopTone();
-    primeEar();
-    const ctx = ear.ctx;
-    if (!ctx) return false;
-    try {
-      const osc = ctx.createOscillator();
-      osc.type = 'triangle';
-      osc.frequency.value = kind === 'x' ? VOICE.hum : VOICE.low;
-      const gain = ctx.createGain();
-      gain.gain.value = 0;
-      const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
-      osc.connect(gain);
-      if (pan) { pan.pan.value = kind === 'x' ? -1 : 0; gain.connect(pan); pan.connect(ctx.destination); }
-      else gain.connect(ctx.destination);
-      osc.start();
-      gain.gain.linearRampToValueAtTime(VOICE.gain, ctx.currentTime + 0.06); // no click
-      Object.assign(tone, { osc, gain, pan, kind });
-      ear.dodge = now() + VOICE.dodge; // the ear takes the tone's level at once
-      return true;
-    } catch (e) { console.warn('darts: no tone —', e.message); return false; }
+  /* ---------- Otto counting ----------
+   * The five numbers as clips of his own voice from the reading
+   * function, decoded once per session and played through the audio
+   * engine, which keeps the count in time. Missing — keyless, a slow
+   * function — the phone's own voice counts (speakThen, app.js). */
+  const clips = { buf: new Map(), busy: new Map(), gain: null, src: null };
+  function prefetchCounts() {
+    const be = backend();
+    if (!be || !be.tts || !ear.ctx) return;
+    COUNT.forEach(w => {
+      if (clips.buf.has(w) || clips.busy.has(w)) return;
+      clips.busy.set(w, true);
+      be.tts(w).then(b => b.arrayBuffer()).then(ab => ear.ctx.decodeAudioData(ab))
+        .then(buf => clips.buf.set(w, buf))
+        .catch(e => console.warn('darts: no clip for "' + w + '" —', e.message))
+        .finally(() => clips.busy.delete(w));
+    });
   }
-  /* where the sound is: v runs 0 → 1, left to right or low to high */
-  function setTone(v) {
-    if (!tone.osc) return;
-    try {
-      if (tone.kind === 'x') { if (tone.pan) tone.pan.pan.value = -1 + 2 * v; }
-      else tone.osc.frequency.value = VOICE.low * Math.pow(2, VOICE.octaves * v);
-    } catch { /* gone */ }
+  function stopCount() {
+    if (clips.src) { try { clips.src.stop(); } catch { /* done already */ } clips.src = null; }
   }
-  function stopTone() {
-    if (!tone.osc) return;
-    const { osc, gain } = tone;
-    tone.osc = tone.gain = tone.pan = tone.kind = null;
-    try {
-      const t = ear.ctx.currentTime;
-      gain.gain.cancelScheduledValues(t);
-      gain.gain.setValueAtTime(gain.gain.value, t);
-      gain.gain.linearRampToValueAtTime(0, t + 0.06);
-      osc.stop(t + 0.1);
-    } catch { /* gone */ }
+  function playCount(i) {
+    const w = COUNT[i];
+    ear.dodge = now() + VOICE.dodge;
+    const buf = clips.buf.get(w);
+    if (buf && ear.ctx) {
+      try {
+        stopCount();
+        if (!clips.gain) {
+          clips.gain = ear.ctx.createGain();
+          clips.gain.gain.value = VOICE.gain;
+          clips.gain.connect(ear.ctx.destination);
+        }
+        const src = ear.ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(clips.gain);
+        src.start();
+        clips.src = src;
+        return;
+      } catch { /* the phone's own voice, below */ }
+    }
+    if (typeof speakThen === 'function') { try { speakThen(w, () => {}, 'en-US'); } catch { /* silent count */ } }
   }
   function closeEar() {
     clearInterval(ear.timer);
@@ -603,13 +608,13 @@ const Darts = (() => {
   }
 
   const hintFor = g => (g.mic === false ? 'TAP TO STOP · ' : 'SAY STOP · ') + STEP[g.phase];
-  const listeningSub = g => (g.mic === false ? 'tap when it is in the middle' : 'say stop when it is in the middle');
+  const listeningSub = g => (g.mic === false ? 'tap to stop' : 'say stop');
 
   /* ---------- Otto on the screen ----------
    * The voice throw shows nothing but Otto — his face, as on the report
    * call — and the words: his lines, each stop as the driver's line.
-   * Speech as text; nothing a driver would have to look at. The last
-   * few lines stay up. */
+   * Never the numbers: the driver is not looking. The last few lines
+   * stay up. */
   function bubble(who, text) {
     const b = document.createElement('div');
     b.className = 'vn-bubble vn-bubble-' + who;
@@ -633,78 +638,105 @@ const Darts = (() => {
 
   function voiceThrow() {
     if (!state || state.thrown || state.voice) return;
-    const g = { phase: 'x', sweeping: false, t0: 0, v: 0, x: 0, y: 0, trail: [], raf: 0, mic: null };
+    const g = { phase: 'x', counting: false, step: 0, stepAt: 0, trail: [], raf: 0, mic: null, stops: 0, x: 0, y: 0 };
     state.voice = g;
     ui.hint.textContent = hintFor(g);
     ui.hint.hidden = false;
+    prefetchCounts();
     openEar(t => voiceStop(t, 'voice')).then(ok => {
       if (!state || state.voice !== g) return;
       g.mic = ok;
       if (g.phase !== 'done') ui.hint.textContent = hintFor(g);
-      if (g.sweeping) caption('Listening…', listeningSub(g), true);
+      if (g.counting) caption('Listening…', listeningSub(g), true);
     });
     bubble('ai', CUES.x);
     caption('Otto is talking', '', false);
-    say(CUES.x, () => startSweep(g));
+    say(CUES.x, () => startCount(g));
     g.raf = requestAnimationFrame(voiceFrame);
   }
-  /* a phase's sound: from one end across and back, until a stop —
-   * Otto has just said what this step is */
-  function startSweep(g) {
-    if (!state || state.voice !== g || g.phase === 'done' || g.sweeping) return;
-    g.sweeping = true;
-    g.t0 = now();
+  /* a phase's count: one to five, every beat, once — a stop takes the
+   * number heard, the end of the count takes five */
+  function startCount(g) {
+    if (!state || state.voice !== g || g.phase === 'done' || g.counting) return;
+    g.counting = true;
+    g.step = 0;
+    g.stepAt = now();
     g.trail = [];
-    startTone(g.phase);
+    playCount(0);
     caption('Listening…', listeningSub(g), true);
     ui.hint.textContent = hintFor(g);
-    /* a first sweep nobody stops: no throw, nothing spent */
-    if (g.phase === 'x') later(VOICE.silence, () => { if (state && state.voice === g && g.phase === 'x') hide(); });
   }
   function voiceFrame() {
     const g = state && state.voice;
     if (!g || g.phase === 'done') return;
     const t = now();
-    if (g.sweeping) {
-      const v = sweepAt(t - g.t0, VOICE.pass);
-      g.v = v;
-      setTone(v);
-      g.trail.push({ t, v });
-      while (g.trail.length && t - g.trail[0].t > 1500) g.trail.shift();
-      if (g.phase === 'y' && t - g.t0 > VOICE.autoStop) { voiceStop(t + VOICE.lag, 'auto'); return; } // wherever the sound is
+    if (g.counting) {
+      if (t - g.stepAt >= VOICE.beat) {
+        if (g.step >= COUNT.length - 1) {
+          /* the end of the count: five it is — and the loop lives on,
+           * the next count needs it */
+          voiceStop(t + VOICE.countLag, 'auto');
+          if (g.phase === 'done') return;
+        } else {
+          g.step++;
+          g.stepAt += VOICE.beat;
+          playCount(g.step);
+        }
+      }
+      if (g.counting) {
+        g.trail.push({ t, v: stepValue(g.phase, g.step) });
+        while (g.trail.length && t - g.trail[0].t > 1500) g.trail.shift();
+      }
     }
     g.raf = requestAnimationFrame(voiceFrame);
   }
   const valueAt = (g, at) => {
     let hit = g.trail[0];
     for (const p of g.trail) { if (p.t <= at) hit = p; else break; }
-    return hit ? hit.v : 0;
+    return hit ? hit.v : stepValue(g.phase, 0);
   };
   function voiceStop(t, how) {
     const g = state && state.voice;
-    if (!g || g.phase === 'done' || !g.sweeping) return; // no sound yet: Otto is still saying what this step is
-    const v = valueAt(g, t - VOICE.lag);
+    if (!g || g.phase === 'done' || !g.counting) return; // no count yet: Otto is still saying what this step is
+    const v = valueAt(g, t - VOICE.countLag);
     try { if (navigator.vibrate) navigator.vibrate(20); } catch { /* optional */ }
-    g.sweeping = false;
-    stopTone();
-    if (how !== 'auto') bubble('me', how === 'tap' ? '(tap)' : '\u201cstop\u201d');
+    g.counting = false;
+    stopCount();
+    if (how !== 'auto') { g.stops++; bubble('me', how === 'tap' ? '(tap)' : '\u201cstop\u201d'); }
     if (g.phase === 'x') {
       g.x = -VOICE.span + v * 2 * VOICE.span; // left … right
       g.phase = 'y';
       ui.hint.textContent = hintFor(g);
       bubble('ai', CUES.y);
       caption('Otto is talking', '', false);
-      say(CUES.y, () => startSweep(g));
+      say(CUES.y, () => startCount(g));
+    } else if (g.phase === 'y') {
+      g.y = -VOICE.span + v * 2 * VOICE.span; // top … bottom
+      g.phase = 'p';
+      ui.hint.textContent = hintFor(g);
+      bubble('ai', CUES.p);
+      caption('Otto is talking', '', false);
+      say(CUES.p, () => startCount(g));
     } else {
-      g.y = VOICE.span - v * 2 * VOICE.span; // low … high is bottom … top
       g.phase = 'done';
       cancelAnimationFrame(g.raf);
       closeEar();
-      flyTo(g.x, g.y);
+      if (!g.stops) {
+        /* every count ran to its end: nobody was playing — no throw,
+         * and nothing spent */
+        bubble('ai', CUES.none);
+        caption('No throw', '', false);
+        say(CUES.none, () => later(VOICE.settle, hide));
+        later(VOICE.cap, hide);
+        return;
+      }
+      const [lo, hi] = VOICE.sweet;
+      const short = v < lo ? (lo - v) / lo : v > hi ? -(v - hi) / (1 - hi) : 0;
+      flyTo(g.x, g.y + short * VOICE.drift, v);
     }
   }
-  /* the second stop: the dart leaves the hand for the spot the two
-   * stops put it */
+  /* the third stop: the dart leaves the hand for the aimed spot, high
+   * or low by what the strength said */
   function flyTo(bx, by, strength) {
     state.thrown = true;
     state.timers.forEach(clearTimeout);
@@ -740,7 +772,7 @@ const Darts = (() => {
 
   function reset() {
     closeEar();
-    stopTone();
+    stopCount();
     ear.mute = false;
     if (state && state.voice) { cancelAnimationFrame(state.voice.raf); state.voice.phase = 'done'; }
     ui.dart.className = 'dt-dart';
@@ -796,7 +828,7 @@ const Darts = (() => {
     s.timers.forEach(clearTimeout);
     s.timers = [];
     closeEar();
-    stopTone();
+    stopCount();
     if (s.voice) { cancelAnimationFrame(s.voice.raf); s.voice.phase = 'done'; }
     r.classList.remove('dt-in');
     r.classList.add('dt-out');
@@ -998,7 +1030,7 @@ const Darts = (() => {
       return {
         flicks: f.length, sweet: Math.round(sweetSpeed() * 100) / 100, last: lastFlick,
         mic: ear.ok === null ? null : ear.ok ? 'ok' : 'refused',
-        sweep: state && state.voice && state.voice.sweeping ? { phase: state.voice.phase, v: Math.round(state.voice.v * 1000) / 1000 } : null,
+        count: state && state.voice && state.voice.counting ? { phase: state.voice.phase, step: state.voice.step + 1 } : null, counts: clips.buf.size,
         level: ear.timer ? Math.round((ear.level || 0) * 1000) / 1000 : null, threshold: ear.timer ? Math.round((ear.thr || 0) * 1000) / 1000 : null,
       };
     },
