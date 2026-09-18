@@ -929,8 +929,12 @@ it, so carrying it onto the board and dropping it earns nothing. The
 phone learns how hard its driver usually flicks: after a few throws a
 normal flick for that thumb lands near the middle, harder flies long,
 softer falls short. Rings score (1, 5, 10, 25; the bullseye 50), a
-miss scores nothing. The score shows for a second,
-then the card slides away on its own. Before the throw, the **×** in
+miss scores nothing. The score pops up with **today's board** — the
+depot's best throw per driver, a few made-up regulars filling the
+seats nobody has taken yet, and the driver who just threw slotted in
+with a YOU tag (above anyone on the same score; real throws of the
+day outrank the regulars) — and a few seconds later the card slides
+away on its own. Before the throw, the **×** in
 the corner closes it (a tap elsewhere does nothing — it may be a
 flick that never got going), and a card nobody plays leaves by itself
 after twenty seconds. No sounds. The line at the top of the card,
