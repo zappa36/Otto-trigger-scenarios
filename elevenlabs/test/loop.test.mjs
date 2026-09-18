@@ -534,18 +534,19 @@ test('compare accepts an improvement without drops and rejects a drop or a stand
   const w = (n, o) => { const f = path.join(dir, n); writeFileSync(f, JSON.stringify(o)); return f; };
   let r = await loop(['compare', '--base', w('base.json', base), '--branch', w('better.json', better)], dir);
   assert.equal(r.code, 0, r.out);
-  assert.match(r.out, /ACCEPT — 1 previously failing test\(s\) improved/);
+  assert.match(r.out, /ACCEPT — 1 row\(s\) improved, none dropped by more than 25 points, and the total went up: 6 of 6 calls against 4 of 6/);
   assert.match(r.out, /promote --branch agtbrch_loop1/);
+  /* one call lost out of three is a 33-point drop on a lone row */
   r = await loop(['compare', '--base', w('base.json', base), '--branch', w('worse.json', worse)], dir);
   assert.equal(r.code, 1);
-  assert.match(r.out, /REJECT — 1 test\(s\) dropped by more than 10 points/);
+  assert.match(r.out, /REJECT — 1 row\(s\) dropped by more than 25 points \(Otto · #8 Blocked route · terse: −1 call\)/);
   assert.match(r.out, /✗ dropped/);
   r = await loop(['compare', '--base', w('base.json', base), '--branch', w('same.json', same)], dir);
   assert.equal(r.code, 1);
-  assert.match(r.out, /REJECT — no previously failing test improved/);
+  assert.match(r.out, /REJECT — no row improved \(4 of 6 calls against 4 of 6\)/);
   r = await loop(['compare', '--base', w('base.json', base), '--branch', w('worse.json', worse), '--margin', '0.5'], dir);
-  assert.equal(r.code, 1, 'a wide margin forgives the drop but there is still no improvement');
-  assert.match(r.out, /no previously failing test improved/);
+  assert.equal(r.code, 1, 'a wide margin forgives the drop, but the total fell');
+  assert.match(r.out, /REJECT — the branch passed fewer calls overall: 3 of 6 calls against 4 of 6/);
   assert.equal(mock.requests.length, 0, 'compare is offline');
   /* the real files from the runs above: the mock branch run is the same fixture, so nothing improved */
   r = await loop(['compare', '--base', shared.results, '--branch', shared.branchResults], dir);
@@ -720,6 +721,22 @@ test('aggregate, compareResults, scoreData and gradeSummary as pure functions', 
   const c = compareResults({ tests: [{ name: 'x', pass_rate: 0.5 }] }, { tests: [{ name: 'x', pass_rate: 0.4 }] });
   assert.equal(c.accept, false);
   assert.equal(c.rows[0].dropped, false, 'a ten-point drop is within the margin');
+  assert.equal(c.totalDown, true, 'but the total fell, so no accept');
+  /* judged by situation, every driver type together: four tests at 3
+   * calls, one of them losing a call, is one call of twelve — noise, not
+   * a drop; four calls of twelve is a drop; a gain elsewhere and a
+   * higher total is an accept */
+  const sit = (n, per) => per.map((p, i) => ({ name: `Otto · situation #${n} x · d${i}`, situation_num: n, situation_title: 'x', persona: 'd' + i, runs: 3, passed: p, pass_rate: p / 3, rationales: [] }));
+  const baseR = { tests: [...sit(1, [1, 1, 1, 1]), ...sit(2, [0, 0, 1, 0])] };
+  const noise = compareResults(baseR, { tests: [...sit(1, [0, 1, 1, 1]), ...sit(2, [1, 0, 1, 0])] });
+  assert.equal(noise.rows.length, 2, 'one row per situation');
+  assert.deepEqual(noise.rows.map(r => r.dropped), [false, false], 'one call of twelve is within a quarter');
+  assert.equal(noise.accept, true, 'situation #2 gained a call and the total did not fall');
+  assert.match(noise.reason, /^1 situation\(s\) improved, none dropped by more than 25 points, and the total went up: 5 of 24 calls against 5 of 24/);
+  const drop = compareResults(baseR, { tests: [...sit(1, [0, 0, 0, 0]), ...sit(2, [1, 1, 1, 1])] });
+  assert.equal(drop.rows[0].dropped, true, 'four calls of twelve lost is a drop');
+  assert.equal(drop.accept, false);
+  assert.match(drop.reason, /^1 situation\(s\) dropped by more than 25 points \(#1 x: −4 calls\)/);
   const s = scoreData({ tests: [{ scenario_num: 3, scenario_title: 'T', runs: 2, passed: 1, rationales: ['Too long. Really.'] }] }, null);
   assert.equal(s[0].key, '#3');
   assert.equal(s[0].reasons[0].reason, 'too long');

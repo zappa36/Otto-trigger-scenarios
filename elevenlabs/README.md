@@ -57,7 +57,7 @@ score      [--results FILE] [--field FILE]
 cut        [--field FILE]
 propose    [--results FILE] [--field FILE] [--prompt FILE | --agent] [--quiet]
 branch     --proposal FILE [--name TEXT]
-compare    --base FILE --branch FILE [--margin 0.1]
+compare    --base FILE --branch FILE [--margin 0.25]
 promote    --branch ID [--target BRANCH_ID] [--force] [--quiet]
 publish    [--results FILE] [--run-url URL] [--verdict accept|reject] [--reason TEXT]
 ```
@@ -125,9 +125,14 @@ node loop.mjs publish
 `npm run generate` (no suffix) generates the *trigger* suite into
 `test_configs/`, which is committed; the situation files are not.
 
-`compare` says **ACCEPT** when no test drops by more than the margin (ten
-points by default) *and* at least one previously failing test improves;
-anything else is **REJECT**, exit code 1. `promote` merges the branch
+`compare` says **ACCEPT** when no situation — every driver type and
+repeat together, twelve calls or more — loses more than a quarter of
+its calls (`--margin 0.25`), the total does not fall, *and* at least one
+situation improves; anything else is **REJECT**, exit code 1. It is
+judged by situation, not by test, because a test is three calls: a
+score out of three can only be 0, 33, 67 or 100, and the same agent
+loses single calls by chance on every run, so a per-test rule rejected
+everything. `promote` merges the branch
 into the agent's main branch and archives it, then tells you to pull the
 config into git with the note as the version description.
 
