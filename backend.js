@@ -285,5 +285,10 @@ const Backend = (() => {
     bestDartToday: sinceISO => rest('/rest/v1/dart_throws?select=player,score,thrown_at'
       + '&thrown_at=gte.' + encodeURIComponent(sinceISO)
       + '&order=score.desc,thrown_at.asc&limit=1', { signal: timeoutSignal(3000) }),
+    /* the day's throws, best first — the board shown after a throw keeps
+     * one row per driver out of these */
+    dartLeadersToday: sinceISO => rest('/rest/v1/dart_throws?select=player,score,thrown_at'
+      + '&thrown_at=gte.' + encodeURIComponent(sinceISO)
+      + '&order=score.desc,thrown_at.asc&limit=100', { signal: timeoutSignal(3000) }),
   };
 })();

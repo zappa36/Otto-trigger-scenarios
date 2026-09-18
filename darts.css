@@ -111,7 +111,8 @@
   100% { transform: scale(1); }
 }
 
-/* the depot's best today */
+/* the depot's best today (kept in the layout while the board panel
+ * covers it, so nothing above it shifts) */
 .dt-best {
   flex: none;
   padding: 6px 16px;
@@ -122,6 +123,7 @@
   color: #ffd95e;
   min-height: 16px;
 }
+.dt-best[hidden] { display: block; visibility: hidden; }
 
 /* the hand: where the dart waits, and the hint */
 .dt-hand {
@@ -165,35 +167,82 @@
 .dt-dart.dt-stuck svg, .dt-dart.dt-missed svg { transform: scale(.8); }
 .dt-dart.dt-missed { opacity: .55; }
 
-/* the score pops where the thumb just was — the hand zone, empty once
- * the dart has left it — so the board and the dart stuck in it stay in
- * full view */
+/* the score and today's board pop where the thumb just was — the hand
+ * zone, empty once the dart has left it — so the board and the dart
+ * stuck in it stay in full view */
 .dt-score {
   position: absolute;
-  left: 50%;
-  bottom: calc(40px + env(safe-area-inset-bottom, 0px));
-  transform: translateX(-50%);
-  text-align: center;
-  padding: 10px 22px;
+  left: 16px; right: 16px;
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  padding: 10px 14px 10px;
   border-radius: 18px;
-  background: rgba(5, 8, 14, .84);
+  background: #070b12;            /* opaque: the best-today line sits right behind it */
   border: 1px solid rgba(255, 217, 94, .5);
+  transform-origin: 50% 100%;
   animation: dt-pop 320ms cubic-bezier(.2, 1.4, .4, 1);
   pointer-events: none;
 }
 .dt-score[hidden] { display: none; }
+.dt-score-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
 .dt-score-num {
-  display: block;
-  font-size: 50px;
+  font-size: 40px;
   font-weight: 800;
   line-height: 1;
   letter-spacing: .02em;
   color: #ffd95e;
 }
-.dt-score-word { display: block; margin-top: 4px; font-size: 14px; color: #f4ead0; }
+.dt-score-word { font-size: 14px; color: #f4ead0; text-align: right; }
 .dt-score.dt-miss { border-color: rgba(140, 165, 200, .35); }
-.dt-score.dt-miss .dt-score-num { font-size: 34px; color: #94a1b2; }
+.dt-score.dt-miss .dt-score-num { font-size: 30px; color: #94a1b2; }
+
+/* today's board: the depot's best per driver, the driver who just threw
+ * slotted in */
+.dt-lb {
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(140, 165, 200, .18);
+}
+.dt-lb-title {
+  display: block;
+  margin-bottom: 3px;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 9.5px;
+  letter-spacing: .13em;
+  color: #7fd6ea;
+}
+.dt-lb-rows { list-style: none; margin: 0; padding: 0; }
+.dt-lb-rows li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 7px;
+  border-radius: 8px;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 12.5px;
+  letter-spacing: .06em;
+  color: #c9d2de;
+}
+.dt-lb-rank { flex: none; width: 16px; text-align: right; color: #7fd6ea; }
+.dt-lb-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dt-lb-pts { flex: none; font-weight: 700; color: #eef2f7; }
+.dt-lb-you {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 217, 94, .6);
+  font-size: 8.5px;
+  letter-spacing: .12em;
+  color: #ffd95e;
+}
+.dt-lb-me { background: rgba(255, 217, 94, .14); color: #ffd95e; }
+.dt-lb-me .dt-lb-rank, .dt-lb-me .dt-lb-pts { color: #ffd95e; }
+.dt-lb-gap { justify-content: center; color: #5f6b7a; padding: 0; line-height: 1; }
 @keyframes dt-pop {
-  0% { transform: translateX(-50%) scale(.5); opacity: 0; }
-  100% { transform: translateX(-50%) scale(1); opacity: 1; }
+  0% { transform: scale(.6); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
 }

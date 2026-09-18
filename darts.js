@@ -56,10 +56,25 @@ const Darts = (() => {
   ];
   const MISS = { r: Infinity, pts: 0, name: 'miss', word: 'The wall took it.' };
 
+  /* Until the depot fills today's board, these regulars keep it
+   * company: made up, first names only, the way the settings ask for.
+   * The day's real throws outrank them on the same score, and a real
+   * driver with the same first name takes the seat. Edit or empty the
+   * list to change the flavour; the driver who just threw is always
+   * slotted in among them. */
+  const REGULARS = [
+    { player: 'Mehmet', score: 25 },
+    { player: 'Kasia', score: 10 },
+    { player: 'Jonas', score: 10 },
+    { player: 'Aylin', score: 5 },
+    { player: 'Tomasz', score: 1 },
+  ];
+  const BOARD_ROWS = 5; // rows on today's board
+
   const T = {
     wait: 20e3,   // ms — no flick by then and the card leaves on its own (the × is the way out before that)
     flight: 380,  // ms — launch to landing
-    score: 1000,  // ms — the score stays up this long
+    score: 3600,  // ms — the score and today's board stay up this long
     slide: 280,   // ms — the card's slide in and out (darts.css agrees)
     still: 40e3,  // ms — how long to wait for the phone to stand still
     box: 3000,    // ms — a network answer later than this is not waited for
@@ -130,23 +145,76 @@ const Darts = (() => {
     (visit && visit.id && row.visit_id === visit.id)
     || (stop && row.destination_id === stop.id && String(row.thrown_at || '') >= dayStart());
 
-  /* ---------- the depot's best today ---------- */
-  const localBest = () => loadThrows()
-    .filter(r => String(r.thrown_at || '') >= dayStart())
-    .reduce((b, r) => (!b || r.score > b.score ? r : b), null);
-  async function bestToday() {
+  /* ---------- today's board ----------
+   * The day's throws: the depot's (dart_throws) when there is a
+   * backend, this phone's own otherwise. */
+  const localToday = () => loadThrows().filter(r => String(r.thrown_at || '') >= dayStart());
+  async function leadersToday() {
     const be = backend();
-    if (be && be.bestDartToday) {
+    if (be && be.dartLeadersToday) {
       try {
-        const rows = await be.bestDartToday(dayStart());
-        if (Array.isArray(rows)) return rows[0] || null;
-      } catch (e) { console.warn('darts: no best today —', e.message); }
+        const rows = await be.dartLeadersToday(dayStart());
+        if (Array.isArray(rows)) return rows;
+      } catch (e) { console.warn('darts: no board today —', e.message); }
     }
-    return localBest();
+    return localToday();
   }
-  const bestLine = b => (b && b.score > 0
-    ? `BEST TODAY: ${nameOf(b.player).toUpperCase()} ${b.score}`
+  /* one row per driver — their best of the day — the real rows first,
+   * then the regulars in the seats nobody has taken; `me` is the driver
+   * who just threw, slotted in above anyone on the same score, because
+   * it is their moment (their best of the day if that was better). */
+  function boardOf(rows, me) {
+    const seats = new Map();
+    (rows || []).forEach(r => {
+      const k = nameOf(r.player).toLowerCase();
+      if (!seats.has(k) || seats.get(k).score < r.score) seats.set(k, { player: nameOf(r.player), score: +r.score || 0, real: true });
+    });
+    REGULARS.forEach(r => { const k = r.player.toLowerCase(); if (!seats.has(k)) seats.set(k, { ...r, real: false }); });
+    if (me) {
+      const k = nameOf(me.player).toLowerCase();
+      const had = seats.get(k);
+      seats.set(k, { player: nameOf(me.player), score: Math.max(me.score, had ? had.score : 0), real: true, me: true });
+    }
+    return [...seats.values()].sort((a, b) => b.score - a.score
+      || (b.me ? 1 : 0) - (a.me ? 1 : 0)
+      || (b.real ? 1 : 0) - (a.real ? 1 : 0)
+      || a.player.localeCompare(b.player));
+  }
+  const bestLine = board => (board[0] && board[0].score > 0
+    ? `BEST TODAY: ${board[0].player.toUpperCase()} ${board[0].score}`
     : 'BEST TODAY: NOBODY YET — BE THE FIRST');
+  /* the top rows, and the driver's own wherever it fell — a driver
+   * outside the top is shown below a gap, with their rank */
+  function renderBoard(board, named) {
+    const rank = board.findIndex(r => r.me) + 1;
+    const shown = rank && rank > BOARD_ROWS
+      ? board.slice(0, BOARD_ROWS - 1).concat([{ gap: true }, board[rank - 1]])
+      : board.slice(0, BOARD_ROWS);
+    ui.lbRows.innerHTML = '';
+    shown.forEach(r => {
+      const li = document.createElement('li');
+      if (r.gap) { li.className = 'dt-lb-gap'; li.textContent = '···'; ui.lbRows.appendChild(li); return; }
+      if (r.me) li.className = 'dt-lb-me';
+      const rankEl = document.createElement('span');
+      rankEl.className = 'dt-lb-rank';
+      rankEl.textContent = String(board.indexOf(r) + 1);
+      const name = document.createElement('span');
+      name.className = 'dt-lb-name';
+      name.textContent = r.me && !named ? 'YOU' : r.player.toUpperCase();
+      li.append(rankEl, name);
+      if (r.me && named) {
+        const you = document.createElement('span');
+        you.className = 'dt-lb-you';
+        you.textContent = 'YOU';
+        li.appendChild(you);
+      }
+      const pts = document.createElement('span');
+      pts.className = 'dt-lb-pts';
+      pts.textContent = String(r.score);
+      li.appendChild(pts);
+      ui.lbRows.appendChild(li);
+    });
+  }
 
   /* ---------- the board ----------
    * Twenty sectors in the classic colours over three scoring rings, a
@@ -209,12 +277,15 @@ const Darts = (() => {
         <div class="dt-best"></div>
         <div class="dt-hand"><span class="dt-hint">${HINTS.idle}</span></div>
         <div class="dt-dart">${DART_SVG}</div>
-        <div class="dt-score" hidden><b class="dt-score-num"></b><span class="dt-score-word"></span></div>
+        <div class="dt-score" hidden>
+          <div class="dt-score-head"><b class="dt-score-num"></b><span class="dt-score-word"></span></div>
+          <div class="dt-lb"><span class="dt-lb-title">TODAY'S BOARD</span><ol class="dt-lb-rows"></ol></div>
+        </div>
       </div>`;
     const q = sel => r.querySelector(sel);
     ui = {
       card: q('.dt-card'), tip: q('.dt-tip'), tipText: q('.dt-tip-text'), board: q('.dt-board'),
-      score: q('.dt-score'), num: q('.dt-score-num'), word: q('.dt-score-word'),
+      score: q('.dt-score'), num: q('.dt-score-num'), word: q('.dt-score-word'), lbRows: q('.dt-lb-rows'),
       best: q('.dt-best'), hint: q('.dt-hint'), dart: q('.dt-dart'), x: q('.dt-x'),
     };
     ui.x.addEventListener('click', () => hide());
@@ -327,6 +398,7 @@ const Darts = (() => {
     void ui.dart.offsetWidth; // apply the reset before the transition comes back
     ui.dart.style.transition = '';
     ui.score.hidden = true;
+    ui.best.hidden = false;
     ui.score.classList.remove('dt-miss');
     ui.board.classList.remove('dt-hit');
     ui.hint.textContent = HINTS.idle;
@@ -345,7 +417,7 @@ const Darts = (() => {
     reset();
     ui.tipText.textContent = tip || '…';
     ui.tip.classList.toggle('dt-tip-empty', !tip);
-    ui.best.textContent = bestLine(ctx.best);
+    ui.best.textContent = bestLine(boardOf(ctx.rows));
     state = { ...ctx, thrown: false, timers: [] };
     r.hidden = false;
     void r.offsetHeight; // the slide needs a frame in the hidden position first
@@ -455,14 +527,13 @@ const Darts = (() => {
     ui.num.textContent = hit ? String(ring.pts) : 'MISS';
     ui.word.textContent = ring.word + (state.counted ? '' : ' (practice)');
     ui.score.classList.toggle('dt-miss', !hit);
-    ui.score.hidden = false;
     const player = nameOf(state.player);
-    if (state.counted) {
-      if (hit && !(state.best && state.best.score >= ring.pts)) {
-        ui.best.textContent = `BEST TODAY: ${player.toUpperCase()} ${ring.pts} — THAT'S YOU!`;
-      }
-      save(ring, bx, by, player);
-    }
+    /* today's board, with this throw on it — a driver without a name in
+     * settings (app.js hands over "someone" then) is simply YOU on it */
+    renderBoard(boardOf(state.rows, { player, score: ring.pts }), player !== 'someone');
+    ui.best.hidden = true; // the board says it now, in full
+    ui.score.hidden = false;
+    if (state.counted) save(ring, bx, by, player);
     later(T.score, hide);
   }
 
@@ -521,15 +592,15 @@ const Darts = (() => {
       const g = ++gen;
       if (loadThrows().some(r => sameStop(r, stop, visit))) return false; // this stop had its throw
       const be = backend();
-      const [rows, best] = await Promise.all([
+      const [rows, leaders] = await Promise.all([
         be && be.dartThrowsFor
           ? boxed(be.dartThrowsFor(stop.id, dayStart()).catch(e => { console.warn('darts: could not ask the depot —', e.message); return null; }))
           : null,
-        boxed(bestToday()),
+        boxed(leadersToday()),
       ]);
       if (Array.isArray(rows) && rows.some(r => sameStop(r, stop, visit))) return false; // the depot says so too
       if (g !== gen) return false; // dismissed, or superseded, while the depot was answering
-      whenStill(() => { if (g === gen) show({ stop, visit, player, best: best || null, counted: true }); });
+      whenStill(() => { if (g === gen) show({ stop, visit, player, rows: leaders || [], counted: true }); });
       return true;
     },
     /* a throw that is neither saved nor remembered — the settings sheet's
@@ -538,9 +609,9 @@ const Darts = (() => {
       if (!root()) return false;
       cancelPending();
       const g = ++gen;
-      const best = await boxed(bestToday());
+      const leaders = await boxed(leadersToday());
       if (g !== gen) return false;
-      return show({ stop: null, visit: null, player, best: best || null, counted: false });
+      return show({ stop: null, visit: null, player, rows: leaders || [], counted: false });
     },
     dismiss() { gen++; cancelPending(); hide(); },
     setTip(text) {
