@@ -10,7 +10,15 @@
  * when the thumb lets go while it is moving, it flies on from there:
  * the speed and the direction at that moment decide where it lands.
  * Let go standing still and it drifts back to the hand instead.
- * Rings score, the bullseye most, a miss nothing. The score
+ * That is the thumb version. The voice version, on by default, needs
+ * neither thumb nor eyes: Otto says "start" and counts one to five,
+ * and the driver says "stop" on the number they want — for the side
+ * (one left, five right), the height (one top, five bottom) and the
+ * strength (four is the sweet spot); a count nobody stops ends on
+ * five. Otto announces the throw. On screen there is only Otto then,
+ * as on the report call: his face and the words, his lines and each
+ * stop as the driver's line — never the numbers. Rings score, the
+ * bullseye most, a miss nothing. The score
  * shows for a second, then the card slides away by itself. Before
  * the throw the × in the corner closes it (a tap elsewhere does
  * nothing — it may be a flick that never got going), and a card
@@ -102,6 +110,54 @@ const Darts = (() => {
    * make the board. */
   const FLICK = { minTravel: 20, minSpeed: 0.2, minFlight: 24, sweet: 2, window: 100, hold: 80, curve: 0.4, reach: [0.35, 1.7], aim: 0.75 };
   const HINTS = { idle: 'flick the dart up', still: 'let go while the dart is still moving' };
+
+  /* ---------- the voice throw ----------
+   * Otto counts, the driver says stop — blind. "Side, left to right.
+   * Start. One, two, three, four, five." A stop on the number they
+   * want is the side; no stop, and five is the side: a count that
+   * reaches its end stops there. Then "Height, top to bottom. Start."
+   * and the count again; then "Strength. Start." — four is the sweet
+   * spot (its band lands the dart where it was aimed, weaker falls
+   * short, five flies high). "Three, three, four" is the perfect
+   * throw, if the timing is right: the count moves on every beat, and
+   * a stop belongs to the number heard a moment before. The numbers
+   * are clips of Otto's own voice from the reading function, decoded
+   * once and played through the audio engine, which keeps time;
+   * without them the phone's own voice counts. Nothing of the count
+   * is shown: on screen there is only Otto and the words — his lines,
+   * each stop as the driver's line — as on the report call. The
+   * phone does not have to understand "stop": the microphone is a
+   * level meter and any sharp jump above what was there a moment ago
+   * is a stop — instant, records nothing, and it works in the Android
+   * app, where browsers cannot recognise speech. A tap is a stop too,
+   * for a loud street or a phone that refuses the microphone. The ear
+   * is shut while Otto speaks a sentence and takes each number's level
+   * at once as he says it. A throw nobody stopped at all — every
+   * count ran to its end — is no throw, and nothing is spent. */
+  const VOICE = {
+    beat: 700,       // ms — one number of the count
+    span: 105,       // board units — one and five sit this far each side of the centre
+    countLag: 450,   // ms — hearing a number, deciding, saying stop: a stop belongs to the number this long before it was heard
+    dodge: 180,      // ms — the ear takes a number's level at once as Otto says it, and looks for no stop meanwhile
+    debounce: 650,   // ms — one stop at a time
+    sweet: [0.6, 0.8],  // the strength band that lands the dart where it was aimed — four of five is in it
+    drift: 130,      // board units — a strength fully short or fully over lands this far low or high
+    gain: 0.7,       // the count's volume, under Otto's sentences
+    settle: 1500,    // ms — the card stays this long after Otto has announced the throw
+    cap: 22e3,       // ms — and leaves by then whatever the voice did
+  };
+  const CUES = {
+    x: 'Dart! Say stop while I count. Side, left to right. Start.',
+    y: 'Height, top to bottom. Start.',
+    p: 'Strength. Start.',
+    none: 'No stop, no throw. Next time.',
+    practice: ' Just practice.',
+  };
+  const COUNT = ['one', 'two', 'three', 'four', 'five'];
+  const STEP = { x: 'SIDE', y: 'HEIGHT', p: 'STRENGTH' };
+  /* what a number means: the side's one is the left, the height's one
+   * is the top, the strength's five notches run one to five */
+  const stepValue = (phase, i) => (phase === 'p' ? 0.1 + i * 0.2 : i / 4);
   const LS_FLICKS = 'od_dart_flicks';
   const flicks = () => { try { return (JSON.parse(localStorage.getItem(LS_FLICKS)) || []).filter(v => v > 0); } catch { return []; } };
   const rememberFlick = v => { try { localStorage.setItem(LS_FLICKS, JSON.stringify([...flicks(), v].slice(-10))); } catch { /* private mode */ } };
@@ -273,6 +329,17 @@ const Darts = (() => {
           <div class="dt-tip dt-tip-empty"><b>FOR THE NEXT DRIVER</b><span class="dt-tip-text">…</span></div>
           <button class="dt-x" type="button" aria-label="Close">×</button>
         </div>
+        <div class="dt-otto vn">
+          <div class="vn-stage">
+            <div class="vn-orb">
+              <span class="vn-glow"></span><span class="vn-ring vn-ring1" hidden></span><span class="vn-ring vn-ring2" hidden></span>
+              <span class="vn-blob"></span><span class="vn-sheen"></span>
+              <div class="vn-face"><span class="vn-eyes"><span class="vn-eye"><i></i></span><span class="vn-eye"><i></i></span></span></div>
+            </div>
+            <div class="dt-chat"></div>
+          </div>
+          <div class="vn-bar"><div class="vn-labels"><div class="vn-caption"></div><div class="vn-sub"></div></div></div>
+        </div>
         <div class="dt-stage">${boardSvg()}</div>
         <div class="dt-best"></div>
         <div class="dt-hand"><span class="dt-hint">${HINTS.idle}</span></div>
@@ -287,6 +354,7 @@ const Darts = (() => {
       card: q('.dt-card'), tip: q('.dt-tip'), tipText: q('.dt-tip-text'), board: q('.dt-board'),
       score: q('.dt-score'), num: q('.dt-score-num'), word: q('.dt-score-word'), lbRows: q('.dt-lb-rows'),
       best: q('.dt-best'), hint: q('.dt-hint'), dart: q('.dt-dart'), x: q('.dt-x'),
+      chat: q('.dt-chat'), caption: q('.dt-otto .vn-caption'), sub: q('.dt-otto .vn-sub'), rings: [...r.querySelectorAll('.dt-otto .vn-ring')],
     };
     ui.x.addEventListener('click', () => hide());
     /* a touch that begins on the × is the button's, not a swipe's */
@@ -294,6 +362,7 @@ const Darts = (() => {
     const start = (x, y) => {
       if (!state) return;
       if (state.thrown) { hide(); return; } // the score is up — any touch moves on
+      if (state.voice) { voiceStop(now(), 'tap'); return; } // a tap is a stop too
       down = { t: now(), x, y };
       samples = [down];
       drag = { fx: x, fy: y, angle: -9, raf: 0 };
@@ -391,7 +460,321 @@ const Darts = (() => {
 
   const later = (ms, fn) => { if (state) state.timers.push(setTimeout(fn, ms)); };
 
+  /* ---------- the ear ----------
+   * The microphone as a level meter, nothing more: no words, no
+   * recording, nothing leaves the phone. A burst well above the room's
+   * level is a stop. */
+  const ear = { ctx: null, stream: null, src: null, an: null, buf: null, timer: 0, base: 0, own: 0, dodgeMax: 0, hot: false, lastStop: 0, born: 0, dodge: 0, on: null, ok: null, mute: false };
+  /* an AudioContext born outside a tap may never run — make it in one */
+  function primeEar() {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      if (!ear.ctx) ear.ctx = new AC();
+      if (ear.ctx.state === 'suspended') ear.ctx.resume().catch(() => {});
+    } catch { /* no web audio */ }
+  }
+  document.addEventListener('pointerdown', primeEar, { capture: true, passive: true });
+  async function openEar(onStop) {
+    closeEar();
+    ear.on = onStop;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { ear.ok = false; return false; }
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: false } });
+    } catch (e) { console.warn('darts: no microphone —', e.message); ear.ok = false; return false; }
+    if (!ear.on) { stream.getTracks().forEach(tr => tr.stop()); return false; } // closed while asking
+    try {
+      primeEar();
+      ear.stream = stream;
+      ear.src = ear.ctx.createMediaStreamSource(stream);
+      ear.an = ear.ctx.createAnalyser();
+      ear.an.fftSize = 512;
+      ear.src.connect(ear.an);
+      ear.buf = new Uint8Array(ear.an.fftSize);
+    } catch (e) { console.warn('darts: no level meter —', e.message); closeEar(); ear.ok = false; return false; }
+    ear.base = 0;
+    ear.own = 0;
+    ear.dodgeMax = 0;
+    ear.hot = false;
+    ear.dodge = 0;
+    ear.born = now();
+    ear.timer = setInterval(listen, 20);
+    ear.ok = true;
+    return true;
+  }
+  function listen() {
+    if (!ear.an) return;
+    ear.an.getByteTimeDomainData(ear.buf);
+    let sum = 0;
+    for (let i = 0; i < ear.buf.length; i++) { const v = (ear.buf[i] - 128) / 128; sum += v * v; }
+    const rms = Math.sqrt(sum / ear.buf.length);
+    const t = now();
+    if (ear.mute) { ear.base = ear.base * 0.8 + rms * 0.2; ear.hot = false; return; } // Otto is talking: his sentence is not a stop
+    /* The floor: what was there a moment ago. It follows a level that
+     * falls at once and a level that rises only slowly — so a bus
+     * building up is absorbed, and a stop has to jump clear of it.
+     * When one of the phone's own sounds starts (the dodge), the floor
+     * takes its level at once, and that level at the microphone is
+     * remembered: in the dodge, only a voice clearly louder than the
+     * phone's own sound counts. */
+    const inDodge = t < ear.dodge;
+    const thr = Math.max(0.04, ear.base * 2.2, inDodge ? (ear.own || 1) * 2.5 : 0);
+    ear.level = rms; // for the self-test and the field: what the ear hears right now
+    ear.thr = thr;
+    if (!ear.hot && rms > thr && t - ear.born > 300) {
+      ear.hot = true;
+      if (t - ear.lastStop > VOICE.debounce) { ear.lastStop = t; if (ear.on) ear.on(t); }
+    } else if (ear.hot && rms < thr * 0.6) {
+      ear.hot = false;
+    }
+    if (inDodge) {
+      ear.base = Math.max(ear.base, rms);
+      ear.dodgeMax = Math.max(ear.dodgeMax, rms);
+    } else {
+      if (ear.dodgeMax > 0) { ear.own = Math.max(ear.dodgeMax, ear.own * 0.9); ear.dodgeMax = 0; }
+      ear.base = rms > ear.base ? ear.base + (rms - ear.base) * 0.03 : ear.base * 0.8 + rms * 0.2;
+    }
+  }
+
+  /* ---------- Otto counting ----------
+   * The five numbers as clips of his own voice from the reading
+   * function, decoded once per session and played through the audio
+   * engine, which keeps the count in time. Missing — keyless, a slow
+   * function — the phone's own voice counts (speakThen, app.js). */
+  const clips = { buf: new Map(), busy: new Map(), gain: null, src: null };
+  function prefetchCounts() {
+    const be = backend();
+    if (!be || !be.tts || !ear.ctx) return;
+    COUNT.forEach(w => {
+      if (clips.buf.has(w) || clips.busy.has(w)) return;
+      clips.busy.set(w, true);
+      be.tts(w).then(b => b.arrayBuffer()).then(ab => ear.ctx.decodeAudioData(ab))
+        .then(buf => clips.buf.set(w, buf))
+        .catch(e => console.warn('darts: no clip for "' + w + '" —', e.message))
+        .finally(() => clips.busy.delete(w));
+    });
+  }
+  function stopCount() {
+    if (clips.src) { try { clips.src.stop(); } catch { /* done already */ } clips.src = null; }
+  }
+  function playCount(i) {
+    const w = COUNT[i];
+    ear.dodge = now() + VOICE.dodge;
+    const buf = clips.buf.get(w);
+    if (buf && ear.ctx) {
+      try {
+        stopCount();
+        if (!clips.gain) {
+          clips.gain = ear.ctx.createGain();
+          clips.gain.gain.value = VOICE.gain;
+          clips.gain.connect(ear.ctx.destination);
+        }
+        const src = ear.ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(clips.gain);
+        src.start();
+        clips.src = src;
+        return;
+      } catch { /* the phone's own voice, below */ }
+    }
+    if (typeof speakThen === 'function') { try { speakThen(w, () => {}, 'en-US'); } catch { /* silent count */ } }
+  }
+  function closeEar() {
+    clearInterval(ear.timer);
+    ear.timer = 0;
+    ear.on = null;
+    try { if (ear.src) ear.src.disconnect(); } catch { /* gone */ }
+    ear.src = ear.an = ear.buf = null;
+    if (ear.stream) { ear.stream.getTracks().forEach(tr => tr.stop()); ear.stream = null; }
+  }
+
+  /* Otto's voice, when app.js is there to lend it; a silent beat with
+   * the callback otherwise, so the game runs the same. The ear is shut
+   * while he talks. */
+  function say(text, done) {
+    let called = false;
+    const cb = () => {
+      if (called) return;
+      called = true;
+      setTimeout(() => { ear.mute = false; }, 150);
+      if (done) done();
+    };
+    ear.mute = true;
+    if (typeof speakOtto === 'function') {
+      try { speakOtto(text, cb, null, 'en-US'); setTimeout(cb, 12000); return; } catch { /* fall through */ }
+    }
+    setTimeout(cb, 600);
+  }
+
+  const hintFor = g => (g.mic === false ? 'TAP TO STOP · ' : 'SAY STOP · ') + STEP[g.phase];
+  const listeningSub = g => (g.mic === false ? 'tap to stop' : 'say stop');
+
+  /* ---------- Otto on the screen ----------
+   * The voice throw shows nothing but Otto — his face, as on the report
+   * call — and the words: his lines, each stop as the driver's line.
+   * Never the numbers: the driver is not looking. The last few lines
+   * stay up. */
+  function bubble(who, text) {
+    const b = document.createElement('div');
+    b.className = 'vn-bubble vn-bubble-' + who;
+    const w = document.createElement('span');
+    w.className = 'vn-who';
+    w.textContent = who === 'ai' ? 'OTTO' : 'YOU';
+    const t = document.createElement('div');
+    t.className = 'vn-text';
+    t.textContent = text;
+    b.append(w, t);
+    ui.chat.appendChild(b);
+    while (ui.chat.children.length > 4) ui.chat.removeChild(ui.chat.firstChild);
+    ui.chat.scrollTop = ui.chat.scrollHeight;
+    return t;
+  }
+  function caption(cap, sub, listening) {
+    ui.caption.textContent = cap;
+    ui.sub.textContent = sub || '';
+    ui.rings.forEach(ring => { ring.hidden = !listening; }); // the rings say "the line is open", as on the call
+  }
+
+  function voiceThrow() {
+    if (!state || state.thrown || state.voice) return;
+    const g = { phase: 'x', counting: false, step: 0, stepAt: 0, trail: [], raf: 0, mic: null, stops: 0, x: 0, y: 0 };
+    state.voice = g;
+    ui.hint.textContent = hintFor(g);
+    ui.hint.hidden = false;
+    prefetchCounts();
+    openEar(t => voiceStop(t, 'voice')).then(ok => {
+      if (!state || state.voice !== g) return;
+      g.mic = ok;
+      if (g.phase !== 'done') ui.hint.textContent = hintFor(g);
+      if (g.counting) caption('Listening…', listeningSub(g), true);
+    });
+    bubble('ai', CUES.x);
+    caption('Otto is talking', '', false);
+    say(CUES.x, () => startCount(g));
+    g.raf = requestAnimationFrame(voiceFrame);
+  }
+  /* a phase's count: one to five, every beat, once — a stop takes the
+   * number heard, the end of the count takes five */
+  function startCount(g) {
+    if (!state || state.voice !== g || g.phase === 'done' || g.counting) return;
+    g.counting = true;
+    g.step = 0;
+    g.stepAt = now();
+    g.trail = [];
+    playCount(0);
+    caption('Listening…', listeningSub(g), true);
+    ui.hint.textContent = hintFor(g);
+  }
+  function voiceFrame() {
+    const g = state && state.voice;
+    if (!g || g.phase === 'done') return;
+    const t = now();
+    if (g.counting) {
+      if (t - g.stepAt >= VOICE.beat) {
+        if (g.step >= COUNT.length - 1) {
+          /* the end of the count: five it is — and the loop lives on,
+           * the next count needs it */
+          voiceStop(t + VOICE.countLag, 'auto');
+          if (g.phase === 'done') return;
+        } else {
+          g.step++;
+          g.stepAt += VOICE.beat;
+          playCount(g.step);
+        }
+      }
+      if (g.counting) {
+        g.trail.push({ t, v: stepValue(g.phase, g.step) });
+        while (g.trail.length && t - g.trail[0].t > 1500) g.trail.shift();
+      }
+    }
+    g.raf = requestAnimationFrame(voiceFrame);
+  }
+  const valueAt = (g, at) => {
+    let hit = g.trail[0];
+    for (const p of g.trail) { if (p.t <= at) hit = p; else break; }
+    return hit ? hit.v : stepValue(g.phase, 0);
+  };
+  function voiceStop(t, how) {
+    const g = state && state.voice;
+    if (!g || g.phase === 'done' || !g.counting) return; // no count yet: Otto is still saying what this step is
+    const v = valueAt(g, t - VOICE.countLag);
+    try { if (navigator.vibrate) navigator.vibrate(20); } catch { /* optional */ }
+    g.counting = false;
+    stopCount();
+    if (how !== 'auto') { g.stops++; bubble('me', how === 'tap' ? '(tap)' : '\u201cstop\u201d'); }
+    if (g.phase === 'x') {
+      g.x = -VOICE.span + v * 2 * VOICE.span; // left … right
+      g.phase = 'y';
+      ui.hint.textContent = hintFor(g);
+      bubble('ai', CUES.y);
+      caption('Otto is talking', '', false);
+      say(CUES.y, () => startCount(g));
+    } else if (g.phase === 'y') {
+      g.y = -VOICE.span + v * 2 * VOICE.span; // top … bottom
+      g.phase = 'p';
+      ui.hint.textContent = hintFor(g);
+      bubble('ai', CUES.p);
+      caption('Otto is talking', '', false);
+      say(CUES.p, () => startCount(g));
+    } else {
+      g.phase = 'done';
+      cancelAnimationFrame(g.raf);
+      closeEar();
+      if (!g.stops) {
+        /* every count ran to its end: nobody was playing — no throw,
+         * and nothing spent */
+        bubble('ai', CUES.none);
+        caption('No throw', '', false);
+        say(CUES.none, () => later(VOICE.settle, hide));
+        later(VOICE.cap, hide);
+        return;
+      }
+      const [lo, hi] = VOICE.sweet;
+      const short = v < lo ? (lo - v) / lo : v > hi ? -(v - hi) / (1 - hi) : 0;
+      flyTo(g.x, g.y + short * VOICE.drift, v);
+    }
+  }
+  /* the third stop: the dart leaves the hand for the aimed spot, high
+   * or low by what the strength said */
+  function flyTo(bx, by, strength) {
+    state.thrown = true;
+    state.timers.forEach(clearTimeout);
+    state.timers = [];
+    state.speed = strength == null ? null : Math.round(strength * 100) / 100;
+    ui.hint.hidden = true;
+    const card = ui.card.getBoundingClientRect();
+    const board = ui.board.getBoundingClientRect();
+    const L = { x: ui.dart.offsetLeft + ui.dart.offsetWidth / 2, y: ui.dart.offsetTop };
+    const C = { x: board.left + board.width / 2 - card.left, y: board.top + board.height / 2 - card.top };
+    const R = board.width / 2 * (100 / 110);
+    const P = { x: C.x + bx / 100 * R, y: C.y + by / 100 * R };
+    const ring = RINGS.find(g => Math.hypot(bx, by) <= g.r) || MISS;
+    const to = { x: clamp(P.x, 12, card.width - 12), y: clamp(P.y, 12, card.height - 24) };
+    const angle = Math.atan2(to.x - L.x, L.y - to.y) * 180 / Math.PI * 0.35; // a lean towards where it goes
+    ui.dart.classList.add('dt-flying');
+    ui.dart.style.transition = `transform ${T.flight}ms cubic-bezier(.1, .7, .3, 1)`;
+    ui.dart.style.transform = `translate(${(to.x - L.x).toFixed(1)}px, ${(to.y - L.y).toFixed(1)}px) rotate(${angle.toFixed(1)}deg)`;
+    later(T.flight, () => land(ring, bx, by));
+  }
+  /* what Otto says once the dart is in: the score, its word, and the
+   * driver's place on today's board */
+  function announce(ring, board) {
+    const rank = board.findIndex(r => r.me) + 1;
+    const head = (ring.pts ? ring.pts + '. ' : 'Miss. ') + ring.word;
+    if (!state.counted) return head + CUES.practice;
+    const place = rank === 1 ? ' Top of the board today!'
+      : rank === 2 ? ` Second today, behind ${board[0].player}.`
+      : rank === 3 ? ' Third today.'
+      : ` Number ${rank} today.`;
+    return head + place;
+  }
+
   function reset() {
+    closeEar();
+    stopCount();
+    ear.mute = false;
+    if (state && state.voice) { cancelAnimationFrame(state.voice.raf); state.voice.phase = 'done'; }
     ui.dart.className = 'dt-dart';
     ui.dart.style.transition = 'none';
     ui.dart.style.transform = '';
@@ -418,16 +801,22 @@ const Darts = (() => {
     ui.tipText.textContent = tip || '…';
     ui.tip.classList.toggle('dt-tip-empty', !tip);
     ui.best.textContent = bestLine(boardOf(ctx.rows));
+    /* by voice there is only Otto on the screen; by thumb, the board */
+    r.classList.toggle('dt-by-voice', !!ctx.byVoice);
+    ui.chat.innerHTML = '';
+    caption('', '', false);
     state = { ...ctx, thrown: false, timers: [] };
     r.hidden = false;
     void r.offsetHeight; // the slide needs a frame in the hidden position first
     r.classList.add('dt-in');
     const leaveIfIdle = () => {
       if (!state || state.thrown) return;
-      if (drag) { later(5000, leaveIfIdle); return; } // never yank a dart out of a hand
+      /* never yank a dart out of a hand, nor a count past its first step */
+      if (drag || (state.voice && state.voice.phase !== 'y')) { later(5000, leaveIfIdle); return; }
       hide();
     };
     later(T.wait, leaveIfIdle);
+    if (ctx.byVoice) later(T.slide + 60, voiceThrow);
     return true;
   }
 
@@ -438,6 +827,9 @@ const Darts = (() => {
     s.hiding = true;
     s.timers.forEach(clearTimeout);
     s.timers = [];
+    closeEar();
+    stopCount();
+    if (s.voice) { cancelAnimationFrame(s.voice.raf); s.voice.phase = 'done'; }
     r.classList.remove('dt-in');
     r.classList.add('dt-out');
     setTimeout(() => {
@@ -517,7 +909,7 @@ const Darts = (() => {
 
   function land(ring, bx, by) {
     const hit = ring.pts > 0;
-    lastFlick = { speed: state.speed, pts: ring.pts };
+    lastFlick = { speed: state.speed, pts: ring.pts, voice: !!state.voice };
     ui.dart.classList.remove('dt-flying');
     ui.dart.classList.add(hit ? 'dt-stuck' : 'dt-missed');
     if (hit) {
@@ -530,11 +922,21 @@ const Darts = (() => {
     const player = nameOf(state.player);
     /* today's board, with this throw on it — a driver without a name in
      * settings (app.js hands over "someone" then) is simply YOU on it */
-    renderBoard(boardOf(state.rows, { player, score: ring.pts }), player !== 'someone');
+    const board = boardOf(state.rows, { player, score: ring.pts });
+    renderBoard(board, player !== 'someone');
     ui.best.hidden = true; // the board says it now, in full
     ui.score.hidden = false;
     if (state.counted) save(ring, bx, by, player);
-    later(T.score, hide);
+    if (state.voice) {
+      /* Otto announces it — on the screen too — and the card leaves once he is done */
+      const line = announce(ring, board);
+      bubble('ai', line);
+      caption('Thrown', ring.word, false);
+      say(line, () => later(VOICE.settle, hide));
+      later(VOICE.cap, hide);
+    } else {
+      later(T.score, hide);
+    }
   }
 
   function save(ring, bx, by, player) {
@@ -586,7 +988,7 @@ const Darts = (() => {
   return {
     /* after a report call: one throw for this stop, once the phone is
      * still. Resolves true when a card was (or will be) shown. */
-    async offer({ stop, visit, player }) {
+    async offer({ stop, visit, player, voice }) {
       if (!stop || !root()) return false;
       cancelPending();
       const g = ++gen;
@@ -600,20 +1002,22 @@ const Darts = (() => {
       ]);
       if (Array.isArray(rows) && rows.some(r => sameStop(r, stop, visit))) return false; // the depot says so too
       if (g !== gen) return false; // dismissed, or superseded, while the depot was answering
-      whenStill(() => { if (g === gen) show({ stop, visit, player, rows: leaders || [], counted: true }); });
+      whenStill(() => { if (g === gen) show({ stop, visit, player, rows: leaders || [], counted: true, byVoice: !!voice }); });
       return true;
     },
     /* a throw that is neither saved nor remembered — the settings sheet's
      * "try it", so a driver sees the game before a report earns one */
-    async practice({ player } = {}) {
+    async practice({ player, voice } = {}) {
       if (!root()) return false;
       cancelPending();
       const g = ++gen;
       const leaders = await boxed(leadersToday());
       if (g !== gen) return false;
-      return show({ stop: null, visit: null, player, rows: leaders || [], counted: false });
+      return show({ stop: null, visit: null, player, rows: leaders || [], counted: false, byVoice: !!voice });
     },
     dismiss() { gen++; cancelPending(); hide(); },
+    /* a stop from outside — a hardware button, a wrapper, a test */
+    stop() { if (state && state.voice) voiceStop(now(), 'voice'); },
     setTip(text) {
       tip = String(text || '').trim();
       if (ui) { ui.tipText.textContent = tip || '…'; ui.tip.classList.toggle('dt-tip-empty', !tip); }
@@ -623,7 +1027,12 @@ const Darts = (() => {
      * prints it, so a "the flick does nothing" report comes with numbers */
     stats() {
       const f = flicks();
-      return { flicks: f.length, sweet: Math.round(sweetSpeed() * 100) / 100, last: lastFlick };
+      return {
+        flicks: f.length, sweet: Math.round(sweetSpeed() * 100) / 100, last: lastFlick,
+        mic: ear.ok === null ? null : ear.ok ? 'ok' : 'refused',
+        count: state && state.voice && state.voice.counting ? { phase: state.voice.phase, step: state.voice.step + 1 } : null, counts: clips.buf.size,
+        level: ear.timer ? Math.round((ear.level || 0) * 1000) / 1000 : null, threshold: ear.timer ? Math.round((ear.thr || 0) * 1000) / 1000 : null,
+      };
     },
   };
 })();
