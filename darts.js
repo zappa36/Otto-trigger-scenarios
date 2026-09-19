@@ -135,9 +135,10 @@ const Darts = (() => {
    * at once as he says it. A throw nobody stopped at all — every
    * count ran to its end — is no throw, and nothing is spent. */
   const VOICE = {
-    beat: 700,       // ms — one number of the count
+    beat: 1100,      // ms — one number of the count, unless the settings say a pace (app.js hands it over)
+    lead: 500,       // ms — a breath after "Start" before "one"
     span: 105,       // board units — one and five sit this far each side of the centre
-    countLag: 450,   // ms — hearing a number, deciding, saying stop: a stop belongs to the number this long before it was heard
+    countLag: 500,   // ms — hearing a number, deciding, saying stop: a stop belongs to the number this long before it was heard
     dodge: 180,      // ms — the ear takes a number's level at once as Otto says it, and looks for no stop meanwhile
     debounce: 650,   // ms — one stop at a time
     sweet: [0.6, 0.8],  // the strength band that lands the dart where it was aimed — four of five is in it
@@ -659,10 +660,10 @@ const Darts = (() => {
   function startCount(g) {
     if (!state || state.voice !== g || g.phase === 'done' || g.counting) return;
     g.counting = true;
+    g.started = false; // "one" comes after a breath
     g.step = 0;
-    g.stepAt = now();
+    g.stepAt = now() + VOICE.lead;
     g.trail = [];
-    playCount(0);
     caption('Listening…', listeningSub(g), true);
     ui.hint.textContent = hintFor(g);
   }
@@ -670,8 +671,10 @@ const Darts = (() => {
     const g = state && state.voice;
     if (!g || g.phase === 'done') return;
     const t = now();
-    if (g.counting) {
-      if (t - g.stepAt >= VOICE.beat) {
+    const beat = state.pace || VOICE.beat;
+    if (g.counting && !g.started && t >= g.stepAt) { g.started = true; playCount(0); }
+    if (g.counting && g.started) {
+      if (t - g.stepAt >= beat) {
         if (g.step >= COUNT.length - 1) {
           /* the end of the count: five it is — and the loop lives on,
            * the next count needs it */
@@ -679,7 +682,7 @@ const Darts = (() => {
           if (g.phase === 'done') return;
         } else {
           g.step++;
-          g.stepAt += VOICE.beat;
+          g.stepAt += beat;
           playCount(g.step);
         }
       }
@@ -697,7 +700,7 @@ const Darts = (() => {
   };
   function voiceStop(t, how) {
     const g = state && state.voice;
-    if (!g || g.phase === 'done' || !g.counting) return; // no count yet: Otto is still saying what this step is
+    if (!g || g.phase === 'done' || !g.counting || !g.started) return; // no number yet: Otto is still saying what this step is
     const v = valueAt(g, t - VOICE.countLag);
     try { if (navigator.vibrate) navigator.vibrate(20); } catch { /* optional */ }
     g.counting = false;
@@ -988,7 +991,7 @@ const Darts = (() => {
   return {
     /* after a report call: one throw for this stop, once the phone is
      * still. Resolves true when a card was (or will be) shown. */
-    async offer({ stop, visit, player, voice }) {
+    async offer({ stop, visit, player, voice, pace }) {
       if (!stop || !root()) return false;
       cancelPending();
       const g = ++gen;
@@ -1002,18 +1005,18 @@ const Darts = (() => {
       ]);
       if (Array.isArray(rows) && rows.some(r => sameStop(r, stop, visit))) return false; // the depot says so too
       if (g !== gen) return false; // dismissed, or superseded, while the depot was answering
-      whenStill(() => { if (g === gen) show({ stop, visit, player, rows: leaders || [], counted: true, byVoice: !!voice }); });
+      whenStill(() => { if (g === gen) show({ stop, visit, player, rows: leaders || [], counted: true, byVoice: !!voice, pace: +pace || 0 }); });
       return true;
     },
     /* a throw that is neither saved nor remembered — the settings sheet's
      * "try it", so a driver sees the game before a report earns one */
-    async practice({ player, voice } = {}) {
+    async practice({ player, voice, pace } = {}) {
       if (!root()) return false;
       cancelPending();
       const g = ++gen;
       const leaders = await boxed(leadersToday());
       if (g !== gen) return false;
-      return show({ stop: null, visit: null, player, rows: leaders || [], counted: false, byVoice: !!voice });
+      return show({ stop: null, visit: null, player, rows: leaders || [], counted: false, byVoice: !!voice, pace: +pace || 0 });
     },
     dismiss() { gen++; cancelPending(); hide(); },
     /* a stop from outside — a hardware button, a wrapper, a test */
