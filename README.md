@@ -933,6 +933,16 @@ before the first count; after that he keeps it short, and his result
 line says where the dart went ("a little low and to the right"). The
 rules are also written in the settings sheet, with a button to hear
 them again.
+Otto takes his time. His lines in the game play at 85 % speed with
+the pitch kept (the phone slows the clip; the notes before a stop
+still read at full speed), a stop of the driver's gets a "Good." and
+a breath before his next line, a count never starts while he is
+still talking (the rules alone take half a minute), and the result
+is a full sentence — "Not bad at all. 10 points. A little low and to
+the right. That puts you third today." The lines of a throw are
+fetched once a session and kept, so from the second throw on each one
+starts on the breath, not a second later. A voice game is never
+closed by the idle timer while it is being played; it ends by itself.
 The numbers are clips
 from the reading function (his real voice), fetched once per session;
 without it the phone's own voice counts. The phone does not have to

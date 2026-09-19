@@ -660,7 +660,7 @@ function detectorStep(snap) {
  * is the one that finishes their answer. No banner to notice, no
  * screen to find — the whole point of a trigger is that Otto comes to
  * you. */
-function speakThen(text, done, lang) {
+function speakThen(text, done, lang, rate) {
   stopOttoAudio(); // one voice at a time — a reading clip in flight yields
   let called = false;
   const finish = () => {
@@ -672,7 +672,7 @@ function speakThen(text, done, lang) {
     if (window.__ottoTtsDone === finish) window.__ottoTtsDone = null;
     done();
   };
-  const capMs = Math.min(20000, 2500 + String(text || '').length * 90);
+  const capMs = Math.min(20000, (2500 + String(text || '').length * 90) / (rate > 0 ? rate : 1));
   try {
     /* Android wrapper: the OttoTTS bridge — WebViews have no Web Speech
      * API at all, speechSynthesis.speak() there is a silent no-op */
@@ -688,6 +688,7 @@ function speakThen(text, done, lang) {
     /* the caller says which language the TEXT is in — the browser then
      * picks a voice that can actually pronounce it */
     u.lang = lang || 'en-US';
+    if (rate > 0) u.rate = rate; // a slower read, when the caller asks (the dart game)
     u.onend = finish;
     u.onerror = finish;
     speechSynthesis.speak(u);
@@ -750,10 +751,28 @@ function stopOttoAudio() {
   if (pending) pending();
 }
 
+/* Lines said again and again — the dart game's cues, the same every
+ * throw — are fetched once a session and kept: the next time Otto says
+ * one it starts at once, and its characters are spent once. The map
+ * holds the clip, or the fetch in flight so a line being warmed is not
+ * fetched twice; a fetch that fails leaves nothing behind and costs no
+ * penalty — the line is fetched afresh when it is actually spoken. */
+const ottoLines = new Map();
+function warmOttoLine(text) {
+  text = String(text || '');
+  if (!text || ottoLines.has(text) || !Backend.enabled || !elevenReady()) return Promise.resolve();
+  const p = Backend.tts(text).then(blob => { ottoLines.set(text, blob); return blob; }, () => { ottoLines.delete(text); });
+  ottoLines.set(text, p);
+  while (ottoLines.size > 12) ottoLines.delete(ottoLines.keys().next().value);
+  return p.then(() => {});
+}
+
 /* Otto speaks: the ElevenLabs voice when it is reachable, speakThen
  * (wrapper TTS, then browser TTS) otherwise. onVoice fires only when
- * the real voice actually starts, so callers can label truthfully. */
-async function speakOtto(text, done, onVoice, lang) {
+ * the real voice actually starts, so callers can label truthfully.
+ * `rate` slows the read (0.85: the dart game's calm Otto) — the pace
+ * changes, the pitch stays. */
+async function speakOtto(text, done, onVoice, lang, rate) {
   let called = false;
   const finish = () => {
     if (called) return;
@@ -763,18 +782,22 @@ async function speakOtto(text, done, onVoice, lang) {
   };
   if (Backend.enabled && elevenReady() && text) {
     try {
-      const blob = await Backend.tts(String(text));
+      const kept = ottoLines.get(String(text));
+      const blob = (kept && await kept) || await Backend.tts(String(text));
       elevenRetryAt = 0; // the function answered — any earlier blip is history
       const a = ottoAudioEl();
       stopOttoAudio();
       a.src = URL.createObjectURL(blob);
+      /* after src: a load resets the rate to the default, so both are set */
+      try { a.preservesPitch = true; a.webkitPreservesPitch = true; } catch { /* optional */ }
+      a.defaultPlaybackRate = a.playbackRate = rate > 0 ? rate : 1;
       a.__finish = finish;
       a.onended = finish;
       a.onerror = finish;
       await a.play(); // throws while autoplay is still locked — fall through
       if (onVoice) onVoice('elevenlabs');
       /* insurance for an onended that never fires */
-      setTimeout(finish, Math.min(60000, 5000 + String(text).length * 100));
+      setTimeout(finish, Math.min(60000, (5000 + String(text).length * 100) / (rate > 0 ? rate : 1)));
       return;
     } catch (e) {
       /* detach before falling back — speakThen stops the element, and a
@@ -794,7 +817,7 @@ async function speakOtto(text, done, onVoice, lang) {
       }
     }
   }
-  speakThen(text, finish, lang);
+  speakThen(text, finish, lang, rate);
 }
 
 /* {park_m} / {walk_m} in a scenario's "Otto says" become the actual
