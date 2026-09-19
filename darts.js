@@ -16,10 +16,13 @@
  * on two for a little left, top or weak, in the silence for the
  * middle, on four for a little right, bottom or strong; a count
  * nobody stops takes four. Three stops in the silence are the
- * bullseye. Otto announces the throw. On screen there is only Otto then,
- * as on the report call: his face and the words, his lines and each
- * stop as the driver's line — never the numbers. Rings score, the
- * bullseye most, a miss nothing. The score
+ * bullseye. Otto announces the throw. He takes his time: his lines
+ * are read a little slower than the notes (the pitch kept), with a
+ * breath between the driver's stop and his next line, and he never
+ * starts a count while he is still talking. On screen there is only
+ * Otto then, as on the report call: his face and the words, his
+ * lines and each stop as the driver's line — never the numbers.
+ * Rings score, the bullseye most, a miss nothing. The score
  * shows for a second, then the card slides away by itself. Before
  * the throw the × in the corner closes it (a tap elsewhere does
  * nothing — it may be a flick that never got going), and a card
@@ -57,13 +60,13 @@ const Darts = (() => {
   /* the rings, from the centre out: radius in board units (the rim is
    * 100 from the centre), the points, the word the score comes with */
   const RINGS = [
-    { r: 12, pts: 50, name: 'bull', word: 'BULLSEYE!' },
+    { r: 12, pts: 50, name: 'bull', word: 'Bullseye!' },
     { r: 28, pts: 25, name: 'inner', word: 'So close!' },
-    { r: 52, pts: 10, name: 'middle', word: 'Not bad.' },
-    { r: 76, pts: 5, name: 'outer', word: 'Meh.' },
-    { r: 100, pts: 1, name: 'rim', word: 'Barely on.' },
+    { r: 52, pts: 10, name: 'middle', word: 'Not bad at all.' },
+    { r: 76, pts: 5, name: 'outer', word: 'On the board.' },
+    { r: 100, pts: 1, name: 'rim', word: 'Just on the board.' },
   ];
-  const MISS = { r: Infinity, pts: 0, name: 'miss', word: 'The wall took it.' };
+  const MISS = { r: Infinity, pts: 0, name: 'miss', word: 'The wall took that one.' };
 
   /* Until the depot fills today's board, these regulars keep it
    * company: made up, first names only, the way the settings ask for.
@@ -139,7 +142,9 @@ const Darts = (() => {
    * is no throw, and nothing is spent. */
   const VOICE = {
     beat: 1100,      // ms — one beat of the count ("two", the silence, "four"), unless the settings say a pace (app.js hands it over)
-    lead: 500,       // ms — a breath after "Start" before "two"
+    lead: 800,       // ms — a breath after "Start" before "two"
+    breath: 600,     // ms — after a stop, before Otto's next line: no rush
+    rate: 0.85,      // Otto's lines in the game play this much slower than the notes, the pitch kept
     span: 105,       // board units — the far left and the far right sit this far each side of the centre; two and four are halfway out
     countLag: 500,   // ms — hearing a word, deciding, saying stop: a stop belongs to the beat this long before it
     dodge: 180,      // ms — the ear takes a word's level at once as Otto says it, and looks for no stop meanwhile
@@ -153,23 +158,28 @@ const Darts = (() => {
   /* What Otto says. The first few throws a phone plays get the rules
    * in full — the driver cannot see them anywhere — and after that the
    * short lines: the driver knows the game. */
-  const RULES = 'Here is the game. Three times, I say two, then nothing for a beat, then four — and you say stop. '
+  /* Friendly and unhurried, on purpose: no shouting, no "Meh", full
+   * sentences, and the three dots are pauses the voice keeps. "Start"
+   * is always the last word — the count follows it. */
+  const RULES = 'Here is how it goes, nice and easy. Three times, I say two... then nothing for a beat... then four. '
+    + 'And you say stop, whenever it feels right. '
     + 'For the side: stop on two for left, in the silence for the middle, on four for right. '
     + 'For the height: two is the top, the silence is the middle, four is the bottom. '
-    + 'For the strength: the silence is just right; two falls short, four flies over. '
-    + 'Say nothing and I take four. Stop in the silence three times for a bullseye.';
+    + 'For the strength: the silence is just right; two falls a little short, four flies a little over. '
+    + 'Say nothing, and I simply take four. Stop in the silence three times, and that is a bullseye.';
   const CUES = {
-    x: 'Dart! Say stop. Side, left to right. Start.',
-    y: 'Height, top to bottom. Start.',
-    p: 'Strength. Start.',
-    none: 'No stop, no throw. Next time.',
-    practice: ' Just practice.',
+    x: 'Here is your dart. Say stop when it feels right. First the side, left to right... Start.',
+    y: 'Now the height, top to bottom... Start.',
+    p: 'And now the strength... Start.',
+    none: 'No stop this time, so no throw. Next time, then.',
+    practice: ' Just a practice throw.',
   };
   const LONG = {
-    x: RULES + ' Side, left to right. Start.',
-    y: 'Now the height. Two is the top, the silence the middle, four the bottom. Start.',
-    p: 'Now the strength. The silence is just right. Start.',
+    x: RULES + ' Let us try. First the side, left to right... Start.',
+    y: 'Now the height. Two is the top, the silence the middle, four the bottom... Start.',
+    p: 'And now the strength. The silence is just right... Start.',
   };
+  const ACK = 'Good. '; // a stop of the driver's gets a word back before the next step
   const LS_PLAYS = 'od_dart_voice_plays';
   const EXPLAIN = 3; // throws with the rules in full before the short lines
   const plays = () => { try { return +localStorage.getItem(LS_PLAYS) || 0; } catch { return 0; } };
@@ -614,9 +624,12 @@ const Darts = (() => {
     if (ear.stream) { ear.stream.getTracks().forEach(tr => tr.stop()); ear.stream = null; }
   }
 
-  /* Otto's voice, when app.js is there to lend it; a silent beat with
-   * the callback otherwise, so the game runs the same. The ear is shut
-   * while he talks. */
+  /* Otto's voice, when app.js is there to lend it — a little slower
+   * than the notes, the pitch kept (VOICE.rate): a calm Otto. A silent
+   * beat with the callback otherwise, so the game runs the same. The
+   * ear is shut while he talks. The insurance timer grows with the
+   * line: the rules take half a minute, and a fixed 12 seconds once
+   * started the count over them — Otto talking over himself. */
   function say(text, done) {
     let called = false;
     const cb = () => {
@@ -627,7 +640,7 @@ const Darts = (() => {
     };
     ear.mute = true;
     if (typeof speakOtto === 'function') {
-      try { speakOtto(text, cb, null, 'en-US'); setTimeout(cb, 12000); return; } catch { /* fall through */ }
+      try { speakOtto(text, cb, null, 'en-US', VOICE.rate); setTimeout(cb, Math.min(60000, 6000 + String(text).length * 120)); return; } catch { /* fall through */ }
     }
     setTimeout(cb, 600);
   }
@@ -670,6 +683,12 @@ const Darts = (() => {
     ui.hint.textContent = hintFor(g);
     ui.hint.hidden = false;
     prefetchCounts();
+    /* the lines of this throw, fetched once a session and kept by
+     * app.js: the next one starts on the breath, not a second after —
+     * one after the other, so the voice service is never swamped */
+    if (typeof warmOttoLine === 'function') {
+      [cue('x'), ACK + cue('y'), ACK + cue('p')].reduce((p, l) => p.then(() => warmOttoLine(l)), Promise.resolve()).catch(() => {});
+    }
     openEar(t => voiceStop(t, 'voice')).then(ok => {
       if (!state || state.voice !== g) return;
       g.mic = ok;
@@ -732,20 +751,13 @@ const Darts = (() => {
     g.counting = false;
     stopCount();
     if (how !== 'auto') { g.stops++; bubble('me', how === 'tap' ? '(tap)' : '\u201cstop\u201d'); }
+    const ack = how === 'auto' ? '' : ACK;
     if (g.phase === 'x') {
       g.x = -VOICE.span + v * 2 * VOICE.span; // left … right
-      g.phase = 'y';
-      ui.hint.textContent = hintFor(g);
-      bubble('ai', cue('y'));
-      caption('Otto is talking', '', false);
-      say(cue('y'), () => startCount(g));
+      nextStep(g, 'y', ack);
     } else if (g.phase === 'y') {
       g.y = -VOICE.span + v * 2 * VOICE.span; // top … bottom
-      g.phase = 'p';
-      ui.hint.textContent = hintFor(g);
-      bubble('ai', cue('p'));
-      caption('Otto is talking', '', false);
-      say(cue('p'), () => startCount(g));
+      nextStep(g, 'p', ack);
     } else {
       g.phase = 'done';
       cancelAnimationFrame(g.raf);
@@ -753,9 +765,8 @@ const Darts = (() => {
       if (!g.stops) {
         /* every count ran to its end: nobody was playing — no throw,
          * and nothing spent */
-        bubble('ai', CUES.none);
         caption('No throw', '', false);
-        say(CUES.none, () => later(VOICE.settle, hide));
+        later(VOICE.breath, () => { bubble('ai', CUES.none); say(CUES.none, () => later(VOICE.settle, hide)); });
         later(VOICE.cap, hide);
         return;
       }
@@ -763,6 +774,20 @@ const Darts = (() => {
       const short = v < lo ? (lo - v) / lo : v > hi ? -(v - hi) / (1 - hi) : 0;
       flyTo(g.x, g.y + short * VOICE.drift, v);
     }
+  }
+  /* the next step, after a breath: the driver's stop is on the screen
+   * at once, Otto's next line follows a moment later — no rush */
+  function nextStep(g, k, ack) {
+    g.phase = k;
+    ui.hint.textContent = hintFor(g);
+    caption(ack ? 'Got it' : 'Otto is talking', '', false);
+    later(VOICE.breath, () => {
+      if (!state || state.voice !== g || g.phase !== k) return;
+      const line = ack + cue(k);
+      bubble('ai', line);
+      caption('Otto is talking', '', false);
+      say(line, () => startCount(g));
+    });
   }
   /* the third stop: the dart leaves the hand for the aimed spot, high
    * or low by what the strength said */
@@ -799,12 +824,12 @@ const Darts = (() => {
   }
   function announce(ring, board, bx, by) {
     const rank = board.findIndex(r => r.me) + 1;
-    const head = (ring.pts ? ring.pts + '. ' : 'Miss. ') + ring.word + whereTo(ring, bx, by);
+    const head = ring.word + (ring.pts ? ` ${ring.pts} point${ring.pts === 1 ? '' : 's'}.` : ' No points this time.') + whereTo(ring, bx, by);
     if (!state.counted) return head + CUES.practice;
-    const place = rank === 1 ? ' Top of the board today!'
-      : rank === 2 ? ` Second today, behind ${board[0].player}.`
-      : rank === 3 ? ' Third today.'
-      : ` Number ${rank} today.`;
+    const place = rank === 1 ? ' You are top of the board today.'
+      : rank === 2 ? ` That puts you second today, just behind ${board[0].player}.`
+      : rank === 3 ? ' That puts you third today.'
+      : ` That puts you at number ${rank} today.`;
     return head + place;
   }
 
@@ -849,8 +874,11 @@ const Darts = (() => {
     r.classList.add('dt-in');
     const leaveIfIdle = () => {
       if (!state || state.thrown) return;
-      /* never yank a dart out of a hand, nor a count past its first step */
-      if (drag || (state.voice && state.voice.phase !== 'y')) { later(5000, leaveIfIdle); return; }
+      /* never yank a dart out of a hand, nor a voice game in progress —
+       * it ends by itself (every line and count is capped), and the
+       * old rule hid the card during the height step of a first play,
+       * whose rules alone take half a minute */
+      if (drag || (state.voice && state.voice.phase !== 'done')) { later(5000, leaveIfIdle); return; }
       hide();
     };
     later(T.wait, leaveIfIdle);
@@ -966,11 +994,11 @@ const Darts = (() => {
     ui.score.hidden = false;
     if (state.counted) save(ring, bx, by, player);
     if (state.voice) {
-      /* Otto announces it — on the screen too — and the card leaves once he is done */
+      /* Otto announces it — on the screen too, after a breath — and
+       * the card leaves once he is done */
       const line = announce(ring, board, bx, by);
-      bubble('ai', line);
       caption('Thrown', ring.word, false);
-      say(line, () => later(VOICE.settle, hide));
+      later(VOICE.breath, () => { bubble('ai', line); say(line, () => later(VOICE.settle, hide)); });
       later(VOICE.cap, hide);
     } else {
       later(T.score, hide);
