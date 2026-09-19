@@ -65,7 +65,10 @@ const localId = p => p + Date.now().toString(36) + Math.random().toString(36).sl
  * both on unless switched off. Per phone, in localStorage, like the
  * language and the route toggle. */
 const LS_SETTINGS = 'od_settings';
-const settings = { name: '', darts: true, voice: true };
+const settings = { name: '', darts: true, voice: true, pace: 'normal' };
+/* how fast Otto counts in the voice throw: ms per number */
+const PACE = { slow: 1500, normal: 1100, fast: 800 };
+const paceMs = () => PACE[settings.pace] || PACE.normal;
 try { Object.assign(settings, JSON.parse(localStorage.getItem(LS_SETTINGS) || '{}')); } catch { /* private mode */ }
 const saveSettings = () => { try { localStorage.setItem(LS_SETTINGS, JSON.stringify(settings)); } catch { /* private mode */ } };
 const playerName = () => String(settings.name || '').trim().slice(0, 24) || 'someone';
@@ -1608,7 +1611,7 @@ function offerDartThrow() {
   const d = current; // the stop the report was filed against — null on the road
   if (!d) return;
   warmReadingVoice(); // Otto calls the throw in his own voice — boot the function now
-  Darts.offer({ stop: d, visit: visitsByDest[d.id] || null, player: playerName(), voice: settings.voice !== false });
+  Darts.offer({ stop: d, visit: visitsByDest[d.id] || null, player: playerName(), voice: settings.voice !== false, pace: paceMs() });
 }
 
 /* Always on the map, never over Otto — the one thing on this screen
@@ -1840,7 +1843,7 @@ el('build').onclick = async () => {
    * "the flick does nothing" then comes with something to read */
   if (typeof Darts !== 'undefined' && Darts.stats) {
     const st = Darts.stats();
-    out.push('dart game: ' + (settings.darts === false ? 'OFF' : 'on') + ' · ' + (settings.voice === false ? 'thrown by flick' : 'thrown by voice, mic ' + (st.mic || 'not tried yet')) + ' · ' + st.flicks + ' flick' + (st.flicks === 1 ? '' : 's')
+    out.push('dart game: ' + (settings.darts === false ? 'OFF' : 'on') + ' · ' + (settings.voice === false ? 'thrown by flick' : 'thrown by voice (' + (PACE[settings.pace] ? settings.pace : 'normal') + ' count, ' + paceMs() + ' ms a number), mic ' + (st.mic || 'not tried yet')) + ' · ' + st.flicks + ' flick' + (st.flicks === 1 ? '' : 's')
       + ' seen · a normal flick is ' + st.sweet + ' px/ms'
       + (st.last ? ' · last throw ' + st.last.speed + ' px/ms = ' + st.last.pts + ' pts' : '')
       + ' · pointer events: ' + (typeof PointerEvent !== 'undefined' ? 'yes' : 'NO (touch fallback)'));
@@ -1893,6 +1896,7 @@ if (el('settings-chip') && el('settings')) {
     el('st-name').value = settings.name || '';
     el('st-darts').checked = settings.darts !== false;
     if (el('st-voice')) el('st-voice').checked = settings.voice !== false;
+    renderPace();
     el('card').hidden = true; // same slot
     sheet.hidden = false;
   };
@@ -1900,11 +1904,21 @@ if (el('settings-chip') && el('settings')) {
   el('st-name').oninput = () => { settings.name = el('st-name').value.trim().slice(0, 24); saveSettings(); };
   el('st-darts').onchange = () => { settings.darts = el('st-darts').checked; saveSettings(); };
   if (el('st-voice')) el('st-voice').onchange = () => { settings.voice = el('st-voice').checked; saveSettings(); };
+  /* the count's pace — a choice of three, lit like the language picker */
+  function renderPace() {
+    if (!el('st-pace')) return;
+    el('st-pace').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.pace === (PACE[settings.pace] ? settings.pace : 'normal')));
+  }
+  if (el('st-pace')) {
+    el('st-pace').querySelectorAll('button').forEach(b => {
+      b.onclick = () => { settings.pace = b.dataset.pace; saveSettings(); renderPace(); };
+    });
+  }
   /* see the game before a report earns a throw — nothing is saved */
   el('st-practice').onclick = () => {
     el('settings').hidden = true;
     warmReadingVoice();
-    if (typeof Darts !== 'undefined') Darts.practice({ player: playerName(), voice: settings.voice !== false });
+    if (typeof Darts !== 'undefined') Darts.practice({ player: playerName(), voice: settings.voice !== false, pace: paceMs() });
   };
 }
 

@@ -927,7 +927,9 @@ One, two…" — stop — "Height, top to bottom. Start. One…" — stop —
 stops ends on five and takes five. Three and three is the middle; on
 the strength four is the sweet spot (weaker falls short, five flies
 high), so "three, three, four" is the perfect throw, if the timing is
-right — the count moves on every 0.7 seconds. The numbers are clips
+right — the count moves on every 1.1 seconds (slow, normal or fast
+in the settings: 1.5, 1.1 or 0.8), after a breath following "Start".
+The numbers are clips
 from the reading function (his real voice), fetched once per session;
 without it the phone's own voice counts. The phone does not have to
 understand the word: any sharp jump above what was there a moment ago
@@ -973,8 +975,9 @@ The rules around it:
 - **Off in one tap.** The ⚙ chip opens the phone's settings: the
   driver's **first name** (on the scoreboard; "someone" until typed),
   the game's **switch** (on by default), the **voice switch** (on:
-  three stops; off: the flick), and a **practice throw** that is not
-  counted, so anyone can see the game without filing a report.
+  three stops; off: the flick), **how fast Otto counts** (slow,
+  normal, fast), and a **practice throw** that is not counted, so
+  anyone can see the game without filing a report.
 
 Every counted throw is one row in the `dart_throws` table — the stop,
 the visit, the player, the score, where the dart landed — with the same
