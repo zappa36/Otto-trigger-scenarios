@@ -919,16 +919,20 @@ route columns (`route`, `stop`) and the `visits` table.
 
 A report is a small chore, and drivers are on their own all day. So
 the moment the REPORT call's screen closes, a full-screen card slides
-up with a dartboard. The throw is by voice, and needs no eyes: Otto
-says "start" and counts one to five in his own voice, and the driver
-says "stop" on the number they want — "Side, left to right. Start.
-One, two…" — stop — "Height, top to bottom. Start. One…" — stop —
-"Strength. Start. One…" — stop, and the dart flies. A count nobody
-stops ends on five and takes five. Three and three is the middle; on
-the strength four is the sweet spot (weaker falls short, five flies
-high), so "three, three, four" is the perfect throw, if the timing is
-right — the count moves on every 1.1 seconds (slow, normal or fast
-in the settings: 1.5, 1.1 or 0.8), after a breath following "Start".
+up with a dartboard. The throw is by voice, and needs no eyes: three
+times, Otto says "start", says "two", keeps a silent beat for three,
+says "four" — and the driver says "stop": on two for a little left,
+top or weak; in the silence for the middle; on four for a little
+right, bottom or strong. A count nobody stops takes four. The silence
+is the middle for the side and the height and just right for the
+strength, so three stops in the silence are the bullseye — if the
+timing is right: a beat is 1.1 seconds (slow, normal or fast in the
+settings: 1.5, 1.1 or 0.8), after a breath following "Start".
+The first three throws a phone plays, Otto explains the game in full
+before the first count; after that he keeps it short, and his result
+line says where the dart went ("a little low and to the right"). The
+rules are also written in the settings sheet, with a button to hear
+them again.
 The numbers are clips
 from the reading function (his real voice), fetched once per session;
 without it the phone's own voice counts. The phone does not have to

@@ -1915,6 +1915,8 @@ if (el('settings-chip') && el('settings')) {
     });
   }
   /* see the game before a report earns a throw — nothing is saved */
+  /* the rules in Otto's voice, without a throw */
+  if (el('st-rules')) el('st-rules').onclick = () => { if (typeof Darts !== 'undefined' && Darts.explain) Darts.explain(); };
   el('st-practice').onclick = () => {
     el('settings').hidden = true;
     warmReadingVoice();
