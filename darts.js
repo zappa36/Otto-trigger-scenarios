@@ -147,6 +147,14 @@ const Darts = (() => {
     settle: 1500,    // ms — the card stays this long after Otto has announced the throw
     cap: 22e3,       // ms — and leaves by then whatever the voice did
   };
+  /* What Otto says. The first few throws a phone plays get the rules
+   * in full — the driver cannot see them anywhere — and after that the
+   * short lines: the driver knows the game. */
+  const RULES = 'Here is the game. I count one to five, three times, and you say stop on the number you want. '
+    + 'First the side: one is far left, three is the middle, five is far right. '
+    + 'Then the height: one is the top, three is the middle, five is the bottom. '
+    + 'Then the strength: four is just right; less falls short, five flies over. '
+    + 'Say nothing and I stop at five. Three, three, four is a bullseye.';
   const CUES = {
     x: 'Dart! Say stop while I count. Side, left to right. Start.',
     y: 'Height, top to bottom. Start.',
@@ -154,6 +162,15 @@ const Darts = (() => {
     none: 'No stop, no throw. Next time.',
     practice: ' Just practice.',
   };
+  const LONG = {
+    x: RULES + ' Side, left to right. Start.',
+    y: 'Now the height. One is the top, three the middle, five the bottom. Start.',
+    p: 'Now the strength. Four is just right. Start.',
+  };
+  const LS_PLAYS = 'od_dart_voice_plays';
+  const EXPLAIN = 3; // throws with the rules in full before the short lines
+  const plays = () => { try { return +localStorage.getItem(LS_PLAYS) || 0; } catch { return 0; } };
+  const cue = k => (state && state.longCues ? LONG[k] : CUES[k]);
   const COUNT = ['one', 'two', 'three', 'four', 'five'];
   const STEP = { x: 'SIDE', y: 'HEIGHT', p: 'STRENGTH' };
   /* what a number means: the side's one is the left, the height's one
@@ -639,6 +656,8 @@ const Darts = (() => {
 
   function voiceThrow() {
     if (!state || state.thrown || state.voice) return;
+    state.longCues = plays() < EXPLAIN;
+    try { localStorage.setItem(LS_PLAYS, String(plays() + 1)); } catch { /* private mode */ }
     const g = { phase: 'x', counting: false, step: 0, stepAt: 0, trail: [], raf: 0, mic: null, stops: 0, x: 0, y: 0 };
     state.voice = g;
     ui.hint.textContent = hintFor(g);
@@ -650,9 +669,9 @@ const Darts = (() => {
       if (g.phase !== 'done') ui.hint.textContent = hintFor(g);
       if (g.counting) caption('Listening…', listeningSub(g), true);
     });
-    bubble('ai', CUES.x);
+    bubble('ai', cue('x'));
     caption('Otto is talking', '', false);
-    say(CUES.x, () => startCount(g));
+    say(cue('x'), () => startCount(g));
     g.raf = requestAnimationFrame(voiceFrame);
   }
   /* a phase's count: one to five, every beat, once — a stop takes the
@@ -710,16 +729,16 @@ const Darts = (() => {
       g.x = -VOICE.span + v * 2 * VOICE.span; // left … right
       g.phase = 'y';
       ui.hint.textContent = hintFor(g);
-      bubble('ai', CUES.y);
+      bubble('ai', cue('y'));
       caption('Otto is talking', '', false);
-      say(CUES.y, () => startCount(g));
+      say(cue('y'), () => startCount(g));
     } else if (g.phase === 'y') {
       g.y = -VOICE.span + v * 2 * VOICE.span; // top … bottom
       g.phase = 'p';
       ui.hint.textContent = hintFor(g);
-      bubble('ai', CUES.p);
+      bubble('ai', cue('p'));
       caption('Otto is talking', '', false);
-      say(CUES.p, () => startCount(g));
+      say(cue('p'), () => startCount(g));
     } else {
       g.phase = 'done';
       cancelAnimationFrame(g.raf);
@@ -762,9 +781,18 @@ const Darts = (() => {
   }
   /* what Otto says once the dart is in: the score, its word, and the
    * driver's place on today's board */
-  function announce(ring, board) {
+  /* where the dart went, for a driver who cannot see it: high or low,
+   * left or right of the middle — how the next throw gets closer */
+  function whereTo(ring, bx, by) {
+    const parts = [];
+    if (by <= -15) parts.push('high'); else if (by >= 15) parts.push('low');
+    if (bx <= -15) parts.push('to the left'); else if (bx >= 15) parts.push('to the right');
+    if (!parts.length) return '';
+    return (ring.pts ? ' A little ' : ' It went ') + parts.join(' and ') + '.';
+  }
+  function announce(ring, board, bx, by) {
     const rank = board.findIndex(r => r.me) + 1;
-    const head = (ring.pts ? ring.pts + '. ' : 'Miss. ') + ring.word;
+    const head = (ring.pts ? ring.pts + '. ' : 'Miss. ') + ring.word + whereTo(ring, bx, by);
     if (!state.counted) return head + CUES.practice;
     const place = rank === 1 ? ' Top of the board today!'
       : rank === 2 ? ` Second today, behind ${board[0].player}.`
@@ -932,7 +960,7 @@ const Darts = (() => {
     if (state.counted) save(ring, bx, by, player);
     if (state.voice) {
       /* Otto announces it — on the screen too — and the card leaves once he is done */
-      const line = announce(ring, board);
+      const line = announce(ring, board, bx, by);
       bubble('ai', line);
       caption('Thrown', ring.word, false);
       say(line, () => later(VOICE.settle, hide));
@@ -1021,6 +1049,9 @@ const Darts = (() => {
     dismiss() { gen++; cancelPending(); hide(); },
     /* a stop from outside — a hardware button, a wrapper, a test */
     stop() { if (state && state.voice) voiceStop(now(), 'voice'); },
+    /* the rules, in Otto's voice — the settings sheet's "hear the rules" */
+    explain() { say(RULES); },
+    get rules() { return RULES; },
     setTip(text) {
       tip = String(text || '').trim();
       if (ui) { ui.tipText.textContent = tip || '…'; ui.tip.classList.toggle('dt-tip-empty', !tip); }

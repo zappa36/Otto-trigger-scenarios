@@ -929,6 +929,11 @@ the strength four is the sweet spot (weaker falls short, five flies
 high), so "three, three, four" is the perfect throw, if the timing is
 right — the count moves on every 1.1 seconds (slow, normal or fast
 in the settings: 1.5, 1.1 or 0.8), after a breath following "Start".
+The first three throws a phone plays, Otto explains the game in full
+before the first count; after that he keeps it short, and his result
+line says where the dart went ("a little low and to the right"). The
+rules are also written in the settings sheet, with a button to hear
+them again.
 The numbers are clips
 from the reading function (his real voice), fetched once per session;
 without it the phone's own voice counts. The phone does not have to
