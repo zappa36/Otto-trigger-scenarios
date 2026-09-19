@@ -483,6 +483,9 @@
     position: absolute;
     left: 12px; right: 12px; bottom: 97px;
     z-index: 12;
+    /* the sheet has grown: bounded and scrollable on a short phone, like the card */
+    max-height: calc(100dvh - 190px);
+    overflow-y: auto;
     padding: 15px 16px;
     border-radius: 18px;
     background: rgba(9,17,26,.94);
@@ -808,7 +811,7 @@
       <span class="st-switch"><input id="st-darts" type="checkbox" checked><i></i></span>
     </label>
     <label class="st-row">
-      <span class="st-label">Throw with your voice<small>say "stop" three times: height, side, strength — off, you flick the dart</small></span>
+      <span class="st-label">Throw with your voice<small>say "stop" three times: side, height, strength — off, you flick the dart</small></span>
       <span class="st-switch"><input id="st-voice" type="checkbox" checked><i></i></span>
     </label>
     <label class="st-row">
