@@ -749,9 +749,9 @@ comes within the reading ring around the pin (350 m by default;
 driving back out past the re-arm ring, 700 m by default, re-arms it,
 so a new approach is a new reading):
 
-> "Heads up — Kollwitzstraße 18, about 300 meters ahead. Delivery is
-> for Maria Weber, floor 4. From dispatch: the elevator is broken, use
-> the stairs. A driver reported: entrance blocked — use the side door."
+> "Heads up — Kollwitzstraße 18, coming up. Delivery is for Maria
+> Weber, floor 4. From dispatch: the elevator is broken, use the
+> stairs. A driver reported: entrance blocked — use the side door."
 
 Three kinds of notes feed that briefing, in that order:
 
@@ -786,12 +786,27 @@ and the debrief sound like one Otto) and the phone sends the briefing
 there and plays the answer **as it arrives**: ElevenLabs makes the
 clip piece by piece and sends each piece the moment it is ready, the
 function passes the pieces straight on, and the phone starts speaking
-on the first one (`otto-stream.js`) — so the reading begins a moment
-after the function answers, not after the whole briefing has been
-synthesised and downloaded. The mic self-test behind the version chip
-says whether this browser plays readings from the first chunk or
+on the first one (`otto-stream.js`) — so a reading fetched live begins
+a moment after the function answers, not after the whole briefing has
+been synthesised and downloaded. The mic self-test behind the version
+chip says whether this browser plays readings from the first chunk or
 whole: Android and Chrome do; Safari, and so every iPhone, waits for
-the whole clip as before. The key never
+the whole clip as before.
+
+**The clip is fetched before it is needed.** What a driver waits for
+is not the speaking but the trip to ElevenLabs and back, about 0.7 s,
+so the phone makes that trip early: inside the re-arm ring, where it
+already boots the function and translates the notes, it also fetches
+the clips of the nearest three stops still to be read, and at the
+reading ring the reading starts the moment the phone buzzes. That is
+why the first line names no distance ("Heads up — stop 12, Goltzstraße
+13, coming up."): the words have to be known 700 m out. A clip is kept
+by its exact words, so a note edited on the dashboard in between
+misses it and the reading is fetched live as before — nothing stale is
+ever read. The banner says `◆ ELEVENLABS · FETCHED AHEAD` when the
+reading came from a clip fetched ahead, `◆ ELEVENLABS` alone when it
+was fetched live. The cost is a clip for a stop the phone came within
+700 m of but never within 350 m. The key never
 reaches a phone, the text is capped server-side, and the clip is
 deliberately small — spoken word over cell in a moving vehicle, where
 small and soon beats big and late. The banner says `◆ ELEVENLABS`

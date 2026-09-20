@@ -242,6 +242,18 @@ test('the whole-clip path honours the stall watchdog and the stop signal too', a
   } finally { globalThis.MediaSource = saved; }
 });
 
+test('playWhole plays a clip already on the phone and times out if it never starts', async () => {
+  const blob = new Blob([bytes(4, 1), bytes(4, 2)], { type: 'audio/mpeg' });
+  const audio = new FakeAudio();
+  const clip = await OttoStream.playWhole(audio, blob);
+  assert.equal(clip.streamed, false);
+  assert.match(audio.src, /^blob:/);
+  assert.equal(urls.get(audio.src), blob);
+  assert.equal(await clip.delivered, 'complete');
+  await assert.rejects(OttoStream.playWhole(new FakeAudio('never'), blob, { startMs: 30 }), e => e.name === 'TimeoutError');
+  await assert.rejects(OttoStream.playWhole(new FakeAudio('blocked'), blob), e => e.name === 'NotAllowedError');
+});
+
 test('supported() follows what the browser says about mp3', () => {
   assert.equal(OttoStream.supported(), true);
   const saved = globalThis.MediaSource;

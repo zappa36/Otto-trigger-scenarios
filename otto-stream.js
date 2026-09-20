@@ -45,6 +45,11 @@
  * Where the browser has no MediaSource for mp3 (Safari, and so every
  * iPhone), the clip is collected whole and played as before — no
  * worse than it was. OttoStream.supported() says which it will be.
+ *
+ *   OttoStream.playWhole(audio, blob, { startMs })
+ *
+ * plays a clip that is already on the phone — one fetched ahead of its
+ * reading — with the same start watchdog and the same shape out.
  * Checked by test/otto-stream.test.mjs against a stand-in MediaSource.
  * ============================================================ */
 
@@ -262,7 +267,9 @@ const OttoStream = (() => {
     return MS ? playStreamed(MS, audio, body, opts) : playCollected(audio, body, opts);
   }
 
-  return { play, supported, MIME };
+  const playWhole = (audio, blob, opts) => startWhole(audio, blob, opts && opts.startMs);
+
+  return { play, playWhole, supported, MIME };
 })();
 /* the page sees the const above; the node tests need it on the global */
 (typeof globalThis !== 'undefined' ? globalThis : window).OttoStream = OttoStream;
