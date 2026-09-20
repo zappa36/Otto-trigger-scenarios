@@ -16,7 +16,9 @@ name: agent-suite
 #               The situation tests are not committed and not diffed —
 #               they come from the dashboard's rows at run time — but
 #               the node tests build all eighty from the starter sheet
-#               and check their shape.
+#               and check their shape. The same job runs the tests of
+#               otto-stream.js, the phone's player for the reading
+#               voice's streamed mp3 (test/ at the repo root).
 #
 #   live-suite  The buttons. Actions → agent-suite → Run workflow, pick an
 #               action and a suite, press Run; the result lands in the
@@ -102,6 +104,8 @@ on:
     paths:
       - "elevenlabs/**"
       - ".github/workflows/agent-suite.yml"
+      - "otto-stream.js"
+      - "test/**"
       # what the generator mirrors and reads (see the unit job above)
       - "app.js"
       - "otto-agent.js"
@@ -112,6 +116,8 @@ on:
     paths:
       - "elevenlabs/**"
       - ".github/workflows/agent-suite.yml"
+      - "otto-stream.js"
+      - "test/**"
       - "app.js"
       - "otto-agent.js"
       - "trigger-scenarios.js"
@@ -180,6 +186,13 @@ jobs:
 
       - name: Node tests
         run: node --test
+
+      # The reading voice's stream player (otto-stream.js — the phone's
+      # side of elevenlabs-tts) has no browser here; a stand-in
+      # MediaSource under test/ holds it to the rules a real one enforces.
+      - name: Stream player tests
+        working-directory: ${{ github.workspace }}
+        run: node --test test/otto-stream.test.mjs
 
       # The committed test files are the generator's output for the
       # starter sheet; regenerate into a scratch directory and diff. The

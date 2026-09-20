@@ -783,7 +783,15 @@ the other functions (same `ELEVENLABS_API_KEY` secret as
 `elevenlabs-token`, same `ALLOWED_ORIGINS`; optionally
 `ELEVENLABS_VOICE_ID` — set it to your agent's voice so the reading
 and the debrief sound like one Otto) and the phone sends the briefing
-there, gets back a short low-bitrate mp3 and plays it. The key never
+there and plays the answer **as it arrives**: ElevenLabs makes the
+clip piece by piece and sends each piece the moment it is ready, the
+function passes the pieces straight on, and the phone starts speaking
+on the first one (`otto-stream.js`) — so the reading begins a moment
+after the function answers, not after the whole briefing has been
+synthesised and downloaded. The mic self-test behind the version chip
+says whether this browser plays readings from the first chunk or
+whole: Android and Chrome do; Safari, and so every iPhone, waits for
+the whole clip as before. The key never
 reaches a phone, the text is capped server-side, and the clip is
 deliberately small — spoken word over cell in a moving vehicle, where
 small and soon beats big and late. The banner says `◆ ELEVENLABS`
@@ -792,7 +800,9 @@ late, backend off → the reading falls back in place to the same
 keyless browser speech as the sample trigger (the Android wrapper's
 own TTS when installed), honestly unlabelled. The fallback heals the
 way the translations do: a clip lost to a coverage dip or a slow
-moment costs that one reading and a minute of cooldown, then the next
+moment costs that one reading and a minute of cooldown (a clip that
+drops mid-reading plays out what had arrived and costs the same
+minute), then the next
 approach tries the real voice again — only a function that answers
 403/404/501 (origin not allowed / not deployed / no key) stays off
 for the session, since no amount of driving fixes a deployment. The
@@ -1263,6 +1273,7 @@ word). Everything else is the kit as extracted:
 | new | `app.js`, `index.html`, `backend.js`, `config.js`, `supabase/schema.sql` | Destinations, the card, the wiring |
 | new | `dashboard.html`, `dashboard.js`, `supabase/functions/scenario-ai/` | Trigger scenarios: define, pin, compare, verdict — and the tuning loop (draft, sliders, feedback, versions, spec export) |
 | new | `otto-agent.js`, `supabase/functions/elevenlabs-token/` | Otto as your own ElevenLabs agent: the same debrief as a live conversation, with the scenario as its context |
+| new | `otto-stream.js`, `supabase/functions/elevenlabs-tts/` | The pre-arrival reading in Otto's ElevenLabs voice, played from its first chunk while the rest is still being made |
 | new | `elevenlabs/`, `.github/workflows/agent-suite.yml` | The tuning loop for the agent's prompt: scenario tests from the sheet, field conversations joined to their dashboard grades, proposed prompt diffs on an agent branch — Node, no dependencies |
 
 The dashboard composes through the same seams: `FieldMap.mount` draws the
@@ -1309,6 +1320,7 @@ The composition happens entirely through the kits' public seams:
 | `app.js` | Destinations, messages, the card (incl. the Delivered tap on route stops), the REPORT flow, Otto wiring, the ⚙ settings sheet |
 | `darts.js/.css` | The dart game after a report: the card, the flick, the rings, one throw per stop, only while still, the depot's best today |
 | `otto-agent.js` | Otto as a live ElevenLabs agent conversation — the kit's mount seams over a WebSocket, with the scenario as its context |
+| `otto-stream.js` | The reading voice's player: an ElevenLabs mp3 played from its first chunk while the rest is still being made (Media Source Extensions), whole where the browser cannot stream mp3 — `test/` holds its node tests, run by `agent-suite.yml` |
 | `dashboard.html` | Desktop shell: scenario list, map, form / address / import sheets |
 | `dashboard.js` | Trigger scenarios and situations (their own tab): CRUD, describe→draft, tunable-value sliders, voice feedback → proposed versions, history, spec export, Excel paste-import, address pinning, compare + verdict — and loading the starter sheet / demo route |
 | `situations-starter.js` | The starter situations: twenty things a driver reports after pressing REPORT — the driver's first words, what they know if asked, what a fitting follow-up covers, what is off topic, the tip to confirm; loadable in one tap into the dashboard's SITUATIONS tab |
@@ -1330,4 +1342,4 @@ The composition happens entirely through the kits' public seams:
 | `voice-note.js/.css` | from voice-notes-kit + hands-free pause-to-send |
 | `geolocate.js`, `field-map.js/.css` | verbatim from field-map-kit |
 | `supabase/schema.sql` | `destinations` (incl. pre-arrival notes: consignee / floor / notes, and route / stop) + `messages` (incl. the agent conversation, its ElevenLabs `conversation_id` and the dashboard's `grade` of it) + `scenarios` (incl. params / versions / feedback) + `runs` + `visits` (the Delivered tap) + `dart_throws` (one row per dart thrown after a report) + `agent_runs` (one row per suite run the agent loop published), RLS |
-| `supabase/functions/` | `voice-note` (kit + trailing-"stop" strip + a text path for agent conversations) + `geocode` (verbatim) + `scenario-ai` (draft, revise & the 🇮🇹 question translation) + `elevenlabs-token` (signed URLs for a private agent) + `elevenlabs-tts` (the pre-arrival notes read in Otto's real voice) |
+| `supabase/functions/` | `voice-note` (kit + trailing-"stop" strip + a text path for agent conversations) + `geocode` (verbatim) + `scenario-ai` (draft, revise & the 🇮🇹 question translation) + `elevenlabs-token` (signed URLs for a private agent) + `elevenlabs-tts` (the pre-arrival notes read in Otto's real voice, streamed as they are made) |

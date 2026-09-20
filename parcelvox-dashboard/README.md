@@ -146,8 +146,9 @@ debriefs into a compact STOP DATA block).
   lookups, and every such answer says what it is: **Deterministic lookup**.
 - **Voice both ways**: the mic records and transcribes through the `voice-note` function when the
   backend is live (the browser's own on-device SpeechRecognition keyless), and the **🔊 Replies
-  aloud** toggle reads answers in Otto's ElevenLabs voice via `elevenlabs-tts`, falling back to
-  the browser's speech.
+  aloud** toggle reads answers in Otto's ElevenLabs voice via `elevenlabs-tts` — from the first
+  chunk, while the rest of the answer is still being spoken at the other end (`src/otto/stream.ts`;
+  Safari waits for the whole clip) — falling back to the browser's speech.
 
 The map pane's finder links here (**💬 Ask Otto about these stops**), and the sample mode keeps
 the scripted demo conversation unchanged.

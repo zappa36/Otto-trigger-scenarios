@@ -306,18 +306,33 @@ export async function callFn(name: string, body: unknown, timeoutMs = 30000): Pr
   return d;
 }
 
-/** The pre-arrival reading voice: text in, a short ElevenLabs mp3 out.
- * Time-boxed hard — the caller has the browser's own voice ready. */
-export async function callTts(text: string): Promise<Blob> {
+/** The reading voice as a stream: text in, and the moment the function
+ * answers (status checked, nothing downloaded yet) the Response, its mp3
+ * still arriving — stream.ts plays it from the first chunk. The 12 s box
+ * covers the answer, not the whole clip; the caller's signal drops the
+ * line at any point, and the caller has the browser's own voice ready. */
+export async function callTtsStream(text: string, signal?: AbortSignal): Promise<Response> {
   if (mode !== 'supabase') throw new Error('keyless');
-  const r = await fetch(`${url}/functions/v1/elevenlabs-tts`, {
-    method: 'POST',
-    headers: { apikey: key, Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
-    signal: AbortSignal.timeout(12000),
-  });
-  if (!r.ok) throw new Error('elevenlabs-tts ' + r.status);
-  return r.blob();
+  const ctl = new AbortController();
+  const timer = window.setTimeout(() => ctl.abort(), 12000);
+  if (signal?.aborted) ctl.abort();
+  else signal?.addEventListener('abort', () => ctl.abort(), { once: true });
+  let r: Response;
+  try {
+    r = await fetch(`${url}/functions/v1/elevenlabs-tts`, {
+      method: 'POST',
+      headers: { apikey: key, Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+      signal: ctl.signal,
+    });
+  } finally {
+    window.clearTimeout(timer);
+  }
+  if (!r.ok) {
+    void r.body?.cancel().catch(() => undefined); // an error page is not worth downloading
+    throw new Error('elevenlabs-tts ' + r.status);
+  }
+  return r;
 }
 
 /** A recorded question through the voice-note function (transcription leg

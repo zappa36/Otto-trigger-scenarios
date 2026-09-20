@@ -2,8 +2,10 @@
 // ElevenLabs reading voice — Supabase Edge Function.
 //
 // One-way speech for the phone's pre-arrival notes: the page sends
-// the briefing text, this function turns it into a short mp3 clip in
-// Otto's ElevenLabs voice and streams it back. One job, deliberately
+// the briefing text, this function has ElevenLabs speak it in Otto's
+// voice and passes the mp3 on piece by piece as it is made — the phone
+// plays the first sentence while the last is still being synthesised
+// (otto-stream.js on the page). One job, deliberately
 // not a conversation — a briefing read on approach has no follow-up,
 // and opening a metered agent line to read three sentences would be
 // waste. The ElevenLabs API key never reaches a phone; it lives only
@@ -68,10 +70,13 @@ Deno.serve(async (req) => {
     if (!/^[A-Za-z0-9_-]{6,64}$/.test(voice)) return fail(500, 'ELEVENLABS_VOICE_ID looks wrong');
     const model = env('ELEVENLABS_TTS_MODEL', 'eleven_flash_v2_5');
 
-    // Low-bitrate mp3 on purpose: spoken word over a cell connection in
-    // a moving vehicle — small and soon beats big and late.
+    // The STREAMING endpoint (/stream): ElevenLabs sends each piece of
+    // the clip the moment it is made, instead of the whole file once it
+    // is done — the same voice, model and mp3, minus the wait for the
+    // end. Low-bitrate mp3 on purpose: spoken word over a cell connection
+    // in a moving vehicle — small and soon beats big and late.
     const r = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voice)}?output_format=mp3_22050_32`,
+      `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voice)}/stream?output_format=mp3_22050_32`,
       {
         method: 'POST',
         headers: { 'xi-api-key': key, 'Content-Type': 'application/json' },
@@ -80,8 +85,11 @@ Deno.serve(async (req) => {
     );
     if (!r.ok || !r.body) return fail(502, `tts failed: ${(await r.text()).slice(0, 300)}`);
 
-    // The audio streams straight through — only the clip goes back, the
-    // key stays here.
+    // The body is handed on as the stream it is: nothing is collected
+    // here, no Content-Length, each chunk goes out as it comes in (the
+    // runtime sends it chunked), and a phone that hangs up mid-clip
+    // closes this stream, which closes the one to ElevenLabs. Only the
+    // clip goes back; the key stays here.
     return new Response(r.body, {
       headers: { ...corsHeaders(origin), 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store' },
     });

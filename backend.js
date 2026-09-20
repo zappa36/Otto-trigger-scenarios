@@ -61,6 +61,49 @@ const Backend = (() => {
     return r.json();
   }
 
+  /* A box a caller can also open from outside: the timer and the
+   * caller's own signal abort the same fetch. AbortController is years
+   * older than AbortSignal.timeout; a WebView without even that gets no
+   * box, as above. clear() stops the timer once the answer is in; the
+   * caller's signal stays wired to the connection for the body. */
+  function boxed(ms, outer) {
+    if (typeof AbortController === 'undefined') return { signal: outer, clear() {} };
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), ms);
+    if (outer) {
+      if (outer.aborted) ctl.abort();
+      else outer.addEventListener('abort', () => ctl.abort(), { once: true });
+    }
+    return { signal: ctl.signal, clear: () => clearTimeout(timer) };
+  }
+
+  /* The reading voice, as a STREAM: text in, and the moment the function
+   * answers — status checked, nothing downloaded yet — the Response comes
+   * back with its body still arriving: ElevenLabs is speaking the end of
+   * the briefing while the phone plays the start (otto-stream.js feeds
+   * the chunks to the audio element). The 12 s box covers the function's
+   * answer, not the whole clip any more; the player watches the chunks
+   * after that. The caller's signal drops the line at any point, so a
+   * reading dismissed while the function is still answering stays
+   * dismissed. */
+  async function ttsStream(text, signal) {
+    const box = boxed(12000, signal);
+    let r;
+    try {
+      r = await fetch(`${url}/functions/v1/${window.ELEVENLABS_TTS_FN || 'elevenlabs-tts'}`, {
+        method: 'POST',
+        headers: { apikey: key, Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+        signal: box.signal,
+      });
+    } finally { box.clear(); }
+    if (!r.ok) {
+      try { if (r.body) r.body.cancel().catch(() => {}); } catch { /* an error page is not worth downloading */ }
+      throw new Error('elevenlabs-tts ' + r.status);
+    }
+    return r;
+  }
+
   return {
     enabled,
 
@@ -103,19 +146,20 @@ const Backend = (() => {
     /* A signed URL for a PRIVATE agent — the ElevenLabs key lives in the
      * function's secrets, never here. A public agent never calls this. */
     agentToken: agentId => fn(window.ELEVENLABS_TOKEN_FN || 'elevenlabs-token', { agent_id: agentId }, 10000),
-    /* The reading voice: text in, a short ElevenLabs mp3 clip out (the
-     * pre-arrival notes in Otto's real voice). Time-boxed hard — a
-     * reading that arrives after the driver parked is a reading missed,
-     * and the caller has the browser's own voice ready in its place. */
+    /* The reading voice (the pre-arrival notes in Otto's real voice), as
+     * the stream above: the Response the moment the function answers,
+     * its mp3 still arriving. Time-boxed hard — a reading that arrives
+     * after the driver parked is a reading missed, and the caller has the
+     * browser's own voice ready in its place. */
+    ttsStream,
+    /* The whole clip at once, boxed end to end: the darts count decodes
+     * its one-word clips whole, the self-test measures one. */
     async tts(text) {
-      const r = await fetch(`${url}/functions/v1/${window.ELEVENLABS_TTS_FN || 'elevenlabs-tts'}`, {
-        method: 'POST',
-        headers: { apikey: key, Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-        signal: timeoutSignal(12000),
-      });
-      if (!r.ok) throw new Error('elevenlabs-tts ' + r.status);
-      return r.blob();
+      const box = boxed(12000);
+      try {
+        const r = await ttsStream(text, box.signal);
+        return await r.blob();
+      } finally { box.clear(); }
     },
     /* Boot the reading function's isolate while the reading is still a
      * ring away: OPTIONS runs no TTS and spends no key, but the first
