@@ -625,6 +625,13 @@ one. The microphone opens in the tap itself, alongside the connect. What
 remains of the wait is ElevenLabs opening the line and speaking its
 first words.
 
+**How fast Otto answers during the call** is a matter of the agent's
+settings in ElevenLabs — the language model, the voice model, the
+turn-taking — not of the phone, which plays each piece of his voice
+the moment it lands. The **field** button measures it from ElevenLabs's
+own per-turn timings: see [reply
+speed](elevenlabs/README.md#reply-speed).
+
 Then deploy
 [`elevenlabs-token`](supabase/functions/elevenlabs-token/index.ts) if the
 agent is private (same `ALLOWED_ORIGINS` secret as the others; set
