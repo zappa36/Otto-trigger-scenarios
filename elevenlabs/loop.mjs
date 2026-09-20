@@ -521,7 +521,10 @@ const GENERIC_SUMMARY = /^(evaluation failed|failed|failure|test failed)\.?$/i;
  * verdicts are read, not guessed, wherever it complied. A paragraph
  * without the word is 'unknown'; a rationale without a single verdict
  * is null, and the callers fall back to reading the prose. */
-const VERDICT = /^\s*(?:criteri(?:on|a|o)\s+(\d+)\s*[:.\-–—]\s*)?(?:\*{0,2}|_{0,2})(?:verdict\s*:\s*)?(PASS|FAIL)\b/i;
+/* What the judge actually writes, two runs in: "Criterion 1 passed: …",
+ * "Criterion 6 failed: …" — no colon after the number, the word
+ * inflected. Both spellings count, with or without the separator. */
+const VERDICT = /^\s*(?:criteri(?:on|a|o)\s+(\d+)\s*[:.\-–—]?\s*)?(?:\*{0,2}|_{0,2})(?:verdict\s*:\s*)?(PASS(?:ED)?|FAIL(?:ED)?)\b/i;
 export function verdictsOf(cr) {
   const msgs = (((cr && cr.rationale) || {}).messages || []).map(oneLine);
   const out = [];
@@ -529,7 +532,7 @@ export function verdictsOf(cr) {
   msgs.forEach((m, i) => {
     const hit = VERDICT.exec(m);
     const n = hit && hit[1] ? Number(hit[1]) : i + 1;
-    const result = hit ? hit[2].toLowerCase() : 'unknown';
+    const result = hit ? hit[2].slice(0, 4).toLowerCase() : 'unknown';
     if (hit) any = true;
     out[n - 1] = result;
   });
@@ -543,7 +546,7 @@ const firstFail = cr => {
   const msgs = (((cr && cr.rationale) || {}).messages || []).map(oneLine);
   const i = v.indexOf('fail');
   if (i < 0) return null;
-  return msgs.find(m => { const h = VERDICT.exec(m); return h && (h[1] ? Number(h[1]) === i + 1 : true) && h[2].toLowerCase() === 'fail'; }) || null;
+  return msgs.find(m => { const h = VERDICT.exec(m); return h && (h[1] ? Number(h[1]) === i + 1 : true) && h[2].slice(0, 4).toLowerCase() === 'fail'; }) || null;
 };
 /* The evaluator writes one paragraph per condition, for the ones it was
  * happy with as well as the ones it was not, in the same prose voice —

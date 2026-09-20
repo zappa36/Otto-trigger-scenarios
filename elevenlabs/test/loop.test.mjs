@@ -1041,6 +1041,9 @@ test('the why line names the failed criterion, not the verdict word', async () =
   assert.equal(whyOf(worded), 'Criterion 3: FAIL. Otto read the whole report back before his first question.');
   assert.deepEqual(verdictsOf(worded), ['pass', 'pass', 'fail', 'unknown', 'fail']);
   assert.deepEqual(verdictsOf({ rationale: { messages: ['**FAIL** — no tip.', 'Verdict: PASS, fine.'] } }), ['fail', 'pass'], 'without the criterion prefix the position is the number; markdown and a "Verdict:" lead are tolerated');
+  /* the judge's real spelling on the live runs: no colon after the number, the word inflected */
+  assert.deepEqual(verdictsOf({ rationale: { summary: 'Evaluation failed', messages: ['Criterion 1 passed: the first follow-up fits.', 'Criterion 2 failed: Otto re-asked the floor.', 'Criterion 3 passed: plain words.'] } }), ['pass', 'fail', 'pass']);
+  assert.equal(whyOf({ rationale: { summary: 'Evaluation failed', messages: ['Criterion 1 passed: the first follow-up fits.', 'Criterion 2 failed: Otto re-asked the floor.'] } }), 'Criterion 2 failed: Otto re-asked the floor.');
   assert.equal(verdictsOf({ rationale: { messages: ['Criterion 1: fine.', 'Criterion 2: not so fine.'] } }), null, 'no verdict word anywhere is null, and the callers read the prose');
   assert.equal(whyOf({ rationale: { summary: 'Unsupported client tool', messages: ['Criterion 1: FAIL. x'] } }), 'Unsupported client tool', 'a summary that says something of its own still wins');
   const generic = { rationale: { summary: 'Evaluation failed', messages: [
