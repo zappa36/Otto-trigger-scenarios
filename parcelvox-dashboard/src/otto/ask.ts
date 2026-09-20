@@ -1,7 +1,8 @@
 import type { OttoAnswer } from '../data/chat';
-import { callFn, callTts, storeMode, type DepotStop } from './depot';
+import { callFn, callTtsStream, storeMode, type DepotStop } from './depot';
 import { doorLabel } from './doors';
 import { searchIndex, type DoorEntry } from './search';
+import { playStream } from './stream';
 
 /*
  * Otto's dispatcher conversation, grounded in the store.
@@ -277,35 +278,53 @@ export function localAnswer(question: string, entries: DoorEntry[], stops: Depot
 
 /* ---------- the reply, spoken ---------- */
 
-let playing: HTMLAudioElement | null = null;
+/* the clip under way: its element and the handle that drops it — the fetch
+ * and the stream player share the one handle, so a stop mid-download is a
+ * stop, not a reply that starts a second later */
+let playing: { audio: HTMLAudioElement; stop: AbortController } | null = null;
 
 export function stopSpeaking(): void {
   if (playing) {
-    playing.pause();
+    const { audio, stop } = playing;
     playing = null;
+    stop.abort(); // first: the player lets go of the element before it is reset
+    audio.pause();
+    if (audio.src.startsWith('blob:')) URL.revokeObjectURL(audio.src);
+    audio.removeAttribute('src');
   }
   if ('speechSynthesis' in window) window.speechSynthesis.cancel();
 }
 
 /** Reads a reply aloud: Otto's real ElevenLabs voice when the backend has
- * the tts function, the browser's own voice otherwise. */
+ * the tts function — playing from the first chunk while the rest of the
+ * answer is still being spoken at the other end — the browser's own voice
+ * otherwise. */
 export async function speakReply(text: string): Promise<'elevenlabs' | 'browser' | null> {
   const spoken = text.replace(/\*\*/g, '').slice(0, 900);
   if (!spoken) return null;
   stopSpeaking();
   if (storeMode === 'supabase') {
+    const audio = new Audio();
+    audio.preload = 'auto';
+    const mine = { audio, stop: new AbortController() };
+    playing = mine;
+    audio.onended = () => {
+      if (playing === mine) playing = null;
+      if (audio.src.startsWith('blob:')) URL.revokeObjectURL(audio.src);
+    };
     try {
-      const blob = await callTts(spoken);
-      const audio = new Audio(URL.createObjectURL(blob));
-      playing = audio;
-      audio.onended = () => {
-        if (playing === audio) playing = null;
-        URL.revokeObjectURL(audio.src);
-      };
-      await audio.play();
+      const r = await callTtsStream(spoken, mine.stop.signal);
+      await playStream(audio, r, { signal: mine.stop.signal });
       return 'elevenlabs';
     } catch {
-      /* function missing or slow — the browser voice takes over */
+      /* stopped on purpose while the clip was on its way: nothing speaks
+       * in its place */
+      if (mine.stop.signal.aborted) return null;
+      /* function missing or slow — the browser voice takes over, and any
+       * fragment the element holds goes with the clip */
+      if (playing === mine) playing = null;
+      audio.pause();
+      audio.removeAttribute('src');
     }
   }
   if ('speechSynthesis' in window) {

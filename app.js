@@ -700,11 +700,13 @@ function speakThen(text, done, lang) {
  * With the backend live, pre-arrival notes are read in Otto's REAL
  * voice: the elevenlabs-tts function turns the briefing into a short
  * mp3 clip (the ElevenLabs key never reaches the phone — same rule as
- * the agent) and one shared audio element plays it. Everything
- * degrades in place, like the rest of the kit: function not deployed,
- * clip late, playback still locked, backend off — the reading falls
- * back to speakThen (the wrapper's TTS, then the browser's own voice)
- * and the banner is the record either way. */
+ * the agent) and streams it back as it is made; one shared audio
+ * element plays it from the first chunk (otto-stream.js), so the
+ * reading starts while the end of it is still being synthesised.
+ * Everything degrades in place, like the rest of the kit: function
+ * not deployed, clip late, playback still locked, backend off — the
+ * reading falls back to speakThen (the wrapper's TTS, then the
+ * browser's own voice) and the banner is the record either way. */
 /* Two failure classes, told apart by what a failure proves. A 403, 404
  * or 501 from the function means not deployed, origin not allowed, or
  * no key — nothing a moving vehicle heals, so stop asking for the rest
@@ -736,11 +738,17 @@ function ottoAudioEl() {
   return ottoAudio;
 }
 /* Stopping a clip also settles whoever was waiting for it to end —
- * a cut-off reading must not leave its "still speaking" flag stuck. */
+ * a cut-off reading must not leave its "still speaking" flag stuck —
+ * and drops a clip still on its way (the fetch and the stream player
+ * share one handle), so a reading dismissed while the function was
+ * answering does not start talking a second later. The handle goes
+ * first: the player lets go of the element before it is reset. */
 function stopOttoAudio() {
   if (!ottoAudio) return;
   const pending = ottoAudio.__finish;
-  ottoAudio.__finish = null;
+  const drop = ottoAudio.__stop;
+  ottoAudio.__finish = ottoAudio.__stop = null;
+  if (drop) { try { drop(); } catch { /* already over */ } }
   try {
     ottoAudio.onended = ottoAudio.onerror = null;
     ottoAudio.pause();
@@ -758,28 +766,45 @@ async function speakOtto(text, done, onVoice, lang) {
   const finish = () => {
     if (called) return;
     called = true;
-    if (ottoAudio && ottoAudio.__finish === finish) ottoAudio.__finish = null;
+    if (ottoAudio && ottoAudio.__finish === finish) ottoAudio.__finish = ottoAudio.__stop = null;
     done();
   };
   if (Backend.enabled && elevenReady() && text) {
+    const a = ottoAudioEl();
+    stopOttoAudio(); // one voice at a time — the last clip yields the moment this one is asked for
+    /* one handle for the whole reading, the fetch and the player alike;
+     * stopOttoAudio pulls it (a banner dismissed, a debrief opening) */
+    const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const signal = ctl ? ctl.signal : undefined;
+    a.__finish = finish;
+    a.__stop = () => { if (ctl) ctl.abort(); };
     try {
-      const blob = await Backend.tts(String(text));
+      const r = await Backend.ttsStream(String(text), signal);
       elevenRetryAt = 0; // the function answered — any earlier blip is history
-      const a = ottoAudioEl();
-      stopOttoAudio();
-      a.src = URL.createObjectURL(blob);
-      a.__finish = finish;
       a.onended = finish;
       a.onerror = finish;
-      await a.play(); // throws while autoplay is still locked — fall through
+      /* plays from the first chunk while the rest is still being made
+       * (otto-stream.js) and resolves once the voice is actually out —
+       * rejects while autoplay is still locked, and falls through */
+      const clip = await OttoStream.play(a, r, { signal });
       if (onVoice) onVoice('elevenlabs');
+      /* a line that drops mid-reading plays out what arrived; the next
+       * reading waits out the same minute a lost fetch costs */
+      clip.delivered.then(how => {
+        if (how !== 'cut') return;
+        elevenRetryAt = Date.now() + ELEVEN_RETRY_MS;
+        console.warn('elevenlabs-tts clip cut short on the way — what arrived was read; the real voice gets another try in a minute');
+      });
       /* insurance for an onended that never fires */
       setTimeout(finish, Math.min(60000, 5000 + String(text).length * 100));
       return;
     } catch (e) {
+      /* stopped on purpose while the clip was on its way: stopOttoAudio
+       * settled `done` already, and nothing speaks in its place */
+      if (signal && signal.aborted) return;
       /* detach before falling back — speakThen stops the element, and a
        * still-registered finish would count the fallback as already done */
-      if (ottoAudio) { ottoAudio.__finish = null; ottoAudio.onended = ottoAudio.onerror = null; }
+      if (ottoAudio) { ottoAudio.__finish = ottoAudio.__stop = null; ottoAudio.onended = ottoAudio.onerror = null; }
       /* a blocked play() is not the function's fault — no penalty, it
        * gets to try again next time */
       if (!(e && e.name === 'NotAllowedError')) {
@@ -1827,10 +1852,17 @@ el('build').onclick = async () => {
    * silent fallback in the field reads as "ElevenLabs spoke" */
   if (Backend.enabled) {
     try {
+      const t0 = Date.now();
       const clip = await Backend.tts('Ok.');
+      const secs = ((Date.now() - t0) / 1000).toFixed(1);
       elevenDown = false; // it works — forget any earlier failure,
       elevenRetryAt = 0;  // latched or merely cooling off
-      out.push(`notes reading voice: ELEVENLABS — OK (${Math.round(clip.size / 102.4) / 10} KB test clip)`);
+      /* a reading plays from its first chunk where the browser streams
+       * mp3 (Android, Chrome); Safari and every iPhone wait for the
+       * whole clip, as this one-word probe does either way */
+      const streams = typeof OttoStream !== 'undefined' && OttoStream.supported();
+      out.push(`notes reading voice: ELEVENLABS — OK (${Math.round(clip.size / 102.4) / 10} KB test clip in ${secs} s · `
+        + (streams ? 'readings play from the first chunk' : 'this browser plays each clip whole') + ')');
     } catch (e) {
       out.push('notes reading voice: device TTS — elevenlabs-tts unreachable (' + (e.message || e) + ')');
     }
