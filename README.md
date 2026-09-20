@@ -614,6 +614,17 @@ Set one environment variable and redeploy:
 | `ELEVENLABS_AGENT_ID` | Vercel env vars | your agent's id — that is the whole setup for a **public** agent |
 | `ELEVENLABS_API_KEY` | the `elevenlabs-token` function's secrets | only for a **private** agent; the key never reaches a phone |
 
+**The REPORT tap is not kept waiting for the signature.** A private
+agent's line opens on a URL signed with the key — a round trip through
+the function and on to ElevenLabs, 0.4 s warm and twice that cold, which
+every tap used to make first. The phone now fetches it ahead, when a test
+is armed, when a card opens and whenever it is within 150 m of a stop,
+and keeps one fresh: a signed URL lives 15 minutes, one under 10 is
+used, and a line that fails to open on it is tried once more on a fresh
+one. The microphone opens in the tap itself, alongside the connect. What
+remains of the wait is ElevenLabs opening the line and speaking its
+first words.
+
 Then deploy
 [`elevenlabs-token`](supabase/functions/elevenlabs-token/index.ts) if the
 agent is private (same `ALLOWED_ORIGINS` secret as the others; set

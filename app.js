@@ -986,8 +986,10 @@ function checkApproach(pos) {
   const busy = notesSpeaking || !el('otto-screen').hidden || !el('verdict-banner').hidden;
   let next = null;
   const armed = []; // inside the rearm ring, notes on file, not read yet: the readings to come
+  let withinReach = false; // a stop within REPORT_RADIUS: a report is getting likely
   for (const d of visibleDestinations()) {
     const dist = distM(pos, d);
+    if (dist <= REPORT_RADIUS) withinReach = true;
     /* the arrival ring, for the Delivered tap's dwell: the first fix
      * inside it is "arrived"; well outside again forgets it (a walk-by
      * is not an arrival) */
@@ -1010,6 +1012,9 @@ function checkApproach(pos) {
     if (!next || dist < next.dist) next = { d, dist };
   }
   if (next) speakPreArrival(next.d, next.dist);
+  /* at a stop, the agent's line is signed ahead of the REPORT tap
+   * (nothing happens while a fresh URL is already in hand) */
+  if (withinReach) OttoAgent.prefetchUrl();
   /* and the clips of the nearest readings still to come are fetched
    * now, so each starts the moment its ring is reached */
   armed.sort((x, y) => x.dist - y.dist)
@@ -1691,10 +1696,9 @@ function reportContext() {
 }
 
 function openReport() {
-  /* wake the output audio and get the microphone question answered
-   * inside this tap — a permission dialog raised later, mid-sentence,
-   * is a report lost */
-  OttoAgent.prime();
+  /* the agent wakes the output audio and opens the microphone inside
+   * this same tap, alongside the connect (OttoAgent's connect) — a
+   * separate priming here opened the microphone twice in a row */
   openOtto(reportContext(), true);
 }
 
@@ -1735,6 +1739,7 @@ function setScTab(t) {
 function openCard(d) {
   current = d;
   if (el('settings')) el('settings').hidden = true; // same slot
+  OttoAgent.prefetchUrl(); // a card open is a report getting likely: the agent's line, signed ahead
   el('card-title').textContent = (d.stop != null ? 'Stop ' + d.stop + ' · ' : '') + scenarioNumPrefix(d) + d.title;
   el('card-addr').textContent = d.addr || `${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}`;
   updateCardDistance();

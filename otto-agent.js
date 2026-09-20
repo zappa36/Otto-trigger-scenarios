@@ -46,6 +46,17 @@
  * see config.js), or ?agent=<id> on any URL for a quick test.
  * A private agent adds the elevenlabs-token Edge Function, which
  * holds the API key; a public agent needs no key at all.
+ *
+ * What a REPORT tap waits for is the line opening: the signed URL
+ * (a round trip to the Edge Function and on to ElevenLabs — 0.4 s
+ * warm, twice that cold), then the socket, then the agent's first
+ * words. The URL is fetched AHEAD of the tap — prefetchUrl(), called
+ * wherever a report is getting likely: arming a test, a card
+ * opening, the phone within reach of a stop — and kept fresh: a
+ * signed URL is good for 15 minutes, one younger than 10 is used as
+ * it is, and a socket that never opens on one is tried once more on
+ * a fresh one. The microphone opens in the tap itself, alongside the
+ * connect, not after it.
  * ============================================================ */
 
 const OttoAgent = (() => {
@@ -110,6 +121,40 @@ const OttoAgent = (() => {
 
   const agentId = () =>
     String(new URLSearchParams(location.search).get('agent') || window.ELEVENLABS_AGENT_ID || '').trim();
+
+  /* ---------- the signed URL, fetched ahead ----------
+   * A private agent's socket needs a URL signed with the API key, which
+   * only the elevenlabs-token function holds; a public agent connects on
+   * its id alone, but the function, when it is there, signs for it just
+   * the same. Fetched at the tap, the signature was the first 0.4–0.8 s
+   * of every REPORT. Fetched ahead it costs the tap nothing: the URL is
+   * good for 15 minutes (ElevenLabs's word), so one younger than
+   * URL_FRESH_MS is taken as it is and a tap that finds none waits for a
+   * fresh one, as it always did. Each URL serves one conversation. */
+  const URL_FRESH_MS = 10 * 60e3;
+  const signed = { url: '', at: 0, promise: null };
+  function fetchSignedUrl(id) {
+    if (signed.promise) return signed.promise;
+    signed.promise = Promise.resolve()
+      .then(() => (Backend.enabled && Backend.agentToken ? Backend.agentToken(id) : null))
+      .then(d => {
+        const url = d && d.signed_url ? String(d.signed_url) : '';
+        if (url) { signed.url = url; signed.at = Date.now(); }
+        return url;
+      })
+      .catch(e => {
+        console.warn('OttoAgent: no signed URL (' + (e.message || e) + ') — connecting as a public agent');
+        return '';
+      })
+      .finally(() => { signed.promise = null; });
+    return signed.promise;
+  }
+  const freshUrl = () => (signed.url && Date.now() - signed.at < URL_FRESH_MS ? signed.url : '');
+  /* cheap to call often: nothing happens while a fresh URL is in hand */
+  function prefetchUrl() {
+    if (!available() || !Backend.enabled || !Backend.agentToken) return;
+    if (!freshUrl()) fetchSignedUrl(agentId());
+  }
 
   /* ---------- audio plumbing ----------
    * ElevenLabs speaks and listens in raw PCM (16-bit, little-endian,
@@ -232,6 +277,7 @@ const OttoAgent = (() => {
   async function prime() {
     if (!available()) return false;
     outputCtx();
+    prefetchUrl(); // the signed URL, ahead of the tap that will need it
     try {
       const s = await navigator.mediaDevices.getUserMedia({ audio: true });
       s.getTracks().forEach(t => t.stop());
@@ -265,6 +311,9 @@ const OttoAgent = (() => {
       turns: [], phase: 'connect', ending: false, saved: false, dead: false, opened: false,
       conversationId: null, // ElevenLabs's id for the conversation, from its opening metadata
       allowOverrides: true, wantsLanguage: false, tried: 0, lastVoice: 0, timers: [],
+      micGen: 0,          // bumped by every stopMic: a microphone still opening for an older session stops itself
+      viaCache: false,    // this connect used the URL fetched ahead
+      retriedUrl: false,  // ... and, if that URL had gone stale, was tried again on a fresh one
       inFmt: { codec: 'pcm', rate: 16000 }, outFmt: { codec: 'pcm', rate: 16000 },
       queue: [], playHead: 0,
     };
@@ -347,15 +396,22 @@ const OttoAgent = (() => {
 
     /* ---------- capture ---------- */
     async function startMic() {
-      state.stream = await navigator.mediaDevices.getUserMedia({
+      /* the session this microphone belongs to: a teardown while the phone
+       * was still opening it (a tap on ×, a line that failed, a reconnect)
+       * must not leave a stream running for nobody */
+      const gen = state.micGen;
+      const stream = await navigator.mediaDevices.getUserMedia({
         /* the agent's own voice comes out of the same phone — without
          * cancellation it hears itself and answers itself */
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
       });
+      if (gen !== state.micGen || state.dead) { stream.getTracks().forEach(t => t.stop()); return; }
+      state.stream = stream;
       const AC = window.AudioContext || window.webkitAudioContext;
       const ctx = new AC();
       state.inCtx = ctx;
       if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
+      if (gen !== state.micGen || state.dead) return; // stopMic ran meanwhile and closed what it found
       state.src = ctx.createMediaStreamSource(state.stream);
       const down = resampler(ctx.sampleRate, state.inFmt.rate);
 
@@ -384,6 +440,7 @@ const OttoAgent = (() => {
           const url = URL.createObjectURL(new Blob([WORKLET_SRC], { type: 'application/javascript' }));
           await ctx.audioWorklet.addModule(url);
           URL.revokeObjectURL(url);
+          if (gen !== state.micGen || state.dead) return; // torn down while the worklet loaded
           worklet = new AudioWorkletNode(ctx, 'otto-tap');
           worklet.port.onmessage = e => send(e.data);
           state.src.connect(worklet);
@@ -407,6 +464,7 @@ const OttoAgent = (() => {
       }
     }
     function stopMic() {
+      state.micGen++;
       try { if (state.node) state.node.disconnect(); } catch { /* gone */ }
       try { if (state.src) state.src.disconnect(); } catch { /* gone */ }
       if (state.node && state.node.port) state.node.port.onmessage = null;
@@ -421,16 +479,14 @@ const OttoAgent = (() => {
       /* A private agent needs a signed URL, and signing needs the API key
        * — which lives in the Edge Function's secrets, never here. A
        * public agent connects with the id alone, so a missing function is
-       * not an error: try, and fall through. */
-      try {
-        if (Backend.enabled && Backend.agentToken) {
-          const d = await Backend.agentToken(id);
-          if (d && d.signed_url) return d.signed_url;
-        }
-      } catch (e) {
-        console.warn('OttoAgent: no signed URL (' + (e.message || e) + ') — connecting as a public agent');
-      }
-      return `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${encodeURIComponent(id)}`;
+       * not an error: try, and fall through. The URL fetched ahead of the
+       * tap (prefetchUrl) is taken when it is fresh — and taken once. */
+      const ready = freshUrl();
+      if (ready) { signed.url = ''; state.viaCache = true; return ready; }
+      state.viaCache = false;
+      const url = await fetchSignedUrl(id);
+      signed.url = ''; // this one is spoken for
+      return url || `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${encodeURIComponent(id)}`;
     }
 
     function initPayload() {
@@ -477,6 +533,13 @@ const OttoAgent = (() => {
         if (now - state.started > MAX_SESSION_MS || now - state.lastVoice > IDLE_MS) finish();
       }, 5000);
       render({ from: 'ai', text: 'One moment — getting Otto on the line…' }, 'connect');
+      /* the microphone opens now, in the tap that asked for Otto, while
+       * the line is still being opened — not after it, which had the agent
+       * talking to a phone that could not yet hear. The output context
+       * wakes here for the same reason (inside the gesture when there is
+       * one; on the sticky activation of an earlier tap otherwise). */
+      outputCtx();
+      startMic().catch(e => fail('microphone: ' + (e.message || e)));
       socketUrl(agentId()).then(url => {
         if (state.dead) return;
         let ws;
@@ -497,7 +560,6 @@ const OttoAgent = (() => {
           let brief = '';
           try { brief = String((opt.briefing && opt.briefing()) || '').trim(); } catch { brief = ''; }
           if (brief) ws.send(JSON.stringify({ type: 'contextual_update', text: brief.slice(0, 2000) }));
-          startMic().catch(e => fail('microphone: ' + (e.message || e)));
           state.lastVoice = Date.now();
           render(null, 'listening');
           chip('ELEVENLABS');
@@ -559,8 +621,21 @@ const OttoAgent = (() => {
            * a debrief in the agent's own words beats no debrief. It is
            * only that if the socket got as far as OPEN: the override
            * goes up after the handshake, so a connection that never
-           * opened failed for a reason no retry here can fix. */
+           * opened failed for a reason no retry here can fix — except
+           * one, below. */
           const why = String(e.reason || '');
+          /* a URL signed ahead of the tap can have gone stale on a long
+           * stop (15 minutes is its life): a socket that never opened on
+           * one gets one more go, on a fresh one — which is not a second
+           * try in the overrides' sense */
+          if (!state.opened && state.viaCache && !state.retriedUrl) {
+            state.retriedUrl = true;
+            state.tried--;
+            console.warn('OttoAgent: the line did not open on the URL fetched ahead' + (why ? ' — ' + why : '') + '; trying a fresh one');
+            stopMic();
+            connect();
+            return;
+          }
           if (state.opened && state.allowOverrides && state.tried < 2 && !state.turns.length) {
             state.allowOverrides = false;
             console.warn('OttoAgent: reconnecting without the overrides' + (why ? ' — ' + why : ''));
@@ -752,5 +827,5 @@ const OttoAgent = (() => {
     return api.start();
   }
 
-  return { available, prime, mount, agentId };
+  return { available, prime, prefetchUrl, mount, agentId };
 })();
