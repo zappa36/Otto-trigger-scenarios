@@ -614,6 +614,24 @@ Set one environment variable and redeploy:
 | `ELEVENLABS_AGENT_ID` | Vercel env vars | your agent's id — that is the whole setup for a **public** agent |
 | `ELEVENLABS_API_KEY` | the `elevenlabs-token` function's secrets | only for a **private** agent; the key never reaches a phone |
 
+**The REPORT tap is not kept waiting for the signature.** A private
+agent's line opens on a URL signed with the key — a round trip through
+the function and on to ElevenLabs, 0.4 s warm and twice that cold, which
+every tap used to make first. The phone now fetches it ahead, when a test
+is armed, when a card opens and whenever it is within 150 m of a stop,
+and keeps one fresh: a signed URL lives 15 minutes, one under 10 is
+used, and a line that fails to open on it is tried once more on a fresh
+one. The microphone opens in the tap itself, alongside the connect. What
+remains of the wait is ElevenLabs opening the line and speaking its
+first words.
+
+**How fast Otto answers during the call** is a matter of the agent's
+settings in ElevenLabs — the language model, the voice model, the
+turn-taking — not of the phone, which plays each piece of his voice
+the moment it lands. The **field** button measures it from ElevenLabs's
+own per-turn timings: see [reply
+speed](elevenlabs/README.md#reply-speed).
+
 Then deploy
 [`elevenlabs-token`](supabase/functions/elevenlabs-token/index.ts) if the
 agent is private (same `ALLOWED_ORIGINS` secret as the others; set
@@ -749,9 +767,9 @@ comes within the reading ring around the pin (350 m by default;
 driving back out past the re-arm ring, 700 m by default, re-arms it,
 so a new approach is a new reading):
 
-> "Heads up — Kollwitzstraße 18, about 300 meters ahead. Delivery is
-> for Maria Weber, floor 4. From dispatch: the elevator is broken, use
-> the stairs. A driver reported: entrance blocked — use the side door."
+> "Heads up — Kollwitzstraße 18, coming up. Delivery is for Maria
+> Weber, floor 4. From dispatch: the elevator is broken, use the
+> stairs. A driver reported: entrance blocked — use the side door."
 
 Three kinds of notes feed that briefing, in that order:
 
@@ -786,12 +804,27 @@ and the debrief sound like one Otto) and the phone sends the briefing
 there and plays the answer **as it arrives**: ElevenLabs makes the
 clip piece by piece and sends each piece the moment it is ready, the
 function passes the pieces straight on, and the phone starts speaking
-on the first one (`otto-stream.js`) — so the reading begins a moment
-after the function answers, not after the whole briefing has been
-synthesised and downloaded. The mic self-test behind the version chip
-says whether this browser plays readings from the first chunk or
+on the first one (`otto-stream.js`) — so a reading fetched live begins
+a moment after the function answers, not after the whole briefing has
+been synthesised and downloaded. The mic self-test behind the version
+chip says whether this browser plays readings from the first chunk or
 whole: Android and Chrome do; Safari, and so every iPhone, waits for
-the whole clip as before. The key never
+the whole clip as before.
+
+**The clip is fetched before it is needed.** What a driver waits for
+is not the speaking but the trip to ElevenLabs and back, about 0.7 s,
+so the phone makes that trip early: inside the re-arm ring, where it
+already boots the function and translates the notes, it also fetches
+the clips of the nearest three stops still to be read, and at the
+reading ring the reading starts the moment the phone buzzes. That is
+why the first line names no distance ("Heads up — stop 12, Goltzstraße
+13, coming up."): the words have to be known 700 m out. A clip is kept
+by its exact words, so a note edited on the dashboard in between
+misses it and the reading is fetched live as before — nothing stale is
+ever read. The banner says `◆ ELEVENLABS · FETCHED AHEAD` when the
+reading came from a clip fetched ahead, `◆ ELEVENLABS` alone when it
+was fetched live. The cost is a clip for a stop the phone came within
+700 m of but never within 350 m. The key never
 reaches a phone, the text is capped server-side, and the clip is
 deliberately small — spoken word over cell in a moving vehicle, where
 small and soon beats big and late. The banner says `◆ ELEVENLABS`

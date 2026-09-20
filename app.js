@@ -126,8 +126,9 @@ const LANG_TEXT = {
     ask: 'What did you find?',
     plain: 'Tap the mic and tell me what you found.',
     at: d => `This is ${d.title}${d.addr ? ' — ' + d.addr : ''}. What's the situation there? Tap the mic and describe what you see.`,
-    /* the pre-arrival reading */
-    headsUp: (t, dm) => `Heads up — ${t}, about ${dm} ahead.`,
+    /* the pre-arrival reading — no distance in the first line, so the
+     * words are known 700 m out and the clip can be fetched ahead */
+    headsUp: t => `Heads up — ${t}, coming up.`,
     youreAt: t => `You're at ${t}.`,
     stop: n => `stop ${n}, `,
     floorNum: n => 'floor ' + n,
@@ -136,13 +137,12 @@ const LANG_TEXT = {
     deliveryTo: f => `Delivery goes to ${f}.`,
     fromDispatch: 'From dispatch: ',
     driverSaid: 'A driver reported: ',
-    meters: ' meters', km: ' kilometers',
   },
   it: {
     ask: 'Cosa hai trovato?',
     plain: 'Tocca il microfono e dimmi cosa hai trovato.',
     at: d => `Questa è ${d.title}${d.addr ? ' — ' + d.addr : ''}. Com'è la situazione lì? Tocca il microfono e descrivi cosa vedi.`,
-    headsUp: (t, dm) => `Attenzione — ${t}, a circa ${dm}.`,
+    headsUp: t => `Attenzione — ${t}, tra poco.`,
     youreAt: t => `Sei a ${t}.`,
     stop: n => `fermata ${n}, `,
     floorNum: n => 'al piano ' + n,
@@ -151,7 +151,6 @@ const LANG_TEXT = {
     deliveryTo: f => `La consegna va ${f}.`,
     fromDispatch: 'Dalla centrale: ',
     driverSaid: 'Un autista ha segnalato: ',
-    meters: ' metri', km: ' chilometri',
   },
 };
 const speechLangOf = () => (testLang === 'it' ? 'it-IT' : 'en-US');
@@ -721,6 +720,18 @@ let elevenDown = false;    // proven missing/forbidden — off for the session
 let elevenRetryAt = 0;     // transient trouble — closed until this time
 const ELEVEN_RETRY_MS = 60e3;
 const elevenReady = () => !elevenDown && Date.now() >= elevenRetryAt;
+/* the verdict on a failure — the same whether the fetch was a reading
+ * or a clip fetched ahead of one */
+function noteTtsFailure(e) {
+  const status = +((/(\d{3})$/.exec(String((e && e.message) || '')) || [])[1]) || 0;
+  if (status === 403 || status === 404 || status === 501) {
+    elevenDown = true;
+    console.warn('elevenlabs-tts ' + status + ' — origin not allowed, not deployed, or no key; the device voice reads for the rest of the session');
+  } else {
+    elevenRetryAt = Date.now() + ELEVEN_RETRY_MS;
+    console.warn('elevenlabs-tts did not deliver (' + ((e && e.message) || e) + ') — device voice for this reading; the real voice gets another try in a minute');
+  }
+}
 /* the first clip of a session also pays the function's cold start —
  * boot it (free, keyless) the moment a reading becomes likely */
 let ttsWarmed = false;
@@ -760,8 +771,11 @@ function stopOttoAudio() {
 
 /* Otto speaks: the ElevenLabs voice when it is reachable, speakThen
  * (wrapper TTS, then browser TTS) otherwise. onVoice fires only when
- * the real voice actually starts, so callers can label truthfully. */
+ * the real voice actually starts — with `ahead` true when the clip had
+ * been fetched before the reading was due (readingClips, below) — so
+ * callers can label truthfully. */
 async function speakOtto(text, done, onVoice, lang) {
+  text = String(text || '');
   let called = false;
   const finish = () => {
     if (called) return;
@@ -769,7 +783,15 @@ async function speakOtto(text, done, onVoice, lang) {
     if (ottoAudio && ottoAudio.__finish === finish) ottoAudio.__finish = ottoAudio.__stop = null;
     done();
   };
-  if (Backend.enabled && elevenReady() && text) {
+  /* detach before falling back — speakThen stops the element, and a
+   * still-registered finish would count the fallback as already done */
+  const detach = () => {
+    if (ottoAudio) { ottoAudio.__finish = ottoAudio.__stop = null; ottoAudio.onended = ottoAudio.onerror = null; }
+  };
+  /* a clip fetched ahead plays even while the function is cooling off —
+   * the trip it would have needed has already been made */
+  const ahead = readingClips.get(text) || null;
+  if (Backend.enabled && text && (ahead || elevenReady())) {
     const a = ottoAudioEl();
     stopOttoAudio(); // one voice at a time — the last clip yields the moment this one is asked for
     /* one handle for the whole reading, the fetch and the player alike;
@@ -779,15 +801,29 @@ async function speakOtto(text, done, onVoice, lang) {
     a.__finish = finish;
     a.__stop = () => { if (ctl) ctl.abort(); };
     try {
-      const r = await Backend.ttsStream(String(text), signal);
-      elevenRetryAt = 0; // the function answered — any earlier blip is history
-      a.onended = finish;
-      a.onerror = finish;
-      /* plays from the first chunk while the rest is still being made
-       * (otto-stream.js) and resolves once the voice is actually out —
-       * rejects while autoplay is still locked, and falls through */
-      const clip = await OttoStream.play(a, r, { signal });
-      if (onVoice) onVoice('elevenlabs');
+      /* the clip fetched ahead: ready, it plays at once; still on its
+       * way, it is waited for (it set off before a fresh fetch could);
+       * failed, its failure has put the live path on cooldown */
+      let blob = null;
+      if (ahead) { try { blob = ahead.blob || await ahead.promise; } catch { /* noted where it failed */ } }
+      if (signal && signal.aborted) return; // stopped meanwhile — stopOttoAudio settled `done`
+      let clip;
+      if (blob) {
+        a.onended = finish;
+        a.onerror = finish;
+        clip = await OttoStream.playWhole(a, blob);
+      } else {
+        if (!elevenReady()) { detach(); speakThen(text, finish, lang); return; }
+        const r = await Backend.ttsStream(text, signal);
+        elevenRetryAt = 0; // the function answered — any earlier blip is history
+        a.onended = finish;
+        a.onerror = finish;
+        /* plays from the first chunk while the rest is still being made
+         * (otto-stream.js) and resolves once the voice is actually out —
+         * rejects while autoplay is still locked, and falls through */
+        clip = await OttoStream.play(a, r, { signal });
+      }
+      if (onVoice) onVoice('elevenlabs', !!blob);
       /* a line that drops mid-reading plays out what arrived; the next
        * reading waits out the same minute a lost fetch costs */
       clip.delivered.then(how => {
@@ -796,27 +832,16 @@ async function speakOtto(text, done, onVoice, lang) {
         console.warn('elevenlabs-tts clip cut short on the way — what arrived was read; the real voice gets another try in a minute');
       });
       /* insurance for an onended that never fires */
-      setTimeout(finish, Math.min(60000, 5000 + String(text).length * 100));
+      setTimeout(finish, Math.min(60000, 5000 + text.length * 100));
       return;
     } catch (e) {
       /* stopped on purpose while the clip was on its way: stopOttoAudio
        * settled `done` already, and nothing speaks in its place */
       if (signal && signal.aborted) return;
-      /* detach before falling back — speakThen stops the element, and a
-       * still-registered finish would count the fallback as already done */
-      if (ottoAudio) { ottoAudio.__finish = ottoAudio.__stop = null; ottoAudio.onended = ottoAudio.onerror = null; }
+      detach();
       /* a blocked play() is not the function's fault — no penalty, it
        * gets to try again next time */
-      if (!(e && e.name === 'NotAllowedError')) {
-        const status = +((/(\d{3})$/.exec(String((e && e.message) || '')) || [])[1]) || 0;
-        if (status === 403 || status === 404 || status === 501) {
-          elevenDown = true;
-          console.warn('elevenlabs-tts ' + status + ' — origin not allowed, not deployed, or no key; the device voice reads for the rest of the session');
-        } else {
-          elevenRetryAt = Date.now() + ELEVEN_RETRY_MS;
-          console.warn('elevenlabs-tts did not deliver (' + ((e && e.message) || e) + ') — device voice for this reading; the real voice gets another try in a minute');
-        }
-      }
+      if (!(e && e.name === 'NotAllowedError')) noteTtsFailure(e);
     }
   }
   speakThen(text, finish, lang);
@@ -876,6 +901,8 @@ const NOTES = {
   rearmRadius: 700,    // m — leaving this far out re-arms it (a new approach = a new reading)
   maxNotes: 3,         // newest notes on file read aloud (dispatch and driver-left alike)
   maxDriver: 2,        // newest driver debriefs read aloud
+  prefetch: 3,         // stops whose clip is fetched ahead inside the rearm ring — nearest first
+  clipCache: 6,        // clips kept, by their exact words; the oldest goes first
 };
 /* The rings are per destination when its scenario carries the keys —
  * notes_radius / notes_rearm are dashboard sliders exactly like the
@@ -924,9 +951,6 @@ const speakFloor = f => {
   f = String(f).trim();
   return /^\d+$/.test(f) ? LANG_TEXT[testLang].floorNum(f) : LANG_TEXT[testLang].floorRaw(f);
 };
-/* "250 m" reads fine on a card; spoken it needs the unit spelled out */
-const speakDist = m => (m < 1000 ? Math.round(m / 10) * 10 + LANG_TEXT[testLang].meters : (m / 1000).toFixed(1) + LANG_TEXT[testLang].km);
-
 /* The reading in the card's language: Otto's own phrasing comes from
  * LANG_TEXT; the free text people wrote (dispatch notes, old debriefs)
  * is swapped for its cached translation when there is one and read as
@@ -961,8 +985,11 @@ function checkApproach(pos) {
    * already under way, or the verdict bar waiting for its tap */
   const busy = notesSpeaking || !el('otto-screen').hidden || !el('verdict-banner').hidden;
   let next = null;
+  const armed = []; // inside the rearm ring, notes on file, not read yet: the readings to come
+  let withinReach = false; // a stop within REPORT_RADIUS: a report is getting likely
   for (const d of visibleDestinations()) {
     const dist = distM(pos, d);
+    if (dist <= REPORT_RADIUS) withinReach = true;
     /* the arrival ring, for the Delivered tap's dwell: the first fix
      * inside it is "arrived"; well outside again forgets it (a walk-by
      * is not an arrival) */
@@ -977,33 +1004,89 @@ function checkApproach(pos) {
      * the approach reads from cache in a voice that is already warm */
     prefetchNotesIt(d);
     warmReadingVoice();
-    if (busy || dist > rings.approach || notesRead.get(d.id) === 'done') continue;
-    if (!briefingLines(d).length) continue; // nothing on file — nothing to read
+    if (notesRead.get(d.id) === 'done' || !briefingLines(d).length) continue; // read already, or nothing on file
+    armed.push({ d, dist });
+    if (busy || dist > rings.approach) continue;
     /* on a dense route several stops arm at once — the nearest one is
      * the approach actually being made; the rest wait for their turn */
     if (!next || dist < next.dist) next = { d, dist };
   }
   if (next) speakPreArrival(next.d, next.dist);
+  /* at a stop, the agent's line is signed ahead of the REPORT tap
+   * (nothing happens while a fresh URL is already in hand) */
+  if (withinReach) OttoAgent.prefetchUrl();
+  /* and the clips of the nearest readings still to come are fetched
+   * now, so each starts the moment its ring is reached */
+  armed.sort((x, y) => x.dist - y.dist)
+    .filter(x => !next || x.d !== next.d)
+    .slice(0, NOTES.prefetch)
+    .forEach(x => prefetchReading(x.d));
 }
 
 /* "stop 12, Goltzstraße 13" when the pin is one stop of a route */
 const spokenTitle = d => (d.stop != null ? LANG_TEXT[testLang].stop(d.stop) : '') + d.title;
 
+/* The words of a reading — one function for the reading itself and for
+ * fetching its clip ahead, so the two can never disagree. `near` is the
+ * rare approach caught almost at the door (GPS waking up there). */
+function readingText(d, near) {
+  const T = LANG_TEXT[testLang];
+  const head = near ? T.youreAt(spokenTitle(d)) : T.headsUp(spokenTitle(d));
+  return [head, ...briefingLines(d)].join(' ');
+}
+
+/* ---------- the clip, fetched ahead ----------
+ * What a driver waits for is not the speaking but the trip to
+ * ElevenLabs and back — about 0.7 s — and streaming the clip took
+ * nothing off that. So the trip is made early. Inside the rearm ring,
+ * where the phone already boots the function and translates the notes,
+ * it now also fetches the clip; the first line names no distance, so
+ * the words are known 700 m out. At the approach ring the reading then
+ * starts the moment the phone buzzes. The cache is keyed by the exact
+ * words: a note edited on the dashboard in between changes them, misses
+ * the cache, and the reading is fetched live as before — nothing stale
+ * is ever read. Nearest stops first, a few at a time (NOTES.prefetch),
+ * so a dense route does not buy a clip for every pin in earshot; the
+ * cost is a clip for a stop the phone came within 700 m of but never
+ * within 350 m. A failed fetch counts like a failed reading
+ * (noteTtsFailure) and is not retried while the voice cools off. */
+const readingClips = new Map(); // words -> { blob, promise, at }, oldest first
+/* 🇮🇹: a line whose translation is still on its way would change the
+ * words once it lands — the clip waits for the words to settle */
+const translationsPending = d => testLang === 'it' && [
+  ...notesOnFile(d).slice(0, NOTES.maxNotes).map(n => n.text),
+  ...driverReportsOf(d).slice(0, NOTES.maxDriver).map(m => m.title || m.transcript),
+].some(src => itInFlight.has(String(src || '').trim()));
+function prefetchReading(d) {
+  if (!Backend.enabled || !elevenReady() || translationsPending(d)) return;
+  const text = readingText(d, false);
+  if (readingClips.has(text)) return;
+  const entry = { blob: null, promise: null, at: Date.now() };
+  entry.promise = Backend.tts(text).then(blob => { entry.blob = blob; return blob; }, e => {
+    readingClips.delete(text);
+    noteTtsFailure(e);
+    throw e;
+  });
+  entry.promise.catch(() => { /* noted above; a reading that comes falls back on its own */ });
+  readingClips.set(text, entry);
+  while (readingClips.size > NOTES.clipCache) readingClips.delete(readingClips.keys().next().value);
+}
+
 function speakPreArrival(d, dist) {
   notesRead.set(d.id, 'done');
   notesSpeaking = true;
-  const T = LANG_TEXT[testLang];
-  const head = dist > 60 ? T.headsUp(spokenTitle(d), speakDist(dist)) : T.youreAt(spokenTitle(d));
-  const text = [head, ...briefingLines(d)].join(' ');
+  const text = readingText(d, dist <= 60);
   if (navigator.vibrate) navigator.vibrate([60, 40, 60]); // softer than the trigger's buzz
   notesBannerDest = d;
   el('nb-title').textContent = 'OTTO · PRE-ARRIVAL NOTES';
   el('nb-text').textContent = text;
   el('notes-banner').hidden = false;
   /* the ◆ label appears only once the ElevenLabs clip actually plays —
-   * a silent fallback never masquerades as the real thing */
+   * a silent fallback never masquerades as the real thing — and says
+   * when the clip had been fetched ahead, so a test drive shows whether
+   * the reading started from the cache or from a live fetch */
   speakOtto(text, () => { notesSpeaking = false; },
-    () => { el('nb-title').textContent = 'OTTO · PRE-ARRIVAL NOTES · ◆ ELEVENLABS'; },
+    (voice, ahead) => { el('nb-title').textContent = 'OTTO · PRE-ARRIVAL NOTES · ◆ ELEVENLABS' + (ahead ? ' · FETCHED AHEAD' : ''); },
     speechLangOf());
 }
 
@@ -1613,10 +1696,9 @@ function reportContext() {
 }
 
 function openReport() {
-  /* wake the output audio and get the microphone question answered
-   * inside this tap — a permission dialog raised later, mid-sentence,
-   * is a report lost */
-  OttoAgent.prime();
+  /* the agent wakes the output audio and opens the microphone inside
+   * this same tap, alongside the connect (OttoAgent's connect) — a
+   * separate priming here opened the microphone twice in a row */
   openOtto(reportContext(), true);
 }
 
@@ -1657,6 +1739,7 @@ function setScTab(t) {
 function openCard(d) {
   current = d;
   if (el('settings')) el('settings').hidden = true; // same slot
+  OttoAgent.prefetchUrl(); // a card open is a report getting likely: the agent's line, signed ahead
   el('card-title').textContent = (d.stop != null ? 'Stop ' + d.stop + ' · ' : '') + scenarioNumPrefix(d) + d.title;
   el('card-addr').textContent = d.addr || `${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}`;
   updateCardDistance();

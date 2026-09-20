@@ -312,7 +312,7 @@ row edited on the dashboard is in the next press.
 |---|---|---|
 | **configure** | `configure` | the next button |
 | **baseline** | `generate --situations` → `push-tests` → `run --label main` → `publish` (`repeat`, `filter` from the form; Mondays 06:00 UTC too) | the suite's pass rates |
-| **field** | `pull --days N` → `score` → `cut` → `push-tests` | what was pulled, scored and cut |
+| **field** | `pull --days N` → `score` → `cut` → `push-tests` | what was pulled, scored and cut — and how fast Otto answered ([reply speed](#reply-speed)) |
 | **propose** | the field again → `propose --quiet` → `branch` → `run --branch … --label branch` → `compare` against the latest baseline → `publish` with the verdict | the branch run's table, **ACCEPT** or **REJECT** with the branch id, and the next button — *not* the proposal, the diff or the note |
 | **try** | `run --branch <branch from the form> --label branch` → `compare` against the latest baseline → `publish` with the verdict | the same, for a branch that already exists: a prompt edited by hand in the ElevenLabs dashboard, tried without a model and without `OPENAI_API_KEY`. The form takes the branch's **name** as typed in ElevenLabs or its `agtbrch_…` id; the agent's own id is refused by name |
 | **promote** | `promote --branch <branch_id from the form> --quiet` → `run --label main` → `publish` | the new baseline |
@@ -403,7 +403,7 @@ whole rationale is kept under `failure`.
 | `tests.lock.json` | `push-tests` | `{"<test name>": "<test id>"}` — committed, so a fresh clone updates rather than duplicates |
 | `results/<stamp>-<label>.json` | `run` | per test: runs, passed, pass_rate, the failure rationales, the first failed run whole (`why`, `failure`), branch/version |
 | `results/score-<stamp>.json` | `score` | per scenario: suite pass rate, field grade rate, checks failed, failures by reason |
-| `field/<stamp>.json` | `pull` | conversations joined to their debrief, grade and scenario |
+| `field/<stamp>.json` | `pull` | conversations joined to their debrief, grade and scenario; each agent turn carries ElevenLabs's own timing of it (`timing`), and `speed` sums them ([reply speed](#reply-speed)) |
 | `proposals/<stamp>.json` | `propose` (`branch` adds the branch ids) | prompt, note, rationale, unified diff. Gitignored, and uploaded as no artifact: this is the confidential one |
 | `test_configs/situations/situation-NN-<slug>--<persona>.json` | `generate --situations` | one simulation test per situation row × persona, from the LIVE rows at run time; gitignored, regenerated every run |
 | a row of `agent_runs` (Supabase, not a file) | `publish` | the results file as the dashboard reads it: `tests` — per test its scenario **or situation**, persona, language, runs / passed / pass rate, `why` (the first failure, one line) and `failure` (that run's rationale and transcript; null when every run passed) — and `summary` (totals, and the same per row under `by_scenario` / `by_situation`); the agent, branch, version and invocation ids; `run_url`; on a branch run, `verdict` and `verdict_reason`. Never the note |
@@ -411,6 +411,33 @@ whole rationale is kept under `failure`.
 `results/`, `field/`, `proposals/`, `agent_configs/` and
 `test_configs/situations/` are gitignored; the rest is meant to be
 committed.
+
+### Reply speed
+
+How fast Otto answers *during* a call is decided on ElevenLabs's side:
+hearing the driver stop, transcribing, the language model's thinking,
+the first piece of voice. The phone's part is streamed and takes
+milliseconds — each piece of Otto's voice plays the moment it lands.
+So `pull` reads the timings ElevenLabs keeps for every agent turn, and
+the **field** button's summary ends its pull lines with, for example:
+
+    reply speed — 37 Otto turn(s) with timings in 12 conversation(s): first word from the model after 0.6 s (median; slowest 1.9 s), first sentence after 0.9 s (median; slowest 2.4 s) · voice model eleven_flash_v2_5 · language model gpt-4o
+
+"First word" is how long the language model took to start its answer,
+"first sentence" how long until the voice had a whole sentence to
+speak. Both are ElevenLabs's own clocks; the moments before them — the
+driver falling silent, the transcription — are not in them. The knobs
+are all in the agent's settings in ElevenLabs, none in this repository:
+the **language model** (a "flash" or "mini" model starts in well under
+a second, a large one in one to two); the **voice model** (Flash v2.5
+is the fast one) and its *optimize streaming latency* slider; the
+**turn-taking** settings (how readily Otto takes the turn when the
+driver pauses); and, for a phone in a moving vehicle, the **audio
+formats** — µ-law at 8 kHz is a quarter of the bandwidth of 16 kHz PCM
+in either direction, at telephone quality, and the phone follows
+whatever the agent announces. Try a change on an agent branch and
+press **try**: the suite says what it cost in pass rate, the next
+**field** what it gained in seconds.
 
 ### Grades
 

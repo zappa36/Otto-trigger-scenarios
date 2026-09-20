@@ -695,8 +695,67 @@ async function run(ctx, flags) {
 const iso = unix => (unix ? new Date(unix * 1000).toISOString() : null);
 const pick = (o, keys) => Object.fromEntries(keys.filter(k => o && o[k] !== undefined).map(k => [k, o[k]]));
 
+/* ---------- reply speed ----------
+ * ElevenLabs times every agent turn on its side — how long its language
+ * model took to its first word and to its first full sentence (the
+ * moment the voice can start) — and sends the numbers with the
+ * transcript. The phone's own part in a reply is streamed and measured
+ * in milliseconds; the seconds a driver waits are made over there. So
+ * every agent turn keeps its timing, pull sums them up, and the field
+ * button says how fast Otto answered and on which models. */
+const TIMING_LABELS = {
+  convai_llm_service_ttfb: 'first word from the model',
+  convai_llm_service_ttf_sentence: 'first sentence',
+};
+const median = xs => {
+  const s = [...xs].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+};
+const secs = x => (Math.round(x * 10) / 10).toFixed(1);
+function turnTiming(t) {
+  const m = t && t.conversation_turn_metrics;
+  const all = {};
+  for (const [k, v] of Object.entries((m && m.metrics) || {})) {
+    const e = v && typeof v === 'object' ? v.elapsed_time : v;
+    if (typeof e === 'number' && Number.isFinite(e)) all[k] = e;
+  }
+  if (!Object.keys(all).length) return null;
+  return {
+    first_word: all.convai_llm_service_ttfb ?? null,
+    first_sentence: all.convai_llm_service_ttf_sentence ?? null,
+    all,
+    llm: t.producing_llm || null,
+    tts: (m && m.convai_tts_model) || null,
+  };
+}
+export function replySpeed(convs) {
+  const turns = [];
+  const inConvs = new Set();
+  for (const c of convs || []) {
+    for (const t of c.transcript || []) if (t.role === 'agent' && t.timing) { turns.push(t.timing); inConvs.add(c.conversation_id); }
+  }
+  const names = [...new Set(turns.flatMap(t => Object.keys(t.all)))];
+  const order = [...Object.keys(TIMING_LABELS).filter(k => names.includes(k)), ...names.filter(k => !TIMING_LABELS[k]).sort()];
+  const metrics = {};
+  for (const k of order) {
+    const xs = turns.map(t => t.all[k]).filter(x => x != null);
+    metrics[k] = { median: +secs(median(xs)), max: +secs(Math.max(...xs)), turns: xs.length };
+  }
+  const llm = [...new Set(turns.map(t => t.llm).filter(Boolean))];
+  const tts = [...new Set(turns.map(t => t.tts).filter(Boolean))];
+  const line = !turns.length
+    ? 'reply speed — ElevenLabs sent no per-turn timings for these conversations'
+    : `reply speed — ${turns.length} Otto turn(s) with timings in ${inConvs.size} conversation(s): `
+      + order.map(k => `${TIMING_LABELS[k] || k} after ${secs(metrics[k].median)} s (median; slowest ${secs(metrics[k].max)} s)`).join(', ')
+      + (tts.length ? ` · voice model ${tts.join(', ')}` : '')
+      + (llm.length ? ` · language model ${llm.join(', ')}` : '');
+  return { turns: turns.length, conversations: inConvs.size, metrics, llm, tts, line };
+}
+
 /* the conversation as the field file keeps it: what the agent said and
- * heard, what ElevenLabs concluded, what the phone sent it */
+ * heard, what ElevenLabs concluded, what the phone sent it — and, on
+ * each agent turn, how long ElevenLabs took to make it (timing) */
 function shapeConversation(item, d) {
   const an = (d && d.analysis) || {};
   const init = (d && d.conversation_initiation_client_data) || {};
@@ -717,7 +776,10 @@ function shapeConversation(item, d) {
     evaluation, data,
     dynamic_variables: init.dynamic_variables || {},
     overrides: init.conversation_config_override || null,
-    transcript: ((d && d.transcript) || []).filter(t => t && t.message).map(t => ({ role: t.role, message: t.message, t: t.time_in_call_secs ?? null })),
+    transcript: ((d && d.transcript) || []).filter(t => t && t.message).map(t => {
+      const timing = t.role === 'agent' ? turnTiming(t) : null;
+      return { role: t.role, message: t.message, t: t.time_in_call_secs ?? null, ...(timing ? { timing } : {}) };
+    }),
   };
 }
 
@@ -769,9 +831,11 @@ async function pull(ctx, flags) {
     }
   }
   log(`pull — since ${since.toISOString()}: ${counts.conversations} conversation(s), ${counts.joined} joined to a debrief, ${counts.graded} graded, ${counts.graded_bad} graded bad, ${counts.stamped} grade(s) stamped with the agent version`);
+  const speed = replySpeed(convs);
+  log(speed.line);
   if (ctx.dryRun) { log('  (dry run) nothing written'); return 0; }
   const file = path.join(ctx.p.field, `${stamp()}.json`);
-  writeJson(file, { at: new Date().toISOString(), agent_id: agentId, since: since.toISOString(), counts, conversations: convs });
+  writeJson(file, { at: new Date().toISOString(), agent_id: agentId, since: since.toISOString(), counts, speed, conversations: convs });
   log(`wrote ${file}`);
   return 0;
 }

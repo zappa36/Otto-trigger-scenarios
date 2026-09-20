@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startMock } from './mock-elevenlabs.mjs';
-import { main, aggregate, compareResults, scoreData, gradeSummary, fitEvidence, agentRunRow } from '../loop.mjs';
+import { main, aggregate, compareResults, scoreData, gradeSummary, fitEvidence, agentRunRow, replySpeed } from '../loop.mjs';
 import { makeHttp, elevenLabs, ApiError } from '../lib/elevenlabs-api.mjs';
 import { unifiedDiff, table, reasonKey } from '../lib/report.mjs';
 
@@ -366,6 +366,34 @@ test('pull joins conversations to their dashboard grades by conversation_id and 
   assert.equal(c.message, null);
   assert.equal(c.graded, false);
   assert.match(r.out, /3 conversation\(s\), 2 joined to a debrief, 2 graded, 1 graded bad, 1 grade\(s\) stamped/);
+  /* reply speed: ElevenLabs's timing of each agent turn rides on the turn,
+   * and the pull sums them — the fixture times three of the agent turns
+   * (0.9/1.4, 0.5/0.8 and 0.7/1.0 s to the first word / first sentence),
+   * the greetings and conv_ccc carry none */
+  assert.deepEqual(a.transcript[2].timing, {
+    first_word: 0.9, first_sentence: 1.4,
+    all: { convai_llm_service_ttfb: 0.9, convai_llm_service_ttf_sentence: 1.4 },
+    llm: 'gpt-4o', tts: 'eleven_flash_v2_5',
+  });
+  assert.equal(a.transcript[0].timing, undefined, 'the greeting has no timing to keep');
+  assert.equal(field.speed.turns, 3);
+  assert.equal(field.speed.conversations, 2);
+  assert.deepEqual(field.speed.metrics.convai_llm_service_ttfb, { median: 0.7, max: 0.9, turns: 3 });
+  assert.deepEqual(field.speed.metrics.convai_llm_service_ttf_sentence, { median: 1.0, max: 1.4, turns: 3 });
+  assert.deepEqual(field.speed.llm, ['gpt-4o']);
+  assert.match(r.out, /reply speed — 3 Otto turn\(s\) with timings in 2 conversation\(s\): first word from the model after 0\.7 s \(median; slowest 0\.9 s\), first sentence after 1\.0 s \(median; slowest 1\.4 s\) · voice model eleven_flash_v2_5 · language model gpt-4o/);
+});
+
+test('replySpeed says so when ElevenLabs sent no timings, and lists unknown metrics by name', () => {
+  assert.equal(replySpeed([]).line, 'reply speed — ElevenLabs sent no per-turn timings for these conversations');
+  assert.equal(replySpeed([{ conversation_id: 'x', transcript: [{ role: 'agent', message: 'hi' }, { role: 'user', message: 'yo' }] }]).turns, 0);
+  const odd = replySpeed([{ conversation_id: 'x', transcript: [
+    { role: 'agent', message: 'a', timing: { first_word: 1.25, first_sentence: null, all: { convai_llm_service_ttfb: 1.25, convai_asr_service_ttfb: 0.31 }, llm: 'gemini-2.5-flash', tts: null } },
+    { role: 'agent', message: 'b', timing: { first_word: 0.75, first_sentence: null, all: { convai_llm_service_ttfb: 0.75 }, llm: 'gemini-2.5-flash', tts: null } },
+  ] }]);
+  assert.equal(odd.metrics.convai_llm_service_ttfb.median, 1.0);
+  assert.deepEqual(odd.metrics.convai_asr_service_ttfb, { median: 0.3, max: 0.3, turns: 1 });
+  assert.equal(odd.line, 'reply speed — 2 Otto turn(s) with timings in 1 conversation(s): first word from the model after 1.0 s (median; slowest 1.3 s), convai_asr_service_ttfb after 0.3 s (median; slowest 0.3 s) · language model gemini-2.5-flash');
 });
 
 test('score groups the suite and the field per scenario, and the failures by reason', async () => {

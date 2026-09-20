@@ -7,9 +7,9 @@
       "transcript": [
         { "role": "agent", "message": "Is it hard to park here at this time? Where did you find a spot?", "time_in_call_secs": 0 },
         { "role": "user", "message": "Yeah, two loops. Ended up in the loading bay round the corner.", "time_in_call_secs": 6 },
-        { "role": "agent", "message": "Got it. Anything else worth knowing about this address?", "time_in_call_secs": 12 },
+        { "role": "agent", "message": "Got it. Anything else worth knowing about this address?", "time_in_call_secs": 12, "producing_llm": "gpt-4o", "conversation_turn_metrics": { "metrics": { "convai_llm_service_ttfb": { "elapsed_time": 0.9 }, "convai_llm_service_ttf_sentence": { "elapsed_time": 1.4 } }, "convai_asr_provider": "elevenlabs", "convai_tts_model": "eleven_flash_v2_5" } },
         { "role": "user", "message": "Not really.", "time_in_call_secs": 18 },
-        { "role": "agent", "message": "Thanks, safe travels.", "time_in_call_secs": 21 }
+        { "role": "agent", "message": "Thanks, safe travels.", "time_in_call_secs": 21, "producing_llm": "gpt-4o", "conversation_turn_metrics": { "metrics": { "convai_llm_service_ttfb": { "elapsed_time": 0.5 }, "convai_llm_service_ttf_sentence": { "elapsed_time": 0.8 } }, "convai_asr_provider": "elevenlabs", "convai_tts_model": "eleven_flash_v2_5" } }
       ],
       "analysis": {
         "call_successful": "failure",
@@ -42,7 +42,7 @@
       "transcript": [
         { "role": "agent", "message": "Was the road closed there? What blocked you?", "time_in_call_secs": 0 },
         { "role": "user", "message": "A removal truck shut Wörther Straße at the Kollwitzstraße end. Coming in from Husemannstraße works.", "time_in_call_secs": 8 },
-        { "role": "agent", "message": "Noted — in from Husemannstraße. Thanks, and safe travels.", "time_in_call_secs": 14 },
+        { "role": "agent", "message": "Noted — in from Husemannstraße. Thanks, and safe travels.", "time_in_call_secs": 14, "producing_llm": "gpt-4o", "conversation_turn_metrics": { "metrics": { "convai_llm_service_ttfb": { "elapsed_time": 0.7 }, "convai_llm_service_ttf_sentence": { "elapsed_time": 1.0 } }, "convai_asr_provider": "elevenlabs", "convai_tts_model": "eleven_flash_v2_5" } },
         { "role": "user", "message": "Cheers.", "time_in_call_secs": 16 }
       ],
       "analysis": {
