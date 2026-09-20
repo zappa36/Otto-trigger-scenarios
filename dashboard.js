@@ -1997,12 +1997,15 @@ const RUN_CRITERIA = [
  * word wherever it complied, and a reading of the prose only for runs
  * from before the ask (or a paragraph where it forgot). */
 const runVerdictOf = text => {
-  const m = /^\s*(?:\*{0,2}|_{0,2})(?:verdict\s*:\s*)?(PASS|FAIL)\b/i.exec(String(text || ''));
-  return m ? m[1].toLowerCase() : null;
+  const m = /^\s*(?:\*{0,2}|_{0,2})(?:verdict\s*:\s*)?(PASS(?:ED)?|FAIL(?:ED)?)\b/i.exec(String(text || ''));
+  return m ? m[1].slice(0, 4).toLowerCase() : null;
 };
-const runReasonParas = text => String(text || '').split(/\n(?=Criterion\s+\d+\s*:)/)
-  .map(p => p.trim()).filter(p => /^Criterion\s+\d+\s*:/.test(p))
-  .map(p => ({ n: +p.match(/^Criterion\s+(\d+)/)[1], text: p.replace(/^Criterion\s+\d+\s*:\s*/, '') }));
+/* one paragraph per check, as the judge writes them: "Criterion 3:" in
+ * the early runs, "Criterion 3 failed:" since the checks asked for a
+ * verdict — the colon after the number is optional */
+const runReasonParas = text => String(text || '').split(/\n(?=Criterion\s+\d+\b)/)
+  .map(p => p.trim()).filter(p => /^Criterion\s+\d+\b/.test(p))
+  .map(p => ({ n: +p.match(/^Criterion\s+(\d+)/)[1], text: p.replace(/^Criterion\s+\d+\s*:?\s*/, '') }));
 
 /* Markers that are not open to reading: a paragraph carrying one is
  * SAYING the criterion was missed. Per criterion, because the same word
