@@ -118,9 +118,12 @@ test('every suite the buttons run generates the situation tests from the live ro
 test('the models button cuts a branch with the model and runs the suite on the rows named', () => {
   const yaml = readFileSync(WORKFLOW, 'utf8');
   const inputs = (yaml.match(/workflow_dispatch:\n    inputs:\n([\s\S]*?)\n  schedule:/) || [])[1] || '';
-  for (const name of ['model', 'reasoning', 'rows']) assert.match(inputs, new RegExp(`^      ${name}:$`, 'm'), `no ${name} input on the form`);
+  for (const name of ['model', 'reasoning', 'temperature', 'backup', 'rows']) assert.match(inputs, new RegExp(`^      ${name}:$`, 'm'), `no ${name} input on the form`);
+  assert.doesNotMatch(inputs, /^      filter:$/m, 'ten inputs is GitHub\'s limit: the filter box gave way to the LLM panel\'s knobs');
+  assert.ok((inputs.match(/^      [a-z_]+:$/gm) || []).length <= 10, 'GitHub allows ten inputs on a form');
   assert.match(inputs, /^          - models$/m, 'models is not a choice of the action dropdown');
-  assert.match(inputs, /reasoning:\n[\s\S]*?options:\n          - keep\n          - none\n          - minimal\n          - low\n          - medium\n          - high\n          - xhigh\n          - max/, 'the reasoning choices are ElevenLabs\' own words (never a bare off: YAML reads it as false)');
+  assert.match(inputs, /reasoning:\n[\s\S]*?options:\n          - keep\n          - default\n          - minimal\n          - low\n          - medium\n          - high\n      temperature:/, 'the reasoning choices are the LLM panel\'s words (never a bare off: YAML reads it as false)');
+  assert.match(inputs, /backup:\n[\s\S]*?options:\n          - keep\n          - default\n          - disabled\n/, 'the backup choices are the panel\'s');
   const live = job(yaml, 'live-suite');
   assert.match(live, /if ! \[ "\$REPEAT" -ge 1 \]/, 'a trial of one run per test must be allowed');
   assert.match(live, /if \[ "\$ACTION" = "models" \] && \[ -z "\$MODEL" \]; then\n\s+echo "::error::models needs model/, 'a models press without a model must fail with the instructions');
@@ -129,7 +132,8 @@ test('the models button cuts a branch with the model and runs the suite on the r
   const step = steps(live).find(s => /node loop\.mjs model-branch/.test(s.text));
   assert.ok(step, 'no step runs model-branch');
   assert.match(step.text, /if: steps\.plan\.outputs\.go == 'true' && steps\.plan\.outputs\.action == 'models'/);
-  assert.match(step.text, /node loop\.mjs model-branch --model "\$MODEL" --reasoning "\$REASONING" --out "\$RUNNER_TEMP\/model-branch\.json"/);
+  assert.match(step.text, /node loop\.mjs model-branch --model "\$MODEL" --reasoning "\$REASONING" --temperature "\$TEMPERATURE" --backup "\$BACKUP" --out "\$RUNNER_TEMP\/model-branch\.json"/);
+  assert.match(live, /temperature is empty \(keep\), a number from 0 to 1, or none/, 'the plan step checks the temperature before anything runs');
   assert.match(step.text, /args=\(run --branch "\$bid" --repeat "\$REPEAT" --label model\)/);
   assert.match(step.text, /if \[ -n "\$ROWS" \]; then args\+=\(--rows "\$ROWS"\); fi/, 'the rows from the form narrow the run');
   assert.match(step.text, /node loop\.mjs compare --base "\$base" --branch "\$br"/);
@@ -138,7 +142,7 @@ test('the models button cuts a branch with the model and runs the suite on the r
   /* the baseline to compare against is fetched for this button too */
   const fetch = steps(live).find(s => /name=loop-baseline/.test(s.text));
   assert.ok(fetch && fetch.text.includes("action == 'models'"), 'the models button does not fetch the latest baseline');
-  assert.match(live, /MODEL: \$\{\{ inputs\.model \}\}\n\s+REASONING: \$\{\{ inputs\.reasoning \|\| 'keep' \}\}\n\s+ROWS: \$\{\{ inputs\.rows \}\}/, 'the three inputs reach the job env');
+  assert.match(live, /MODEL: \$\{\{ inputs\.model \}\}\n\s+REASONING: \$\{\{ inputs\.reasoning \|\| 'keep' \}\}\n\s+TEMPERATURE: \$\{\{ inputs\.temperature \}\}\n\s+BACKUP: \$\{\{ inputs\.backup \|\| 'keep' \}\}\n\s+ROWS: \$\{\{ inputs\.rows \}\}/, 'the five inputs reach the job env');
 });
 
 /* The prompt is confidential and every one of these surfaces is public
@@ -174,8 +178,9 @@ test('the suite input picks the filter, situations by default', () => {
   assert.match(plan.text, /triggers\)\s+filter="Otto · #"/);
   assert.match(plan.text, /all\)\s+filter=""/);
   assert.match(plan.text, /echo "FILTER=\$filter" >> "\$GITHUB_ENV"/);
-  /* the form's own filter still wins, and the resolved one is what the
-   * steps read — the job env must not shadow it */
+  /* the resolved filter is what the steps read — the job env must not
+   * shadow it (the form has no filter box any more: ten inputs is
+   * GitHub's limit) */
   assert.match(plan.text, /filter="\$FILTER_INPUT"/);
   assert.doesNotMatch(live, /^      FILTER: /m, 'a job-level FILTER would override the one the plan step resolved');
   /* try needs a branch to run on */

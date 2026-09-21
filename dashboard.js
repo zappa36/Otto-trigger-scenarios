@@ -2495,7 +2495,15 @@ function runModel(r) {
   const seen = sm && sm.models && Array.isArray(sm.models.otto) ? sm.models.otto.filter(Boolean) : [];
   return String((s && s.model) || seen[0] || '');
 }
-const runReasoning = r => { const s = runSettings(r); return s && s.reasoning ? String(s.reasoning) : ''; };
+/* the reasoning effort in the LLM panel's words: an agent with none set
+ * is on the panel's "Default" */
+const runReasoning = r => { const s = runSettings(r); return !s ? '' : s.reasoning ? String(s.reasoning) : 'default'; };
+/* the other knobs of the panel, for a title or a header line */
+function runKnobs(r) {
+  const s = runSettings(r);
+  if (!s) return '';
+  return [s.temperature == null ? '' : `temperature ${s.temperature}`, s.backup ? `backup ${s.backup}` : ''].filter(Boolean).join(', ');
+}
 function runSpeed(r) {
   const sm = agentRunSummary(r);
   const sp = sm && sm.speed && typeof sm.speed === 'object' ? sm.speed : null;
@@ -2617,7 +2625,7 @@ function renderModelsView() {
     return `
         <tr data-run="${esc(r.id)}" tabindex="0" title="${esc(`ran ${fmtTime(agentRanAt(r))} · ${runWhat(r).toLowerCase()} · click for the report`)}">
           <td class="rm-when">${esc(fmtAgo(agentRanAt(r)) || '—')}</td>
-          <td class="rm-model">${x.model ? esc(x.model) : '<span class="rm-dim">not recorded</span>'}${x.reasoning ? `<span class="rm-dim"> · ${esc(x.reasoning)}</span>` : ''}</td>
+          <td class="rm-model" title="${esc(runKnobs(r) || '')}">${x.model ? esc(x.model) : '<span class="rm-dim">not recorded</span>'}${x.reasoning ? `<span class="rm-dim"> · ${esc(x.reasoning)}</span>` : ''}${runSettings(r) && runSettings(r).backup === 'disabled' ? '<span class="rm-dim"> · no backup</span>' : ''}</td>
           <td class="rm-what">${esc(runWhat(r))}</td>
           <td class="rm-num"><span class="agent-chip ${runCls(x.rate)}">${esc(runPct(x.rate))}</span> <span class="rm-dim">${l.passed} of ${l.runs}</span> ${same}</td>
           <td class="rm-num" title="${esc(sp ? speedTitle(sp) : 'no timings on this run')}">${sp ? (sp.rough ? '≈' : '') + esc(fmtSecs(sp.secs)) : '—'}</td>
@@ -2886,7 +2894,7 @@ function renderRunSummary(run) {
         <p class="rs-meta">
           <span title="${esc(fmtTime(agentRanAt(run)))}">ran ${esc(fmtAgo(agentRanAt(run)) || '—')}</span>
           · <span>${esc(run.label === 'model' ? 'a model trial on a branch — the live prompt, another model' : run.label === 'branch' || run.branch_id ? 'a proposed prompt on a branch' : 'the live prompt')}</span>
-          ${runModel(run) ? `· <span title="The language model Otto ran on, as set on the version that ran">Otto on ${esc(runModel(run))}${runReasoning(run) ? ', reasoning ' + esc(runReasoning(run)) : ''}</span>` : ''}
+          ${runModel(run) ? `· <span title="The language model Otto ran on and the LLM panel's knobs, as set on the version that ran">Otto on ${esc(runModel(run))}${runReasoning(run) ? ', reasoning ' + esc(runReasoning(run)) : ''}${runKnobs(run) ? ', ' + esc(runKnobs(run)) : ''}</span>` : ''}
           ${(() => { const sp = runSpeed(run); return sp ? `· <span title="${esc(speedTitle(sp))}">${sp.rough ? '≈' : ''}${esc(fmtSecs(sp.secs))} to answer${sp.call != null ? ', a call lasts ' + esc(fmtSecs(sp.call)) : ''}</span>` : ''; })()}
           ${runCost(run) != null ? `· <span title="what a call cost in model tokens, on average">${esc(fmtUsd(runCost(run)))} a call</span>` : ''}
           · <span>agent ${esc(run.agent_id || '?')}</span>

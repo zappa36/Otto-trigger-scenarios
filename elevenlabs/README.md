@@ -97,20 +97,24 @@ the same call on each model to read side by side.
 **A model trial** is a branch that differs from the live Otto in one
 thing. `model-branch --model gpt-4.1-mini --reasoning low` cuts it from
 the version the agent is on, with only `conversation_config.agent.prompt.llm`
-(and `reasoning_effort`) in the body — the prompt, the voice, the tools
-and everything else are inherited — so the branch's description can say
+and the LLM panel's other knobs — `reasoning_effort`, `temperature`,
+`backup_llm_config` — in the body — the prompt, the voice, the tools and
+everything else are inherited — so the branch's description can say
 what changed in the clear (a model name is a setting, not the prompt)
-and an API refusal can be shown whole. The words are ElevenLabs' own:
-`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` (`off` is
-taken as `none`). A model takes only some of them and refuses the rest
-("Not supported reasoning effort"), so each is a ladder: `none` is
-tried as none with `thinking_budget` 0, then unset with budget 0, then
-minimal, then low; `minimal` falls back to low; the first rung the
-model takes wins, and the log, the branch's description and the run's
-row say which (gemini-3.6-flash has no none: it ends up with no
-reasoning setting at all). Then `run --branch <id> --rows
+and an API refusal can be shown whole. The words are the panel's:
+`--reasoning default|minimal|low|medium|high` (Default is no effort at
+all, `reasoning_effort: null`; the API also takes `none`, `xhigh`,
+`max`, and `off` is taken as `none`), `--temperature 0.3` or `none`
+("don't send temperature"), `--backup default|disabled`. A model takes
+only some efforts and refuses the rest ("Not supported reasoning
+effort" — gemini-3.6-flash has no `none`); the refusal is shown with the
+panel named, and nothing is made. Then `run --branch <id> --rows
 6,8,10,13,24,25,28 --repeat 1` (35 calls), `compare` against the latest
-baseline on the tests both have, and `publish` with the verdict. The model names are the ones ElevenLabs' agent
+baseline on the tests both have, and `publish` with the verdict. The
+run's row records the settings of the version it ran on (`summary.settings`:
+model, reasoning, thinking budget, temperature, backup), and
+`summary.models.otto` lists every model ElevenLabs says answered a turn
+— with backup default, that can be more than the one under test. The model names are the ones ElevenLabs' agent
 settings offer (`gpt-4.1-mini`, `gpt-5-mini`, `gemini-2.5-flash`,
 `gemini-2.5-flash-lite`, `claude-haiku-4-5`, …).
 
@@ -353,21 +357,26 @@ The form has two dropdowns: **action** (which stage) and **suite**
 (which tests — *situations*, the default and the pilot's own; *triggers*,
 the scenario sheet; or *all*), and for **models** three more fields:
 **model** (the language model, spelled as ElevenLabs does),
-**reasoning** (ElevenLabs' own words for the reasoning effort: none,
-minimal, low, medium, high, xhigh, max — or keep, as the live Otto) and
-**rows** (which situation rows, by number; empty = every row). Every action but *configure* regenerates
+**reasoning** (the LLM panel's Reasoning Effort, in its words: default,
+minimal, low, medium, high — or keep, as the live Otto), **temperature**
+(the panel's slider, 0 to 1; none = don't send it; empty = keep),
+**backup** (the panel's Backup LLM configuration: default, disabled, or
+keep) and **rows** (which situation rows, by number; empty = every
+row). There is no filter box: GitHub allows ten fields, and the panel's
+knobs took the room; the suite dropdown picks the tests, `--filter`
+stays on the command line. Every action but *configure* regenerates
 the situation tests from the live rows before it pushes anything, so a
 row edited on the dashboard is in the next press.
 
 | Button | Runs | Summary ends with |
 |---|---|---|
 | **configure** | `configure` | the next button |
-| **baseline** | `generate --situations` → `push-tests` → `run --label main` → `publish` (`repeat`, `filter` from the form; Mondays 06:00 UTC too) | the suite's pass rates |
+| **baseline** | `generate --situations` → `push-tests` → `run --label main` → `publish` (`repeat` from the form; Mondays 06:00 UTC too) | the suite's pass rates |
 | **field** | `pull --days N` → `score` → `cut` → `push-tests` | what was pulled, scored and cut — and how fast Otto answered ([reply speed](#reply-speed)) |
 | **propose** | the field again → `propose --quiet` → `branch` → `run --branch … --label branch` → `compare` against the latest baseline → `publish` with the verdict | the branch run's table, **ACCEPT** or **REJECT** with the branch id, and the next button — *not* the proposal, the diff or the note |
 | **try** | `run --branch <branch from the form> --label branch` → `compare` against the latest baseline → `publish` with the verdict | the same, for a branch that already exists: a prompt edited by hand in the ElevenLabs dashboard, tried without a model and without `OPENAI_API_KEY`. The form takes the branch's **name** as typed in ElevenLabs or its `agtbrch_…` id; the agent's own id is refused by name |
 | **promote** | `promote --branch <branch_id from the form> --quiet` → `run --label main` → `publish` | the new baseline |
-| **models** | `model-branch --model <model> --reasoning <reasoning>` → `run --branch … --rows <rows> --label model` → `compare` against the latest baseline → `publish` with the verdict | a model trial: the live prompt on another model, on the rows the form names (a quick trial of seven by default: a dog, a gate code, a wrong pin, a dark stairwell, a normal delivery, a fire, a storm — `repeat` 1 makes it 35 calls), **ACCEPT** or **REJECT**, the seconds per answer and the cost per call. The branch stays; nothing is promoted. The dashboard's RUNS tab has a MODELS view that lines the trials up next to the live prompt, best conversations first, with the same call on each model to read |
+| **models** | `model-branch --model <model> --reasoning <reasoning> --temperature <temperature> --backup <backup>` → `run --branch … --rows <rows> --label model` → `compare` against the latest baseline → `publish` with the verdict | a model trial: the live prompt on another model, on the rows the form names (a quick trial of seven by default: a dog, a gate code, a wrong pin, a dark stairwell, a normal delivery, a fire, a storm — `repeat` 1 makes it 35 calls), **ACCEPT** or **REJECT**, the seconds per answer and the cost per call. The branch stays; nothing is promoted. The dashboard's RUNS tab has a MODELS view that lines the trials up next to the live prompt, best conversations first, with the same call on each model to read |
 
 One-time setup, in the browser: Settings → Secrets and variables →
 Actions. Add `ELEVENLABS_API_KEY` as a **secret**, `ELEVENLABS_AGENT_ID`
