@@ -1443,17 +1443,32 @@ async function branch(ctx, flags) {
  * that branch, compared against the baseline, then says what the model
  * costs in pass rate, and the run's own timings what it saves in
  * seconds. */
+/* What each setting means to ElevenLabs, per model: some models take a
+ * reasoning_effort, some a thinking_budget, and a model refuses the
+ * rest with "Not supported reasoning effort" (the first live trial:
+ * gemini-3.6-flash would not take "none"). So every setting is a
+ * ladder — the first rung the model accepts wins, and the log and the
+ * branch's description say which; "off" ends at the lowest effort the
+ * model takes rather than failing the button. */
+const OFF = [
+  { reasoning_effort: 'none', thinking_budget: 0 },
+  { reasoning_effort: null, thinking_budget: 0 },
+  { reasoning_effort: 'minimal' },
+  { reasoning_effort: 'low' },
+];
 const REASONING = {
-  keep: null,
-  off: { reasoning_effort: 'none', thinking_budget: 0 },
-  none: { reasoning_effort: 'none', thinking_budget: 0 },
-  minimal: { reasoning_effort: 'minimal' },
-  low: { reasoning_effort: 'low' },
-  medium: { reasoning_effort: 'medium' },
-  high: { reasoning_effort: 'high' },
-  xhigh: { reasoning_effort: 'xhigh' },
-  max: { reasoning_effort: 'max' },
+  keep: [null],
+  off: OFF,
+  none: OFF,
+  minimal: [{ reasoning_effort: 'minimal' }, { reasoning_effort: 'low' }],
+  low: [{ reasoning_effort: 'low' }],
+  medium: [{ reasoning_effort: 'medium' }],
+  high: [{ reasoning_effort: 'high' }],
+  xhigh: [{ reasoning_effort: 'xhigh' }],
+  max: [{ reasoning_effort: 'max' }],
 };
+const describeRung = p => (!p ? 'the live setting'
+  : [p.reasoning_effort !== undefined ? `reasoning ${p.reasoning_effort === null ? 'unset' : p.reasoning_effort}` : '', p.thinking_budget !== undefined ? `thinking budget ${p.thinking_budget}` : ''].filter(Boolean).join(', '));
 async function modelBranch(ctx, flags) {
   const { log } = ctx;
   const model = String(flags.model || '').trim();
@@ -1477,23 +1492,39 @@ async function modelBranch(ctx, flags) {
    * has the rest swapped for dashes */
   const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '.');
   const name = String(flags.name || `model ${model}${want === 'keep' ? '' : ' reasoning ' + want} (${stamp})`).replace(/[^A-Za-z0-9 ()[\]{}\-/._]+/g, '-').trim();
-  const body = {
-    parent_version_id: parent,
-    name,
-    description: `model trial: ${model}${change} — the prompt is the live one, unchanged`,
-    conversation_config: { agent: { prompt: { llm: model, ...(REASONING[want] || {}) } } },
-  };
-  let res;
-  try {
-    res = await api.createBranch(agentId, body);
-  } catch (e) {
-    /* no prompt in this body — what the API objected to is the model
-     * name or the reasoning setting, and it can say so */
-    throw new Error(`${String(e.message || e).slice(0, 400)} — ElevenLabs refused the branch. If its message names the model or the reasoning: the names it takes are in the agent's LLM settings and in the API reference (conversation_config.agent.prompt.llm), and reasoning is only available on some models`);
+  const rungs = REASONING[want];
+  const refused = [];
+  let res = null, used = null;
+  for (const rung of rungs) {
+    const setAs = refused.length ? ` (set as ${describeRung(rung)}: this model does not take ${refused.join(' or ')})` : '';
+    const body = {
+      parent_version_id: parent,
+      name,
+      description: `model trial: ${model}${change}${setAs} — the prompt is the live one, unchanged`,
+      conversation_config: { agent: { prompt: { llm: model, ...(rung || {}) } } },
+    };
+    try {
+      res = await api.createBranch(agentId, body);
+      used = rung;
+      break;
+    } catch (e) {
+      /* no prompt in this body — what the API objected to is the model
+       * name or the reasoning setting, and it can say so */
+      const msg = String(e.message || e);
+      const aboutReasoning = (e.status === 400 || e.status === 422) && /reasoning|thinking/i.test(msg);
+      if (aboutReasoning && rung !== rungs[rungs.length - 1]) {
+        refused.push(describeRung(rung));
+        log(`  ${model} does not take ${describeRung(rung)} — trying the next setting`);
+        continue;
+      }
+      if (aboutReasoning) throw new Error(`${msg.slice(0, 300)} — ${model} takes none of the settings that mean "reasoning ${want}" (${[...refused, describeRung(rung)].join(', ')}). Its choices are in the agent's LLM settings in ElevenLabs; try another level, or "keep"`);
+      throw new Error(`${msg.slice(0, 400)} — ElevenLabs refused the branch. If its message names the model: the names it takes are in the agent's LLM settings and in the API reference (conversation_config.agent.prompt.llm)`);
+    }
   }
+  const setAs = refused.length ? ` (set as ${describeRung(used)} — this model does not take ${refused.join(' or ')})` : '';
   if (!res) return 0;
-  log(`branch "${name}" created: ${res.created_branch_id} (version ${res.created_version_id}, from ${parent}) — model ${model}${change}`);
-  if (flags.out) writeJson(flags.out, { branch_id: res.created_branch_id, version_id: res.created_version_id, parent_version_id: parent, name, model, reasoning: want, at: new Date().toISOString() });
+  log(`branch "${name}" created: ${res.created_branch_id} (version ${res.created_version_id}, from ${parent}) — model ${model}${change}${setAs}`);
+  if (flags.out) writeJson(flags.out, { branch_id: res.created_branch_id, version_id: res.created_version_id, parent_version_id: parent, name, model, reasoning: want, set_as: used, at: new Date().toISOString() });
   log(`next: node loop.mjs run --branch ${res.created_branch_id} --label model\n      node loop.mjs compare --base results/<main>.json --branch results/<model>.json`);
   return 0;
 }

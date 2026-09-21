@@ -61,6 +61,10 @@ export async function startMock(fixtureDir) {
     state.branchDescription = null;
     /* a status POST branches refuses with, its body quoting the prompt */
     state.branchRefuses = 0;
+    /* the reasoning settings a model refuses ("Not supported reasoning
+     * effort"): reasoning_effort values as strings, 'null' for an unset
+     * one, 'budget' for a thinking_budget sent on its own */
+    state.refuseReasoning = [];
     /* the workspace's tools: one client tool an agent may carry (the
      * suite mocks it), one system tool (never mocked); the fixture agent
      * carries neither until a test gives it tool_ids */
@@ -157,6 +161,11 @@ export async function startMock(fixtureDir) {
       return [200, state.agent];
     }],
     ['POST', /^\/v1\/convai\/agents\/([^/]+)\/branches$/, (m, q, body) => {
+      const pr = (((body.conversation_config || {}).agent || {}).prompt) || {};
+      if (state.refuseReasoning.length && ('reasoning_effort' in pr || 'thinking_budget' in pr)) {
+        const key = 'reasoning_effort' in pr ? String(pr.reasoning_effort) : 'budget';
+        if (state.refuseReasoning.includes(key)) return [400, { detail: { type: 'validation_error', code: 'invalid_parameters', message: 'Invalid conversation config: Value error, Not supported reasoning effort.', status: 'input_invalid', request_id: 'r1', param: 'agent.prompt' } }];
+      }
       /* a validator that quotes the field it refused — which on this
        * endpoint is the prompt itself. The loop must not print it. */
       if (state.branchRefuses) return [state.branchRefuses, { detail: [{ loc: ['body', 'conversation_config', 'agent', 'prompt', 'prompt'], msg: 'string too long', input: ((((body.conversation_config || {}).agent || {}).prompt || {}).prompt) || '' }] }];
