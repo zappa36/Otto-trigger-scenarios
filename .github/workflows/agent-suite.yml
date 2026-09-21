@@ -56,8 +56,9 @@ name: agent-suite
 #                            published with the model, the seconds per
 #                            answer and the cost per call on it. Nothing
 #                            is promoted: the MODELS view of the
-#                            dashboard's RUNS tab lines the trials up,
-#                            fastest first among those that held up
+#                            dashboard's RUNS tab lines the trials up
+#                            next to the live prompt, best conversations
+#                            first, the seconds and the cost beside them
 #
 #               `suite` picks WHICH tests run: the SITUATIONS (the
 #               default — what a driver reports after pressing the big
@@ -567,7 +568,7 @@ jobs:
           echo "branch_id=$bid" >> "$GITHUB_OUTPUT"
           reason="$(grep -m1 -E '^(ACCEPT|REJECT) ' "$RUNNER_TEMP/compare.txt" | cut -d' ' -f3- || true)"
           if node loop.mjs publish --results "$br" --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --verdict "$word" --reason "$reason" | tee "$RUNNER_TEMP/publish.txt"; then
-            published="Results are on the scenarios dashboard (dashboard.html), per scenario. The RUNS tab's MODELS view lines the model trials up, fastest first among those that held up."
+            published="Results are on the scenarios dashboard (dashboard.html), per scenario. The RUNS tab's MODELS view lines the model trials up next to the live prompt, best conversations first, with the seconds and the cost beside them."
           else
             published="results not published — $(tail -n 1 "$RUNNER_TEMP/publish.txt")"
           fi

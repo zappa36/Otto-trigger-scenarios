@@ -1825,6 +1825,9 @@ let runFocusSit = null;
 /* the RUNS tab's two views: the reports (one per run) or the MODELS
  * table — every run on one line by model, speed and cost */
 let runsView = 'reports';
+/* the MODELS view's side-by-side call: which situation and driver type */
+let modelsSit = null;
+let modelsPersona = null;
 
 const runById = id => agentRuns.find(r => r && String(r.id) === String(id)) || null;
 
@@ -2561,28 +2564,62 @@ function renderRunList() {
 
 /* ---------- the MODELS view ----------
  * One line per run, whatever it was, so a model trial sits next to the
- * baselines it is measured against. Fastest first among the runs that
- * held up — a baseline, or a branch run the loop ACCEPTED — then the
- * rejected ones, then the runs with no timings. A click opens the
- * run's report, like a row of the list. */
+ * baseline it is measured against. The conversations come first: the
+ * calls the judge passed, on the same tests as the live prompt — a
+ * trial of seven rows is not measured against a baseline of twenty-one
+ * — then the seconds and the cents, so what a faster model or less
+ * reasoning gives up is on the same line. Best conversations first.
+ * Under the table, the same call on every model, to read why. A click
+ * on a line opens the run's report, like a row of the list. */
+
+/* the baseline a run is measured against: the latest live-prompt run
+ * of the same agent before it (compare's own choice on the runner) */
+function runReference(r) {
+  if (!r || r.label === 'main') return null;
+  const t = agentTime(r);
+  return agentRuns.filter(x => x && x.label === 'main' && String(x.agent_id || '') === String(r.agent_id || '') && agentTime(x) < t)
+    .sort((a, b) => agentTime(b) - agentTime(a))[0] || null;
+}
+/* the run's calls passed on the tests its reference has too, and the
+ * reference's passed on those same tests; a baseline, or a run whose
+ * tests meet none of the reference's, counts on its own */
+function runLikeForLike(r) {
+  const mine = agentRunTests(r);
+  const own = () => { const t = agentTally(mine); return { passed: t.passed, runs: t.runs, ref: null, refPassed: 0, refRuns: 0, tests: mine.length }; };
+  const ref = runReference(r);
+  if (!ref) return own();
+  const byName = new Map(agentRunTests(ref).map(t => [String(t.name || ''), t]));
+  let passed = 0, runs = 0, refPassed = 0, refRuns = 0, n = 0;
+  for (const t of mine) {
+    const o = byName.get(String(t.name || ''));
+    if (!o) continue;
+    n++; passed += +t.passed || 0; runs += +t.runs || 0; refPassed += +o.passed || 0; refRuns += +o.runs || 0;
+  }
+  return runs ? { passed, runs, ref, refPassed, refRuns, tests: n } : own();
+}
+
 function renderModelsView() {
-  const rows = agentRuns.map(r => ({ r, roll: runRollup(r), model: runModel(r), reasoning: runReasoning(r), sp: runSpeed(r), cost: runCost(r) }));
+  const rows = agentRuns.map(r => {
+    const l = runLikeForLike(r);
+    return { r, l, rate: l.runs ? l.passed / l.runs : 0, model: runModel(r), reasoning: runReasoning(r), sp: runSpeed(r), cost: runCost(r) };
+  });
   const held = x => (x.r.verdict === 'reject' ? 0 : 1);
-  rows.sort((a, b) => (held(b) - held(a)) || ((a.sp ? 0 : 1) - (b.sp ? 0 : 1)) || ((a.sp ? a.sp.secs : 0) - (b.sp ? b.sp.secs : 0)) || (agentTime(b.r) - agentTime(a.r)));
+  rows.sort((a, b) => (b.rate - a.rate) || (held(b) - held(a)) || ((a.sp ? a.sp.secs : 1e9) - (b.sp ? b.sp.secs : 1e9)) || (agentTime(b.r) - agentTime(a.r)));
   const withNumbers = rows.filter(x => x.sp || x.cost != null || x.model).length;
   const intro = `
-      <p class="rl-intro">Every run on one line: which model Otto ran on, how many calls passed, how fast he answered and what a call cost in model tokens. Fastest first among the runs that held up — a baseline, or a branch the loop accepted — and the rejected ones after. “To answer” is the seconds until Otto's first whole sentence, the median over his turns.${withNumbers ? '' : ' Runs from before the model trials have no numbers here.'} To try another model: Actions → agent-suite → Run workflow → <b>models</b>.</p>`;
+      <p class="rl-intro">Every run on one line, best conversations first. “Calls passed” is how many calls the judge passed — his checks are about the conversation: did Otto ask about what the driver said, not repeat it, not invent anything, keep to three questions, close with the tip. For a trial it is counted on the same tests as the live prompt, and the live prompt's number on those tests is under it. Then how fast Otto answered (“to answer” is the seconds until his first whole sentence, the median over his turns) and what a call cost in model tokens, so what a faster model or less reasoning gives up is on the same line.${withNumbers ? '' : ' Runs from before the model trials have no numbers here.'} To try another model or reasoning setting: Actions → agent-suite → Run workflow → <b>models</b>.</p>`;
   const tr = x => {
-    const { r, roll, sp } = x;
+    const { r, l, sp } = x;
     const verdict = r.verdict
       ? `<span class="rl-verdict ${r.verdict === 'accept' ? 'ok' : 'bad'}" title="${esc(r.verdict_reason || '')}">${esc(String(r.verdict).toUpperCase())}</span>`
       : r.label === 'main' ? '<span class="rl-verdict plain" title="The live prompt, the run the branches are measured against">BASELINE</span>' : '';
+    const same = l.ref ? `<div class="rm-dim" title="${esc(`the live prompt (the baseline of ${fmtTime(agentRanAt(l.ref))}) on the same ${l.tests} test(s)`)}">live prompt: ${l.refPassed} of ${l.refRuns}</div>` : '';
     return `
         <tr data-run="${esc(r.id)}" tabindex="0" title="${esc(`ran ${fmtTime(agentRanAt(r))} · ${runWhat(r).toLowerCase()} · click for the report`)}">
           <td class="rm-when">${esc(fmtAgo(agentRanAt(r)) || '—')}</td>
           <td class="rm-model">${x.model ? esc(x.model) : '<span class="rm-dim">not recorded</span>'}${x.reasoning ? `<span class="rm-dim"> · ${esc(x.reasoning)}</span>` : ''}</td>
           <td class="rm-what">${esc(runWhat(r))}</td>
-          <td class="rm-num"><span class="agent-chip ${runCls(roll.rate)}">${esc(runPct(roll.rate))}</span> <span class="rm-dim">${roll.passed} of ${roll.conv}</span></td>
+          <td class="rm-num"><span class="agent-chip ${runCls(x.rate)}">${esc(runPct(x.rate))}</span> <span class="rm-dim">${l.passed} of ${l.runs}</span> ${same}</td>
           <td class="rm-num" title="${esc(sp ? speedTitle(sp) : 'no timings on this run')}">${sp ? (sp.rough ? '≈' : '') + esc(fmtSecs(sp.secs)) : '—'}</td>
           <td class="rm-num">${sp && sp.call != null ? esc(fmtSecs(sp.call)) : '—'}</td>
           <td class="rm-num">${x.cost != null ? esc(fmtUsd(x.cost)) : '—'}</td>
@@ -2593,7 +2630,71 @@ function renderModelsView() {
       <table class="rm-table">
         <thead><tr><th>when</th><th>model</th><th>what ran</th><th>calls passed</th><th>to answer</th><th>a call lasts</th><th>cost a call</th><th>verdict</th></tr></thead>
         <tbody>${rows.map(tr).join('')}</tbody>
-      </table>`;
+      </table>
+      ${renderModelCalls(rows)}`;
+}
+
+/* ---------- the same call on each model ----------
+ * The numbers say which model passed more; reading says why. One call
+ * per run at the situation and driver type chosen — the shortest
+ * passed one, or the first failed one when none passed — with the
+ * judge's count and the seconds, so a trial and the live prompt are
+ * read side by side. The trials, and the baseline they are measured
+ * against; without a trial yet, the latest baseline alone. */
+function renderModelCalls(rows) {
+  const trials = rows.filter(x => x.r.label === 'model').map(x => x.r);
+  const ref = trials.length ? runReference(trials[0]) : (agentRuns.find(r => r && r.label === 'main') || null);
+  const runs = [...trials, ...(ref ? [ref] : [])];
+  if (!runs.length) return '';
+  /* the situations these runs have, most shared first */
+  const sits = new Map();
+  for (const r of runs) {
+    const seen = new Set();
+    for (const t of agentRunTests(r)) {
+      /* a test with neither number nor title (a row switched off since,
+       * still run from an old lock) has no situation to pick */
+      if (t.kind !== 'situation' || (t.situation_num == null && !normTitle(t.situation_title))) continue;
+      const key = (t.situation_num == null ? '' : t.situation_num) + '|' + normTitle(t.situation_title);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const o = sits.get(key) || { key, num: t.situation_num, title: String(t.situation_title || '').trim() || ('situation ' + t.situation_num), in: 0 };
+      o.in++;
+      sits.set(key, o);
+    }
+  }
+  const options = [...sits.values()].sort((a, b) => (b.in - a.in) || ((+a.num || 0) - (+b.num || 0)));
+  if (!options.length) return '';
+  const sit = options.find(o => o.key === modelsSit) || options[0];
+  const testsAt = r => agentRunTests(r).filter(t => t.kind === 'situation' && ((t.situation_num == null ? '' : t.situation_num) + '|' + normTitle(t.situation_title)) === sit.key);
+  const personas = PERSONA_ORDER.filter(p => runs.some(r => testsAt(r).some(t => t.persona === p)));
+  const persona = personas.includes(modelsPersona) ? modelsPersona : personas[0] || '';
+  const card = r => {
+    const t = testsAt(r).find(x => x.persona === persona);
+    const call = t ? (jsonOf(t.success) || jsonOf(t.failure)) : null;
+    const passed = !!(t && jsonOf(t.success));
+    const who = `${runModel(r) || 'model not recorded'}${runReasoning(r) ? ' · ' + runReasoning(r) : ''}`;
+    const verdicts = call && Array.isArray(call.verdicts) ? call.verdicts : null;
+    const judge = verdicts ? `judge: ${verdicts.filter(v => v === 'pass').length} of ${verdicts.length} checks passed` : '';
+    const sp = t && t.speed && typeof t.speed === 'object' ? t.speed : null;
+    const secs = sp ? (sp.source === 'metrics' ? sp.answer_s : sp.gap_s) : null;
+    const line = [runWhat(r).toLowerCase(), t ? (passed ? 'this call passed' : 'this call failed') : '', judge, secs != null ? `${sp.source === 'metrics' ? '' : '≈'}${fmtSecs(secs)} to answer` : ''].filter(Boolean).join(' · ');
+    const turns = call && Array.isArray(call.transcript) && call.transcript.length
+      ? call.transcript.map(u => `<div class="msg-turn ${u.role === 'user' ? 'me' : 'ai'}"><b>${u.role === 'user' ? 'DRIVER' : 'OTTO'}</b>${esc(u.message || '')}${runToolNote(u)}</div>`).join('')
+      : `<p class="rm-dim">${t ? 'no call kept for this test' : 'no call at this situation for this driver in this run'}</p>`;
+    return `
+        <article class="rm-call" data-run="${esc(r.id)}">
+          <p class="rm-call-who"><b>${esc(who)}</b><span>${esc(line)}</span></p>
+          ${turns}
+        </article>`;
+  };
+  return `
+      <div class="rm-calls-head">
+        <span class="cmp-k">The same call on each model</span>
+        <select data-models-sit title="which situation">${options.map(o => `<option value="${esc(o.key)}"${o.key === sit.key ? ' selected' : ''}>${esc((o.num != null ? '#' + o.num + ' ' : '') + o.title)}</option>`).join('')}</select>
+        <select data-models-persona title="which driver type">${personas.map(p => `<option value="${esc(p)}"${p === persona ? ' selected' : ''}>the ${esc(personaLabel(p))} driver</option>`).join('')}</select>
+        <span class="rm-dim">${trials.length ? 'the trials, then the live prompt they are measured against' : 'no model trial yet — the live prompt alone'}</span>
+      </div>
+      <div class="rm-calls">${runs.map(card).join('')}</div>`;
 }
 
 /* ---------- one real call, as evidence ----------
@@ -4709,6 +4810,13 @@ el('list').addEventListener('input', e => {
 /* consignee / floor save on change (blur or Enter) — the value already
  * sits in the input exactly as typed, so no repaint is needed */
 el('list').addEventListener('change', e => {
+  /* the MODELS view's pickers: which call to read side by side */
+  const pick = e.target.closest && e.target.closest('[data-models-sit], [data-models-persona]');
+  if (pick && runsTabOn()) {
+    if (pick.hasAttribute('data-models-sit')) modelsSit = pick.value; else modelsPersona = pick.value;
+    render();
+    return;
+  }
   /* a <select> is the one field that can change without an input event
    * on every browser — the same writer, once more on change */
   if (onSitFieldInput(e)) return;

@@ -592,8 +592,15 @@ way it does in a real one and prices its tokens, so a run's row carries
 the model Otto ran on, the seconds until his first whole sentence (the
 median over his turns), the length of a call and what a call cost in
 model tokens. The RUNS tab has a **MODELS** view that puts every run on
-one line by those numbers, fastest first among the runs that held up
-(a baseline, or a branch the loop accepted), the rejected ones after.
+one line by those numbers, best conversations first: the calls the
+judge passed, counted on the same tests as the live prompt (so a trial
+of seven rows is not measured against a baseline of twenty-one), with
+the seconds and the cost next to it, so what a faster model or less
+reasoning gives up is on the same line. Under the table, the same call
+on each model — pick a situation and a driver type, and read how each
+model handled it next to the live prompt. The judge's checks are about
+the conversation: did Otto ask about what the driver said, not repeat
+it, not invent anything, keep to three questions, close with the tip.
 To try another model, press **models** with the model's name as
 ElevenLabs spells it (`gpt-4.1-mini`, `gemini-2.5-flash`,
 `claude-haiku-4-5`, …) and a reasoning setting (*keep*, *off*, *low*,
