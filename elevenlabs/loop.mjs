@@ -706,9 +706,18 @@ const pick = (o, keys) => Object.fromEntries(keys.filter(k => o && o[k] !== unde
  * in milliseconds; the seconds a driver waits are made over there. So
  * every agent turn keeps its timing, pull sums them up, and the field
  * button says how fast Otto answered and on which models. */
+/* ElevenLabs's names for the clocks, in the order things happen on a
+ * turn — the first is the one a driver feels; unknown names are listed
+ * as they come, after these */
 const TIMING_LABELS = {
-  convai_llm_service_ttfb: 'first word from the model',
-  convai_llm_service_ttf_sentence: 'first sentence',
+  convai_ttf_audio_since_silence: "Otto's first sound after the driver stopped",
+  convai_turn_silence_before_initiation: 'silence before Otto took the turn',
+  convai_turn_asr_latency: 'transcribing',
+  convai_llm_service_ttfb: "the model's first word",
+  convai_llm_service_ttf_sentence: "the model's first sentence",
+  convai_llm_service_tt_last_sentence: "the model's last sentence",
+  convai_llm_tool_request_generation_latency: "the model's tool request (the turns that sent the report)",
+  convai_tts_service_ttfb: "the voice's first sound",
 };
 const median = xs => {
   const s = [...xs].sort((a, b) => a - b);
@@ -740,20 +749,39 @@ export function replySpeed(convs) {
   }
   const names = [...new Set(turns.flatMap(t => Object.keys(t.all)))];
   const order = [...Object.keys(TIMING_LABELS).filter(k => names.includes(k)), ...names.filter(k => !TIMING_LABELS[k]).sort()];
+  const stat = xs => ({ median: +secs(median(xs)), max: +secs(Math.max(...xs)), turns: xs.length });
   const metrics = {};
-  for (const k of order) {
-    const xs = turns.map(t => t.all[k]).filter(x => x != null);
-    metrics[k] = { median: +secs(median(xs)), max: +secs(Math.max(...xs)), turns: xs.length };
-  }
-  const llm = [...new Set(turns.map(t => t.llm).filter(Boolean))];
+  for (const k of order) metrics[k] = stat(turns.map(t => t.all[k]).filter(x => x != null));
   const tts = [...new Set(turns.map(t => t.tts).filter(Boolean))];
-  const line = !turns.length
-    ? 'reply speed — ElevenLabs sent no per-turn timings for these conversations'
-    : `reply speed — ${turns.length} Otto turn(s) with timings in ${inConvs.size} conversation(s): `
-      + order.map(k => `${TIMING_LABELS[k] || k} after ${secs(metrics[k].median)} s (median; slowest ${secs(metrics[k].max)} s)`).join(', ')
-      + (tts.length ? ` · voice model ${tts.join(', ')}` : '')
-      + (llm.length ? ` · language model ${llm.join(', ')}` : '');
-  return { turns: turns.length, conversations: inConvs.size, metrics, llm, tts, line };
+  /* per language model — the agent's model can change between calls,
+   * and which one answers fastest is the question a slow Otto raises:
+   * the number a driver feels first, then the model's own share */
+  const groups = new Map();
+  for (const t of turns) {
+    const k = t.llm || 'unknown model';
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(t);
+  }
+  const by_llm = [...groups.entries()].map(([llm, ts]) => {
+    const of = k => { const xs = ts.map(t => t.all[k]).filter(x => x != null); return xs.length ? stat(xs) : null; };
+    return { llm, turns: ts.length, first_sound: of('convai_ttf_audio_since_silence'), first_sentence: of('convai_llm_service_ttf_sentence'), first_word: of('convai_llm_service_ttfb') };
+  }).sort((a, b) => (a.first_sound ? a.first_sound.median : 1e9) - (b.first_sound ? b.first_sound.median : 1e9) || b.turns - a.turns);
+  const llm = by_llm.map(g => g.llm);
+  const lines = [];
+  if (!turns.length) lines.push('reply speed — ElevenLabs sent no per-turn timings for these conversations');
+  else {
+    lines.push(`reply speed — ${turns.length} Otto turn(s) with timings in ${inConvs.size} conversation(s): `
+      + order.map(k => `${TIMING_LABELS[k] || k} ${secs(metrics[k].median)} s (median; slowest ${secs(metrics[k].max)} s)`).join(' · ')
+      + (tts.length ? ` · voice model ${tts.join(', ')}` : ''));
+    lines.push('reply speed by language model — ' + by_llm.map(g => {
+      const parts = [];
+      if (g.first_sound) parts.push(`first sound after the driver stopped ${secs(g.first_sound.median)} s (median; slowest ${secs(g.first_sound.max)} s)`);
+      if (g.first_sentence) parts.push(`the model's first sentence ${secs(g.first_sentence.median)} s`);
+      else if (g.first_word) parts.push(`the model's first word ${secs(g.first_word.median)} s`);
+      return `${g.llm} (${g.turns} turn${g.turns === 1 ? '' : 's'}): ${parts.join(', ') || 'no timings'}`;
+    }).join(' · '));
+  }
+  return { turns: turns.length, conversations: inConvs.size, metrics, llm, tts, by_llm, line: lines.join('\n') };
 }
 
 /* the conversation as the field file keeps it: what the agent said and

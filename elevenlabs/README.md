@@ -421,13 +421,19 @@ milliseconds — each piece of Otto's voice plays the moment it lands.
 So `pull` reads the timings ElevenLabs keeps for every agent turn, and
 the **field** button's summary ends its pull lines with, for example:
 
-    reply speed — 37 Otto turn(s) with timings in 12 conversation(s): first word from the model after 0.6 s (median; slowest 1.9 s), first sentence after 0.9 s (median; slowest 2.4 s) · voice model eleven_flash_v2_5 · language model gpt-4o
+    reply speed — 158 Otto turn(s) with timings in 44 conversation(s): Otto's first sound after the driver stopped 2.5 s (median; slowest 21.8 s) · silence before Otto took the turn 0.3 s (median; slowest 18.9 s) · transcribing 0.1 s (median; slowest 0.2 s) · the model's first word 1.6 s (median; slowest 8.7 s) · the model's first sentence 1.3 s (median; slowest 8.8 s) · the model's tool request (the turns that sent the report) 3.0 s (median; slowest 4.0 s) · the voice's first sound 0.2 s (median; slowest 0.5 s) · voice model eleven_v3_conversational
+    reply speed by language model — gemini-2.5-flash (61 turns): first sound after the driver stopped 1.9 s (median; slowest 6.1 s), the model's first sentence 0.9 s · gemini-3.6-flash (45 turns): first sound after the driver stopped 2.4 s (median; slowest 9.7 s), the model's first sentence 1.2 s · gpt-4o (52 turns): first sound after the driver stopped 3.2 s (median; slowest 21.8 s), the model's first sentence 1.9 s
 
-"First word" is how long the language model took to start its answer,
-"first sentence" how long until the voice had a whole sentence to
-speak. Both are ElevenLabs's own clocks; the moments before them — the
-driver falling silent, the transcription — are not in them. The knobs
-are all in the agent's settings in ElevenLabs, none in this repository:
+The first number is the one a driver feels: from falling silent to
+Otto's first sound. The rest are its parts, in the order they happen —
+how long Otto waited before taking the turn, transcribing, the language
+model's first word and first sentence (the voice starts on the
+sentence), the model writing a tool request on the turns that send the
+report, the voice's first sound. All are ElevenLabs's own clocks. The
+second line splits the driver's number by language model, fastest
+first: the agent's model can change between calls, and this is where
+to see what each one costs. The knobs are all in the agent's settings
+in ElevenLabs, none in this repository:
 the **language model** (a "flash" or "mini" model starts in well under
 a second, a large one in one to two); the **voice model** (Flash v2.5
 is the fast one) and its *optimize streaming latency* slider; the

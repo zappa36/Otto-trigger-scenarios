@@ -381,7 +381,8 @@ test('pull joins conversations to their dashboard grades by conversation_id and 
   assert.deepEqual(field.speed.metrics.convai_llm_service_ttfb, { median: 0.7, max: 0.9, turns: 3 });
   assert.deepEqual(field.speed.metrics.convai_llm_service_ttf_sentence, { median: 1.0, max: 1.4, turns: 3 });
   assert.deepEqual(field.speed.llm, ['gpt-4o']);
-  assert.match(r.out, /reply speed — 3 Otto turn\(s\) with timings in 2 conversation\(s\): first word from the model after 0\.7 s \(median; slowest 0\.9 s\), first sentence after 1\.0 s \(median; slowest 1\.4 s\) · voice model eleven_flash_v2_5 · language model gpt-4o/);
+  assert.deepEqual(field.speed.by_llm, [{ llm: 'gpt-4o', turns: 3, first_sound: null, first_sentence: { median: 1.0, max: 1.4, turns: 3 }, first_word: { median: 0.7, max: 0.9, turns: 3 } }]);
+  assert.match(r.out, /reply speed — 3 Otto turn\(s\) with timings in 2 conversation\(s\): the model's first word 0\.7 s \(median; slowest 0\.9 s\) · the model's first sentence 1\.0 s \(median; slowest 1\.4 s\) · voice model eleven_flash_v2_5\nreply speed by language model — gpt-4o \(3 turns\): the model's first sentence 1\.0 s/);
 });
 
 test('replySpeed says so when ElevenLabs sent no timings, and lists unknown metrics by name', () => {
@@ -393,7 +394,17 @@ test('replySpeed says so when ElevenLabs sent no timings, and lists unknown metr
   ] }]);
   assert.equal(odd.metrics.convai_llm_service_ttfb.median, 1.0);
   assert.deepEqual(odd.metrics.convai_asr_service_ttfb, { median: 0.3, max: 0.3, turns: 1 });
-  assert.equal(odd.line, 'reply speed — 2 Otto turn(s) with timings in 1 conversation(s): first word from the model after 1.0 s (median; slowest 1.3 s), convai_asr_service_ttfb after 0.3 s (median; slowest 0.3 s) · language model gemini-2.5-flash');
+  assert.equal(odd.line, "reply speed — 2 Otto turn(s) with timings in 1 conversation(s): the model's first word 1.0 s (median; slowest 1.3 s) · convai_asr_service_ttfb 0.3 s (median; slowest 0.3 s)\n"
+    + "reply speed by language model — gemini-2.5-flash (2 turns): the model's first word 1.0 s");
+  /* two models on the same pull: the one a driver hears sooner comes first */
+  const two = replySpeed([{ conversation_id: 'y', transcript: [
+    { role: 'agent', message: 'a', timing: { first_word: 1.8, first_sentence: 2.0, all: { convai_llm_service_ttfb: 1.8, convai_llm_service_ttf_sentence: 2.0, convai_ttf_audio_since_silence: 3.1 }, llm: 'gpt-4o', tts: 'eleven_v3_conversational' } },
+    { role: 'agent', message: 'b', timing: { first_word: 0.6, first_sentence: 0.8, all: { convai_llm_service_ttfb: 0.6, convai_llm_service_ttf_sentence: 0.8, convai_ttf_audio_since_silence: 1.7 }, llm: 'gemini-2.5-flash', tts: 'eleven_v3_conversational' } },
+    { role: 'agent', message: 'c', timing: { first_word: 0.7, first_sentence: 0.9, all: { convai_llm_service_ttfb: 0.7, convai_llm_service_ttf_sentence: 0.9, convai_ttf_audio_since_silence: 1.9 }, llm: 'gemini-2.5-flash', tts: 'eleven_v3_conversational' } },
+  ] }]);
+  assert.deepEqual(two.llm, ['gemini-2.5-flash', 'gpt-4o']);
+  assert.equal(two.line.split('\n')[0], "reply speed — 3 Otto turn(s) with timings in 1 conversation(s): Otto's first sound after the driver stopped 1.9 s (median; slowest 3.1 s) · the model's first word 0.7 s (median; slowest 1.8 s) · the model's first sentence 0.9 s (median; slowest 2.0 s) · voice model eleven_v3_conversational");
+  assert.equal(two.line.split('\n')[1], "reply speed by language model — gemini-2.5-flash (2 turns): first sound after the driver stopped 1.8 s (median; slowest 1.9 s), the model's first sentence 0.9 s · gpt-4o (1 turn): first sound after the driver stopped 3.1 s (median; slowest 3.1 s), the model's first sentence 2.0 s");
 });
 
 test('score groups the suite and the field per scenario, and the failures by reason', async () => {
