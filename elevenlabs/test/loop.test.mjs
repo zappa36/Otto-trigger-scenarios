@@ -202,18 +202,18 @@ test('model-branch cuts a branch from the live version with only the language mo
     description: 'model trial: gpt-4.1-mini, reasoning low — the prompt is the live one, unchanged',
     conversation_config: { agent: { prompt: { llm: 'gpt-4.1-mini', reasoning_effort: 'low' } } },
   }, 'settings only: no prompt travels in this body');
-  assert.match(post[0].body.name, /^model gpt-4\.1-mini, reasoning low \(\d{4}-\d\d-\d\d \d\d:\d\d\)$/, 'a name unique within the agent, readable in the Versioning tab');
+  assert.match(post[0].body.name, /^model gpt-4\.1-mini reasoning low \(\d{4}-\d\d-\d\d \d\d\.\d\d\)$/, 'a name unique within the agent, readable in the Versioning tab, in the characters ElevenLabs allows (no comma, no colon)');
   assert.match(r.out, /live Otto: model gpt-4o-mini \(version agtvrsn_v1\)/);
-  assert.match(r.out, /branch "model gpt-4\.1-mini, reasoning low \(.*\)" created: agtbrch_loop1 \(version agtvrsn_b1, from agtvrsn_v1\) — model gpt-4\.1-mini, reasoning low/);
+  assert.match(r.out, /branch "model gpt-4\.1-mini reasoning low \(.*\)" created: agtbrch_loop1 \(version agtvrsn_b1, from agtvrsn_v1\) — model gpt-4\.1-mini, reasoning low/);
   assert.match(r.out, /next: node loop\.mjs run --branch agtbrch_loop1 --label model/);
   const wrote = readJson(out);
   assert.deepEqual({ ...wrote, name: '', at: '' }, { branch_id: 'agtbrch_loop1', version_id: 'agtvrsn_b1', parent_version_id: 'agtvrsn_v1', name: '', model: 'gpt-4.1-mini', reasoning: 'low', at: '' });
   /* reasoning off turns both knobs off; keep (the default) sends the model alone; a name of one's own is taken */
   mock.reset(); mock.requests.length = 0;
-  r = await loop(['model-branch', '--model', 'gemini-2.5-flash', '--reasoning', 'off', '--name', 'flash no thinking'], dir);
+  r = await loop(['model-branch', '--model', 'gemini-2.5-flash', '--reasoning', 'off', '--name', 'flash: no thinking, please'], dir);
   assert.equal(r.code, 0, r.out);
   assert.deepEqual(sent('POST', /\/branches$/)[0].body.conversation_config, { agent: { prompt: { llm: 'gemini-2.5-flash', reasoning_effort: 'none', thinking_budget: 0 } } });
-  assert.equal(sent('POST', /\/branches$/)[0].body.name, 'flash no thinking');
+  assert.equal(sent('POST', /\/branches$/)[0].body.name, 'flash- no thinking- please', 'a name of one\'s own, in the characters ElevenLabs allows');
   mock.reset(); mock.requests.length = 0;
   r = await loop(['model-branch', '--model', 'gemini-3.6-flash', '--reasoning', 'false'], dir);
   assert.equal(r.code, 0, r.out);
@@ -241,7 +241,7 @@ test('model-branch cuts a branch from the live version with only the language mo
   mock.state.branchRefuses = 422;
   r = await loop(['model-branch', '--model', 'gpt-99'], dir);
   assert.equal(r.code, 1);
-  assert.match(r.out, /model-branch failed: 422 from POST \/v1\/convai\/agents\/agent_test1\/branches: .*— ElevenLabs refused the model name or the reasoning setting/);
+  assert.match(r.out, /model-branch failed: 422 from POST \/v1\/convai\/agents\/agent_test1\/branches: .*— ElevenLabs refused the branch\./);
   mock.state.branchRefuses = 0;
   /* a dry run prints the request and sends nothing */
   mock.requests.length = 0;
