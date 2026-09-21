@@ -603,8 +603,9 @@ the conversation: did Otto ask about what the driver said, not repeat
 it, not invent anything, keep to three questions, close with the tip.
 To try another model, press **models** with the model's name as
 ElevenLabs spells it (`gpt-4.1-mini`, `gemini-2.5-flash`,
-`claude-haiku-4-5`, …) and a reasoning setting (*keep*, *off*, *low*,
-…): the loop cuts a branch that differs from the live Otto in that one
+`claude-haiku-4-5`, …) and a reasoning effort in ElevenLabs' own words
+(*none*, *minimal*, *low*, *medium*, *high*, or *keep* for the live
+setting): the loop cuts a branch that differs from the live Otto in that one
 thing, runs a quick trial of seven situations on it, compares it with
 the baseline and publishes the run with the numbers. The branch stays
 on the agent; **promote** switches Otto to it if the trial convinced.

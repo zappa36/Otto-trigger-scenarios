@@ -1478,7 +1478,7 @@ async function modelBranch(ctx, flags) {
   /* a YAML form reads a bare "off" as the boolean false and hands it
    * over as the word — the same setting */
   if (want === 'false' || want === 'no' || want === '0') want = 'off';
-  if (!(want in REASONING)) throw new UsageError(`--reasoning is one of keep, off, minimal, low, medium, high, xhigh, max — not "${flags.reasoning}"`);
+  if (!(want in REASONING)) throw new UsageError(`--reasoning is one of keep, none, minimal, low, medium, high, xhigh, max (ElevenLabs' own words; off is taken as none) — not "${flags.reasoning}"`);
   const { api, agentId } = needEleven(ctx);
   const agent = await api.getAgent(agentId);
   const parent = agent ? agent.version_id : '<version_id from GET agent>';
@@ -1877,8 +1877,9 @@ const USAGE = `usage: node loop.mjs <command> [--dry-run] [--dir DIR] [flags]
   cut        [--field FILE]
   propose    [--results FILE] [--field FILE] [--prompt FILE | --agent] [--quiet]
   branch     --proposal FILE [--name TEXT]
-  model-branch --model NAME [--reasoning keep|off|minimal|low|medium|high|xhigh|max] [--name TEXT] [--out FILE]
-                                  a branch from the live version with only the language model (and its reasoning) changed
+  model-branch --model NAME [--reasoning keep|none|minimal|low|medium|high|xhigh|max] [--name TEXT] [--out FILE]
+                                  a branch from the live version with only the language model (and its reasoning effort,
+                                  in ElevenLabs' words; "off" is taken as none) changed
   compare    --base FILE --branch FILE [--margin 0.25]   (by situation: a drop is more than a quarter of its calls lost)
   promote    --branch ID|NAME [--target BRANCH_ID] [--force] [--quiet]
   publish    [--results FILE] [--run-url URL] [--verdict accept|reject] [--reason TEXT]

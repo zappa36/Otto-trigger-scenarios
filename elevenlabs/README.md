@@ -97,15 +97,20 @@ the same call on each model to read side by side.
 **A model trial** is a branch that differs from the live Otto in one
 thing. `model-branch --model gpt-4.1-mini --reasoning low` cuts it from
 the version the agent is on, with only `conversation_config.agent.prompt.llm`
-(and `reasoning_effort`; `off` also sets `thinking_budget` to 0) in the
-body — the prompt, the voice, the tools and everything else are
-inherited — so the branch's description can say what changed in the
-clear (a model name is a setting, not the prompt) and an API refusal
-can be shown whole. Then `run --branch <id> --rows 6,8,10,13,24,25,28
---repeat 1` (35 calls), `compare` against the latest baseline on the
-tests both have, and `publish` with the verdict. The reasoning setting
-is only available on some models; ElevenLabs refuses it on the others
-and the command says so. The model names are the ones ElevenLabs' agent
+(and `reasoning_effort`) in the body — the prompt, the voice, the tools
+and everything else are inherited — so the branch's description can say
+what changed in the clear (a model name is a setting, not the prompt)
+and an API refusal can be shown whole. The words are ElevenLabs' own:
+`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` (`off` is
+taken as `none`). A model takes only some of them and refuses the rest
+("Not supported reasoning effort"), so each is a ladder: `none` is
+tried as none with `thinking_budget` 0, then unset with budget 0, then
+minimal, then low; `minimal` falls back to low; the first rung the
+model takes wins, and the log, the branch's description and the run's
+row say which (gemini-3.6-flash has no none: it ends up with no
+reasoning setting at all). Then `run --branch <id> --rows
+6,8,10,13,24,25,28 --repeat 1` (35 calls), `compare` against the latest
+baseline on the tests both have, and `publish` with the verdict. The model names are the ones ElevenLabs' agent
 settings offer (`gpt-4.1-mini`, `gpt-5-mini`, `gemini-2.5-flash`,
 `gemini-2.5-flash-lite`, `claude-haiku-4-5`, …).
 
@@ -348,8 +353,9 @@ The form has two dropdowns: **action** (which stage) and **suite**
 (which tests — *situations*, the default and the pilot's own; *triggers*,
 the scenario sheet; or *all*), and for **models** three more fields:
 **model** (the language model, spelled as ElevenLabs does),
-**reasoning** (keep, off, minimal, low, medium, high) and **rows** (which
-situation rows, by number; empty = every row). Every action but *configure* regenerates
+**reasoning** (ElevenLabs' own words for the reasoning effort: none,
+minimal, low, medium, high, xhigh, max — or keep, as the live Otto) and
+**rows** (which situation rows, by number; empty = every row). Every action but *configure* regenerates
 the situation tests from the live rows before it pushes anything, so a
 row edited on the dashboard is in the next press.
 
