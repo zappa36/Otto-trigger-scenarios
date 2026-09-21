@@ -139,9 +139,37 @@ test('run polls the invocation, aggregates per test worst-first, and writes the 
     test_run_id: 'run_1',
     rationale: 'Criterion 1: PASS. Opened with the question.\nCriterion 2: PASS. Got a parking tip.',
     verdicts: ['pass', 'pass'],
-    transcript: [{ role: 'agent', message: 'Is it hard to park here at this time? Where did you find a spot?' }],
+    transcript: [
+      { role: 'user', message: 'Hi, done with the stop.' },
+      { role: 'agent', message: 'Is it hard to park here at this time? Where did you find a spot?' },
+      { role: 'user', message: 'Easy, right outside.' },
+      { role: 'agent', message: 'Thanks, safe travels.' },
+    ],
   });
-  assert.equal(res.tests[1].success, null, 'passed every run, but no run had a word to keep');
+  assert.deepEqual(res.tests[1].success, {
+    test_run_id: 'run_4', rationale: 'no rationale returned',
+    transcript: [{ role: 'user', message: 'Road was shut.' }, { role: 'agent', message: 'Which street was closed?' }, { role: 'user', message: 'Danziger.' }, { role: 'agent', message: 'Thanks, bye.' }],
+  }, 'the shortest passed run with words — run_5 and run_6 said nothing');
+  /* every call's timings, token prices and model, per test — over all
+   * three runs, not just the two kept whole: seconds to Otto's first
+   * sentence and first word per turn, the length of each call, and
+   * what the tokens cost */
+  assert.deepEqual(res.tests[0].timing, { answers: [0.9, 0.7, 1.5], words: [0.6, 0.4, 1.0], gaps: [], calls: [11, 0] });
+  assert.ok(Math.abs(res.tests[0].usage.cost - 0.0004062) < 1e-9, 'input + output prices over run_1, the only priced call');
+  assert.deepEqual({ ...res.tests[0].usage, cost: 0 }, { cost: 0, tokens_in: 2500, tokens_out: 52, calls: 1 });
+  assert.deepEqual(res.tests[0].models, ['gpt-4o-mini'], 'producing_llm, as ElevenLabs names it');
+  assert.equal(res.tests[0].driver_model, 'claude-sonnet-4-6', 'from the test file');
+  assert.equal(res.tests[0].judge_model, 'claude-sonnet-4-6');
+  assert.deepEqual(res.tests[1].timing, { answers: [], words: [], gaps: [4, 2], calls: [12] }, 'no metrics on #8: the whole-second gaps from the driver\'s turn to Otto\'s stand in');
+  assert.deepEqual(res.tests[1].usage, { cost: 0, tokens_in: 0, tokens_out: 0, calls: 0 });
+  assert.deepEqual(res.tests[1].models, []);
+  assert.equal(res.tests[1].driver_model, '', 'the #8 fixture file pins no models');
+  /* the agent's own LLM settings, read from GET agent once the suite is
+   * started — the model and its reasoning knobs, nothing of the prompt */
+  assert.deepEqual(res.settings, { model: 'gpt-4o-mini', reasoning: null, thinking_budget: null, temperature: null });
+  assert.equal(sent('GET', /\/v1\/convai\/agents\/agent_test1$/).length, 1);
+  assert.match(r.out, /Otto's model on this run: gpt-4o-mini/);
+  assert.match(r.out, /speed and cost — Otto's first sentence after 0\.9 s \(median over 3 turn\(s\); slowest 1\.5 s\) · a call lasts 11 s \(median of 3\) · \$0\.000406 per call in model tokens \(\$0\.000406 over 1 priced call\(s\)\) · model set to gpt-4o-mini; answered as gpt-4o-mini/);
   assert.equal(res.tests[1].pass_rate, 1);
   assert.equal(res.tests[1].why, null);
   assert.equal(res.tests[1].failure, null, 'a test that passed every run has no failure to show');
@@ -159,6 +187,88 @@ test('run --branch sends the branch id and the results carry it', async () => {
   shared.branchResults = path.join(dir, 'results', file);
   assert.equal(res.branch_id, 'agtbrch_loop1');
   assert.ok(res.tests.every(t => t.branch_id === 'agtbrch_loop1'));
+});
+
+test('model-branch cuts a branch from the live version with only the language model changed, and names the model in the clear', async () => {
+  const dir = workdir();
+  const out = path.join(dir, 'model-branch.json');
+  let r = await loop(['model-branch', '--model', 'gpt-4.1-mini', '--reasoning', 'low', '--out', out], dir);
+  assert.equal(r.code, 0, r.out);
+  const post = sent('POST', /\/branches$/);
+  assert.equal(post.length, 1);
+  assert.deepEqual(post[0].body, {
+    parent_version_id: 'agtvrsn_v1',
+    name: post[0].body.name,
+    description: 'model trial: gpt-4.1-mini, reasoning low — the prompt is the live one, unchanged',
+    conversation_config: { agent: { prompt: { llm: 'gpt-4.1-mini', reasoning_effort: 'low' } } },
+  }, 'settings only: no prompt travels in this body');
+  assert.match(post[0].body.name, /^model gpt-4\.1-mini, reasoning low \(\d{4}-\d\d-\d\d \d\d:\d\d\)$/, 'a name unique within the agent, readable in the Versioning tab');
+  assert.match(r.out, /live Otto: model gpt-4o-mini \(version agtvrsn_v1\)/);
+  assert.match(r.out, /branch "model gpt-4\.1-mini, reasoning low \(.*\)" created: agtbrch_loop1 \(version agtvrsn_b1, from agtvrsn_v1\) — model gpt-4\.1-mini, reasoning low/);
+  assert.match(r.out, /next: node loop\.mjs run --branch agtbrch_loop1 --label model/);
+  const wrote = readJson(out);
+  assert.deepEqual({ ...wrote, name: '', at: '' }, { branch_id: 'agtbrch_loop1', version_id: 'agtvrsn_b1', parent_version_id: 'agtvrsn_v1', name: '', model: 'gpt-4.1-mini', reasoning: 'low', at: '' });
+  /* reasoning off turns both knobs off; keep (the default) sends the model alone; a name of one's own is taken */
+  mock.reset(); mock.requests.length = 0;
+  r = await loop(['model-branch', '--model', 'gemini-2.5-flash', '--reasoning', 'off', '--name', 'flash no thinking'], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual(sent('POST', /\/branches$/)[0].body.conversation_config, { agent: { prompt: { llm: 'gemini-2.5-flash', reasoning_effort: 'none', thinking_budget: 0 } } });
+  assert.equal(sent('POST', /\/branches$/)[0].body.name, 'flash no thinking');
+  mock.reset(); mock.requests.length = 0;
+  r = await loop(['model-branch', '--model', 'claude-haiku-4-5'], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual(sent('POST', /\/branches$/)[0].body.conversation_config, { agent: { prompt: { llm: 'claude-haiku-4-5' } } });
+  assert.equal(sent('POST', /\/branches$/)[0].body.description, 'model trial: claude-haiku-4-5 — the prompt is the live one, unchanged');
+  /* what it refuses before sending anything */
+  for (const [args, msg] of [
+    [['model-branch'], /--model NAME is required/],
+    [['model-branch', '--model', 'gpt 4'], /does not look like a model name/],
+    [['model-branch', '--model', 'gpt-4.1-mini', '--reasoning', 'lots'], /--reasoning is one of keep, off, minimal, low, medium, high, xhigh, max — not "lots"/],
+  ]) {
+    mock.requests.length = 0;
+    r = await loop(args, dir);
+    assert.equal(r.code, 1, args.join(' '));
+    assert.match(r.out, msg);
+    assert.equal(mock.requests.length, 0, 'nothing sent');
+  }
+  /* the API's refusal is shown whole: this body has no prompt to hide */
+  mock.reset(); mock.requests.length = 0;
+  mock.state.branchRefuses = 422;
+  r = await loop(['model-branch', '--model', 'gpt-99'], dir);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /model-branch failed: 422 from POST \/v1\/convai\/agents\/agent_test1\/branches: .*— ElevenLabs refused the model name or the reasoning setting/);
+  mock.state.branchRefuses = 0;
+  /* a dry run prints the request and sends nothing */
+  mock.requests.length = 0;
+  r = await loop(['model-branch', '--model', 'gpt-4.1-mini', '--dry-run'], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(mock.requests.length, 0);
+  assert.match(r.out, /POST .*\/branches/);
+});
+
+test('run --rows runs only those situation rows', async () => {
+  const dir = workdir();
+  rmSync(path.join(dir, 'test_configs'), { recursive: true, force: true });
+  writeFileSync(path.join(dir, 'tests.lock.json'), JSON.stringify({
+    'Otto · situation #6 A big dog at the door · terse': 'test_s6t',
+    'Otto · situation #6 A big dog at the door · vague': 'test_s6v',
+    'Otto · situation #16 Reception takes parcels only until three · terse': 'test_s16',
+    'Otto · situation #8 Gate needs a code · terse': 'test_s8',
+    [T1]: 'test_001',
+  }));
+  let r = await loop(['run', '--rows', '6, 8', '--repeat', '1', '--label', 'trial'], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual(sent('POST', /run-tests$/)[0].body.tests.map(t => t.test_id), ['test_s6t', 'test_s6v', 'test_s8'], '#16 is not #6, and a trigger test has no row');
+  assert.equal(sent('POST', /run-tests$/)[0].body.repeat_count, undefined, 'one run each');
+  assert.match(r.out, /rows 6, 8: 3 test\(s\)/);
+  mock.requests.length = 0;
+  r = await loop(['run', '--rows', '99'], dir);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /no test in tests\.lock\.json is for situation row\(s\) 99 — the numbers are the # on the SITUATIONS tab/);
+  r = await loop(['run', '--rows', 'six'], dir);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /--rows takes situation numbers, comma-separated \(6,8,10\), not "six"/);
+  assert.equal(mock.requests.length, 0, 'nothing sent either time');
 });
 
 test('a lock entry without a test file — a row switched off — is not run, and push-tests drops it', async () => {
@@ -275,19 +385,36 @@ test('publish posts the results file as one agent_runs row — the contract dash
       test_run_id: 'run_1',
       rationale: 'Criterion 1: PASS. Opened with the question.\nCriterion 2: PASS. Got a parking tip.',
       verdicts: ['pass', 'pass'],
-      transcript: [{ role: 'agent', message: 'Is it hard to park here at this time? Where did you find a spot?' }],
+      transcript: [
+        { role: 'user', message: 'Hi, done with the stop.' },
+        { role: 'agent', message: 'Is it hard to park here at this time? Where did you find a spot?' },
+        { role: 'user', message: 'Easy, right outside.' },
+        { role: 'agent', message: 'Thanks, safe travels.' },
+      ],
     },
     checks: { 1: { pass: 2, fail: 0 }, 2: { pass: 1, fail: 1 }, 3: { pass: 0, fail: 1 } },
+    /* the seconds and the cents per test: medians over its calls */
+    speed: { answer_s: 0.9, gap_s: null, call_s: 5.5, turns: 3, source: 'metrics' },
+    cost: { per_call_usd: 0.000406, calls: 1 },
   });
-  assert.deepEqual(row.tests[1], { name: T8, test_id: 'test_pre8', kind: 'scenario', scenario_num: 8, scenario_title: 'Blocked route — turned round short of the address', situation_num: null, situation_title: null, persona: 'terse', language: 'en', runs: 3, passed: 3, pass_rate: 1, why: null, failure: null, success: null, checks: null });
+  assert.deepEqual(row.tests[1], { name: T8, test_id: 'test_pre8', kind: 'scenario', scenario_num: 8, scenario_title: 'Blocked route — turned round short of the address', situation_num: null, situation_title: null, persona: 'terse', language: 'en', runs: 3, passed: 3, pass_rate: 1, why: null, failure: null,
+    success: { test_run_id: 'run_4', rationale: 'no rationale returned', transcript: [{ role: 'user', message: 'Road was shut.' }, { role: 'agent', message: 'Which street was closed?' }, { role: 'user', message: 'Danziger.' }, { role: 'agent', message: 'Thanks, bye.' }] },
+    checks: null,
+    speed: { answer_s: null, gap_s: 3, call_s: 12, turns: 2, source: 'timestamps' }, cost: null });
   assert.deepEqual(row.summary, {
     tests: 2, tests_at_100: 1, runs: 6, passed: 5, pass_rate: 5 / 6,
     by_scenario: { 1: { tests: 1, runs: 3, passed: 2, pass_rate: 2 / 3 }, 8: { tests: 1, runs: 3, passed: 3, pass_rate: 1 } },
     by_situation: {},
     by_check: { 1: { pass: 2, fail: 0 }, 2: { pass: 1, fail: 1 }, 3: { pass: 0, fail: 1 } },
+    /* the model trial's numbers, on every run: what Otto was set to,
+     * how fast he answered, what the calls cost, who answered / drove / judged */
+    settings: { model: 'gpt-4o-mini', reasoning: null, thinking_budget: null, temperature: null },
+    speed: { answer_s: 0.9, answer_max_s: 1.5, word_s: 0.6, gap_s: 3, call_s: 11, turns: 3, calls: 3, source: 'metrics' },
+    cost: { per_call_usd: 0.000406, total_usd: 0.000406, tokens_in: 2500, tokens_out: 52, calls: 1 },
+    models: { otto: ['gpt-4o-mini'], driver: ['claude-sonnet-4-6'], judge: ['claude-sonnet-4-6'] },
   });
   assert.equal(mock.state.agentRuns.length, 1, 'stored');
-  assert.match(r.out, /5\/6 runs passed across 2 test\(s\) -> agent_runs/);
+  assert.match(r.out, /5\/6 runs passed across 2 test\(s\) -> agent_runs\nspeed and cost — Otto's first sentence after 0\.9 s/);
   assert.match(r.out, /published agent_runs 00000000-0000-4000-8000-000000000001 \(2 scenario\(s\), 0 situation\(s\), main, https:\/\/github\.com\/o\/r\/actions\/runs\/42\) — dashboard\.html shows it per row/);
 
   /* the note is gone: it said what the branch's prompt changed, and
@@ -353,8 +480,9 @@ test('publish posts the results file as one agent_runs row — the contract dash
   const oldFile = path.join(dir, 'old.json');
   writeFileSync(oldFile, JSON.stringify(old));
   const oldRow = agentRunRow(old, { runUrl: '' });
-  assert.deepEqual(oldRow.tests[0], { name: 'Otto · regression · conv_old', test_id: 'test_9', kind: 'regression', scenario_num: null, scenario_title: null, situation_num: null, situation_title: null, persona: null, language: null, runs: 2, passed: 1, pass_rate: 0.5, why: 'Too long. Really.', failure: null, success: null, checks: null });
+  assert.deepEqual(oldRow.tests[0], { name: 'Otto · regression · conv_old', test_id: 'test_9', kind: 'regression', scenario_num: null, scenario_title: null, situation_num: null, situation_title: null, persona: null, language: null, runs: 2, passed: 1, pass_rate: 0.5, why: 'Too long. Really.', failure: null, success: null, checks: null, speed: null, cost: null });
   assert.equal(oldRow.summary.by_check, undefined, 'no verdict words anywhere, no by_check');
+  assert.equal(oldRow.summary.speed, undefined, 'no timings kept, no speed; and no settings, cost or models either');
   assert.deepEqual(oldRow.summary, { tests: 1, tests_at_100: 0, runs: 2, passed: 1, pass_rate: 0.5, by_scenario: {}, by_situation: {} }, 'a test without a row counts in the totals and under no row');
   assert.equal(oldRow.version_id, null);
   assert.equal(oldRow.run_url, null, 'an empty --run-url is none');

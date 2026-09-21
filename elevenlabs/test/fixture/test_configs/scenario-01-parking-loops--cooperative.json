@@ -25,6 +25,8 @@
   ],
   "simulation_scenario": "You are a parcel-delivery driver working as a field tester. You have just acted out scenario #1 at Kollwitzstraße 52: two slow loops, then a stop in the loading bay on Husemannstraße, about 40 m from the door. You answer fully and helpfully.",
   "simulation_max_turns": 8,
+  "simulated_user_model": "claude-sonnet-4-6",
+  "evaluation_model": "claude-sonnet-4-6",
   "success_conditions": [
     "The agent opens the debrief by asking “Is it hard to park here at this time? Where did you find a spot?” and continues from the tester's answer.",
     "The agent elicits at least one concrete parking tip — a place — and states no facts the tester did not say.",

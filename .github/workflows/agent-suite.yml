@@ -47,6 +47,17 @@ name: agent-suite
 #                 promote    merge that branch into the agent's main
 #                            branch (branch_id below), then a fresh
 #                            baseline → "loop-baseline"
+#                 models     a model trial: a branch cut from the live
+#                            version with only the language model (and
+#                            its reasoning setting) changed — model and
+#                            reasoning below — the suite on it (the rows
+#                            below, or every row), the comparison
+#                            against the latest baseline, and the run
+#                            published with the model, the seconds per
+#                            answer and the cost per call on it. Nothing
+#                            is promoted: the MODELS view of the
+#                            dashboard's RUNS tab lines the trials up,
+#                            fastest first among those that held up
 #
 #               `suite` picks WHICH tests run: the SITUATIONS (the
 #               default — what a driver reports after pressing the big
@@ -137,6 +148,7 @@ on:
           - propose
           - try
           - promote
+          - models
       suite:
         description: "Which tests to run: the situations (what a driver reports — the pilot's suite), the trigger scenarios, or both"
         type: choice
@@ -147,7 +159,7 @@ on:
           - triggers
           - all
       repeat:
-        description: "Runs per test (2–20); the pass rate is over these (baseline, propose, try, promote)"
+        description: "Runs per test (1–20); the pass rate is over these (baseline, propose, try, promote, models)"
         type: number
         default: 3
       filter:
@@ -162,6 +174,25 @@ on:
         description: "try and promote: the agent branch — its name as you typed it in ElevenLabs (Versioning tab), or its id (agtbrch_…, from a propose run's summary)"
         type: string
         default: ""
+      model:
+        description: "models: the language model to try, spelled as ElevenLabs does — gpt-4.1-mini, gpt-5-mini, gemini-2.5-flash, gemini-2.5-flash-lite, claude-haiku-4-5, claude-sonnet-4-5 …"
+        type: string
+        default: ""
+      reasoning:
+        description: "models: how much the model may think before answering — keep (as the live Otto), off, minimal, low, medium, high (only some models take it)"
+        type: choice
+        default: keep
+        options:
+          - keep
+          - off
+          - minimal
+          - low
+          - medium
+          - high
+      rows:
+        description: "models: which situation rows to run, by their # on the SITUATIONS tab (empty = every row). The default is a quick trial of seven — a dog, a gate code, a wrong pin, a dark stairwell, a normal delivery, a fire, a storm"
+        type: string
+        default: "6,8,10,13,24,25,28"
   schedule:
     # Monday 06:00 UTC — a fresh baseline before the week's first field session
     - cron: "0 6 * * 1"
@@ -248,6 +279,9 @@ jobs:
       FILTER_INPUT: ${{ inputs.filter }}
       DAYS: ${{ inputs.days || 14 }}
       BRANCH_ID: ${{ inputs.branch_id }}
+      MODEL: ${{ inputs.model }}
+      REASONING: ${{ inputs.reasoning || 'keep' }}
+      ROWS: ${{ inputs.rows }}
     steps:
       - uses: actions/checkout@v4
 
@@ -265,8 +299,8 @@ jobs:
         id: plan
         run: |
           echo "action=$ACTION" >> "$GITHUB_OUTPUT"
-          if ! [ "$REPEAT" -ge 2 ] 2>/dev/null || ! [ "$REPEAT" -le 20 ] 2>/dev/null; then
-            echo "::error::repeat must be a whole number from 2 to 20, got '$REPEAT'"; exit 1
+          if ! [ "$REPEAT" -ge 1 ] 2>/dev/null || ! [ "$REPEAT" -le 20 ] 2>/dev/null; then
+            echo "::error::repeat must be a whole number from 1 to 20, got '$REPEAT'"; exit 1
           fi
           filter="$FILTER_INPUT"
           if [ -z "$filter" ]; then
@@ -293,6 +327,9 @@ jobs:
           fi
           if { [ "$ACTION" = "promote" ] || [ "$ACTION" = "try" ]; } && [ -z "$BRANCH_ID" ]; then
             echo "::error::$ACTION needs branch_id — the branch's name as you typed it in ElevenLabs (Versioning tab), or its id (agtbrch_…) from a propose run's summary"; exit 1
+          fi
+          if [ "$ACTION" = "models" ] && [ -z "$MODEL" ]; then
+            echo "::error::models needs model — the language model to try, spelled as ElevenLabs does (gpt-4.1-mini, gemini-2.5-flash, claude-haiku-4-5 …)"; exit 1
           fi
           echo "go=true" >> "$GITHUB_OUTPUT"
           echo "## agent-suite · $ACTION · $SUITE suite${filter:+ (filter \"$filter\")}" >> "$GITHUB_STEP_SUMMARY"
@@ -324,7 +361,7 @@ jobs:
       # rewriting the trigger tests, and one of those refusing an update
       # used to take the whole push down before a conversation had run
       - name: Push the test files to ElevenLabs
-        if: steps.plan.outputs.go == 'true' && (steps.plan.outputs.action == 'baseline' || steps.plan.outputs.action == 'field' || steps.plan.outputs.action == 'propose' || steps.plan.outputs.action == 'try')
+        if: steps.plan.outputs.go == 'true' && (steps.plan.outputs.action == 'baseline' || steps.plan.outputs.action == 'field' || steps.plan.outputs.action == 'propose' || steps.plan.outputs.action == 'try' || steps.plan.outputs.action == 'models')
         run: node loop.mjs push-tests ${FILTER:+--filter "$FILTER"} | tee "$RUNNER_TEMP/push-tests.txt"
 
       # The loop exits 0 once the suite has run, whatever the pass rates —
@@ -377,7 +414,7 @@ jobs:
       # "nothing was failing on the base run" rather than a false ACCEPT.
       - name: Fetch the latest baseline
         id: baseline
-        if: steps.plan.outputs.go == 'true' && (steps.plan.outputs.action == 'propose' || steps.plan.outputs.action == 'try')
+        if: steps.plan.outputs.go == 'true' && (steps.plan.outputs.action == 'propose' || steps.plan.outputs.action == 'try' || steps.plan.outputs.action == 'models')
         run: |
           have=false
           info="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=loop-baseline&per_page=1" --jq '.artifacts[0] | select(. != null) | [.workflow_run.id, .expired] | @tsv' 2>/dev/null || true)"
@@ -394,7 +431,7 @@ jobs:
           fi
 
       - name: Run the suite (no baseline on file)
-        if: steps.plan.outputs.go == 'true' && (steps.plan.outputs.action == 'propose' || steps.plan.outputs.action == 'try') && steps.baseline.outputs.have == 'false'
+        if: steps.plan.outputs.go == 'true' && (steps.plan.outputs.action == 'propose' || steps.plan.outputs.action == 'try' || steps.plan.outputs.action == 'models') && steps.baseline.outputs.have == 'false'
         run: |
           args=(run --repeat "$REPEAT" --label main)
           if [ -n "$FILTER" ]; then args+=(--filter "$FILTER"); fi
@@ -497,6 +534,48 @@ jobs:
             else
               echo "Not promoted. The branch \`$BRANCH_ID\` stays as it is; change it in the ElevenLabs dashboard and press **try** again."
             fi; } >> "$GITHUB_STEP_SUMMARY"
+
+      # ---------- models ----------
+      # A model trial. model-branch cuts a branch from the live version
+      # with only the language model (and its reasoning setting)
+      # changed — the body carries settings, not the prompt, so the
+      # branch's description can say what changed and an API refusal
+      # can be shown. The suite then runs on it, on the rows the form
+      # named (a quick trial of seven by default) or on every row, and
+      # compare lines it up against the latest baseline on the tests
+      # both have. The run is published with the model, the seconds
+      # per answer and the cost per call on it; the branch stays on the
+      # agent, promoted by hand if the trial convinces.
+      - name: Cut a branch with the model, run the suite on it, compare
+        id: models
+        if: steps.plan.outputs.go == 'true' && steps.plan.outputs.action == 'models'
+        run: |
+          node loop.mjs model-branch --model "$MODEL" --reasoning "$REASONING" --out "$RUNNER_TEMP/model-branch.json" | tee "$RUNNER_TEMP/model-branch.txt"
+          bid="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).branch_id)' "$RUNNER_TEMP/model-branch.json")"
+          args=(run --branch "$bid" --repeat "$REPEAT" --label model)
+          if [ -n "$FILTER" ]; then args+=(--filter "$FILTER"); fi
+          if [ -n "$ROWS" ]; then args+=(--rows "$ROWS"); fi
+          node loop.mjs "${args[@]}" | tee "$RUNNER_TEMP/suite-model.txt"
+          base="$(ls -1 results/*-main.json | sort | tail -1)"
+          br="$(ls -1 results/*-model.json | sort | tail -1)"
+          set +e
+          node loop.mjs compare --base "$base" --branch "$br" | tee "$RUNNER_TEMP/compare.txt"
+          verdict=${PIPESTATUS[0]}
+          set -e
+          if [ "$verdict" -eq 0 ]; then word=ACCEPT; else word=REJECT; fi
+          echo "verdict=$word" >> "$GITHUB_OUTPUT"
+          echo "branch_id=$bid" >> "$GITHUB_OUTPUT"
+          reason="$(grep -m1 -E '^(ACCEPT|REJECT) ' "$RUNNER_TEMP/compare.txt" | cut -d' ' -f3- || true)"
+          if node loop.mjs publish --results "$br" --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --verdict "$word" --reason "$reason" | tee "$RUNNER_TEMP/publish.txt"; then
+            published="Results are on the scenarios dashboard (dashboard.html), per scenario. The RUNS tab's MODELS view lines the model trials up, fastest first among those that held up."
+          else
+            published="results not published — $(tail -n 1 "$RUNNER_TEMP/publish.txt")"
+          fi
+          setting="$MODEL"; if [ "$REASONING" != "keep" ]; then setting="$MODEL, reasoning $REASONING"; fi
+          { echo; echo "### Model trial — $setting — ×$REPEAT${ROWS:+ on rows $ROWS}${FILTER:+, filter \"$FILTER\"}"; echo; echo '```'; cat "$RUNNER_TEMP/model-branch.txt"; echo; cat "$RUNNER_TEMP/suite-model.txt"; echo '```'
+            echo; echo "### $word"; echo; echo '```'; cat "$RUNNER_TEMP/compare.txt"; echo '```'; echo
+            echo "$published"; echo
+            echo "The branch \`$bid\` stays on the agent with the live prompt and this model. Next: **models** again with another model or reasoning setting, or **promote** with branch_id \`$bid\` to switch the live Otto to it."; } >> "$GITHUB_STEP_SUMMARY"
 
       # ---------- promote ----------
       - name: Merge the branch into the agent, then a fresh baseline

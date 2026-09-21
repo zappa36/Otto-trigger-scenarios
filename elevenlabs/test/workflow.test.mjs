@@ -106,9 +106,39 @@ test('every suite the buttons run generates the situation tests from the live ro
   assert.match(all[gen].text, /if: steps\.plan\.outputs\.go == 'true' && steps\.plan\.outputs\.action != 'configure'/, 'the generate step skips only configure');
   const push = all.findIndex(s => /node loop\.mjs push-tests/.test(s.text));
   assert.ok(push > gen, 'push-tests runs before the situation tests are generated');
-  for (const action of ['baseline', 'field', 'propose', 'try']) {
+  for (const action of ['baseline', 'field', 'propose', 'try', 'models']) {
     assert.ok(all[push].text.includes(`action == '${action}'`), `push-tests skips the ${action} button`);
   }
+});
+
+/* The models button: a branch that differs from the live Otto in the
+ * language model alone, the suite on the rows the form names, the
+ * comparison, and the run published with compare's word — never a
+ * prompt, which model-branch does not carry in the first place. */
+test('the models button cuts a branch with the model and runs the suite on the rows named', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8');
+  const inputs = (yaml.match(/workflow_dispatch:\n    inputs:\n([\s\S]*?)\n  schedule:/) || [])[1] || '';
+  for (const name of ['model', 'reasoning', 'rows']) assert.match(inputs, new RegExp(`^      ${name}:$`, 'm'), `no ${name} input on the form`);
+  assert.match(inputs, /^          - models$/m, 'models is not a choice of the action dropdown');
+  assert.match(inputs, /reasoning:\n[\s\S]*?options:\n          - keep\n          - off\n          - minimal\n          - low\n          - medium\n          - high/, 'the reasoning choices');
+  const live = job(yaml, 'live-suite');
+  assert.match(live, /if ! \[ "\$REPEAT" -ge 1 \]/, 'a trial of one run per test must be allowed');
+  assert.match(live, /if \[ "\$ACTION" = "models" \] && \[ -z "\$MODEL" \]; then\n\s+echo "::error::models needs model/, 'a models press without a model must fail with the instructions');
+  /* by the command, not the word: the step before carries the models
+   * step's comment block */
+  const step = steps(live).find(s => /node loop\.mjs model-branch/.test(s.text));
+  assert.ok(step, 'no step runs model-branch');
+  assert.match(step.text, /if: steps\.plan\.outputs\.go == 'true' && steps\.plan\.outputs\.action == 'models'/);
+  assert.match(step.text, /node loop\.mjs model-branch --model "\$MODEL" --reasoning "\$REASONING" --out "\$RUNNER_TEMP\/model-branch\.json"/);
+  assert.match(step.text, /args=\(run --branch "\$bid" --repeat "\$REPEAT" --label model\)/);
+  assert.match(step.text, /if \[ -n "\$ROWS" \]; then args\+=\(--rows "\$ROWS"\); fi/, 'the rows from the form narrow the run');
+  assert.match(step.text, /node loop\.mjs compare --base "\$base" --branch "\$br"/);
+  assert.match(step.text, /publish --results "\$br" .*--verdict "\$word" --reason "\$reason"/);
+  assert.doesNotMatch(step.text, /--note/);
+  /* the baseline to compare against is fetched for this button too */
+  const fetch = steps(live).find(s => /name=loop-baseline/.test(s.text));
+  assert.ok(fetch && fetch.text.includes("action == 'models'"), 'the models button does not fetch the latest baseline');
+  assert.match(live, /MODEL: \$\{\{ inputs\.model \}\}\n\s+REASONING: \$\{\{ inputs\.reasoning \|\| 'keep' \}\}\n\s+ROWS: \$\{\{ inputs\.rows \}\}/, 'the three inputs reach the job env');
 });
 
 /* The prompt is confidential and every one of these surfaces is public

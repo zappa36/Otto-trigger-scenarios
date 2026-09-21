@@ -588,15 +588,117 @@ function whyOf(cr) {
  * run whole — null for a test that passed every run — and `success`
  * the shortest passed run with words in it, null when none has any) */
 export { whyOf };
+/* ---------- what a call cost, and how fast Otto answered in it ----------
+ * ElevenLabs times every agent turn of a simulated call the way it
+ * times a real one (conversation_turn_metrics: seconds to the model's
+ * first word and to its first whole sentence, turnTiming below), names
+ * the model that produced the turn (producing_llm) and prices its
+ * tokens (llm_usage.model_usage). A run keeps all three per test, over
+ * EVERY call — not just the two it keeps whole — so a model trial reads
+ * in seconds and cents next to its pass rate. Without the metrics, the
+ * gap between the driver's turn and Otto's (time_in_call_secs, whole
+ * seconds) stands in, and the summary says so (source: timestamps). */
+function callStats(r) {
+  const answers = [], words = [], gaps = [];
+  const models = new Set(), usageModels = new Set();
+  let cost = 0, tokensIn = 0, tokensOut = 0, priced = false;
+  let prevUser = null, last = null;
+  for (const m of r.agent_responses || []) {
+    if (!m) continue;
+    const at = typeof m.time_in_call_secs === 'number' ? m.time_in_call_secs : null;
+    if (at != null) last = last == null ? at : Math.max(last, at);
+    if (m.role !== 'agent') { if (at != null) prevUser = at; continue; }
+    const tm = turnTiming(m);
+    if (tm) {
+      if (tm.first_sentence != null) answers.push(tm.first_sentence);
+      if (tm.first_word != null) words.push(tm.first_word);
+    } else if (m.message && at != null && prevUser != null && at >= prevUser) gaps.push(at - prevUser);
+    if (m.message) prevUser = null;  // a second agent turn on the same driver turn is not a second wait
+    if (m.producing_llm) models.add(String(m.producing_llm));
+    const mu = m.llm_usage && m.llm_usage.model_usage;
+    if (mu && typeof mu === 'object') {
+      for (const [model, u] of Object.entries(mu)) {
+        if (!u || typeof u !== 'object') continue;
+        usageModels.add(model);
+        for (const k of ['input', 'input_cache_read', 'input_cache_write', 'output_total']) {
+          const x = u[k];
+          if (!x || typeof x !== 'object') continue;
+          priced = true;
+          cost += Number(x.price) || 0;
+          if (k === 'output_total') tokensOut += Number(x.tokens) || 0; else tokensIn += Number(x.tokens) || 0;
+        }
+      }
+    }
+  }
+  return {
+    answers, words, gaps, call_secs: last,
+    models: [...(models.size ? models : usageModels)],
+    cost: priced ? cost : null, tokens_in: tokensIn, tokens_out: tokensOut,
+  };
+}
+const round = (x, d) => (x == null ? null : Math.round(x * 10 ** d) / 10 ** d);
+/* the seconds, over one test or a whole suite: medians of Otto's turns */
+export function speedOf(tests) {
+  const all = k => (tests || []).flatMap(t => (t.timing && t.timing[k]) || []);
+  const answers = all('answers'), words = all('words'), gaps = all('gaps'), calls = all('calls');
+  if (!answers.length && !gaps.length && !calls.length) return null;
+  return {
+    /* seconds until Otto's first whole sentence — the moment the voice
+     * can start — per turn, the median; and the slowest turn */
+    answer_s: answers.length ? round(median(answers), 1) : null,
+    answer_max_s: answers.length ? round(Math.max(...answers), 1) : null,
+    word_s: words.length ? round(median(words), 1) : null,
+    /* the stand-in: whole seconds from the driver's turn to Otto's */
+    gap_s: gaps.length ? round(median(gaps), 1) : null,
+    call_s: calls.length ? round(median(calls), 1) : null,
+    turns: answers.length || gaps.length,
+    calls: calls.length,
+    source: answers.length ? 'metrics' : gaps.length ? 'timestamps' : null,
+  };
+}
+/* the dollars, the same way: what ElevenLabs priced the model's tokens
+ * at, per call, over the calls it priced */
+export function costOf(tests) {
+  let cost = 0, tokensIn = 0, tokensOut = 0, calls = 0;
+  for (const t of tests || []) {
+    const u = t.usage;
+    if (!u || !u.calls) continue;
+    cost += u.cost || 0; tokensIn += u.tokens_in || 0; tokensOut += u.tokens_out || 0; calls += u.calls;
+  }
+  if (!calls) return null;
+  return { per_call_usd: round(cost / calls, 6), total_usd: round(cost, 6), tokens_in: tokensIn, tokens_out: tokensOut, calls };
+}
+const modelsOf = tests => [...new Set((tests || []).flatMap(t => t.models || []))];
+/* one line for a job summary: how fast, what it cost, on which model */
+export function statsLine(tests, settings) {
+  const sp = speedOf(tests), co = costOf(tests);
+  const parts = [];
+  if (sp && sp.source === 'metrics') parts.push(`Otto's first sentence after ${sp.answer_s} s (median over ${sp.turns} turn(s); slowest ${sp.answer_max_s} s)`);
+  else if (sp && sp.source === 'timestamps') parts.push(`Otto answered ${sp.gap_s} s after the driver (whole seconds, median over ${sp.turns} turn(s) — ElevenLabs sent no finer timings)`);
+  if (sp && sp.call_s != null) parts.push(`a call lasts ${sp.call_s} s (median of ${sp.calls})`);
+  if (co) parts.push(`$${co.per_call_usd} per call in model tokens ($${co.total_usd} over ${co.calls} priced call(s))`);
+  const m = modelsOf(tests);
+  const set = settings && settings.model ? `set to ${settings.model}${settings.reasoning ? ', reasoning ' + settings.reasoning : ''}` : '';
+  if (set || m.length) parts.push(`model ${[set, m.length ? `answered as ${m.join(', ')}` : ''].filter(Boolean).join('; ')}`);
+  return parts.length ? 'speed and cost — ' + parts.join(' · ') : 'speed and cost — ElevenLabs sent no timings and no token prices for these calls';
+}
+
 export function aggregate(inv, { idToName = {}, meta = {} } = {}) {
   const byTest = new Map();
   for (const r of (inv && inv.test_runs) || []) {
     const name = idToName[r.test_id] || r.test_name || (r.metadata && r.metadata.test_name) || r.test_id;
     if (!byTest.has(r.test_id)) {
-      byTest.set(r.test_id, { name, test_id: r.test_id, runs: 0, passed: 0, pending: 0, pass_rate: 0, why: null, rationales: [], failure: null, success: null, checks: null, branch_id: r.branch_id || null, version_id: r.version_id || null, ...(meta[name] || {}) });
+      byTest.set(r.test_id, { name, test_id: r.test_id, runs: 0, passed: 0, pending: 0, pass_rate: 0, why: null, rationales: [], failure: null, success: null, checks: null, branch_id: r.branch_id || null, version_id: r.version_id || null, timing: { answers: [], words: [], gaps: [], calls: [] }, usage: { cost: 0, tokens_in: 0, tokens_out: 0, calls: 0 }, models: [], ...(meta[name] || {}) });
     }
     const t = byTest.get(r.test_id);
     t.runs++;
+    if (r.status !== 'pending') {
+      const cs = callStats(r);
+      t.timing.answers.push(...cs.answers); t.timing.words.push(...cs.words); t.timing.gaps.push(...cs.gaps);
+      if (cs.call_secs != null) t.timing.calls.push(cs.call_secs);
+      if (cs.cost != null) { t.usage.cost += cs.cost; t.usage.tokens_in += cs.tokens_in; t.usage.tokens_out += cs.tokens_out; t.usage.calls++; }
+      for (const m of cs.models) if (!t.models.includes(m)) t.models.push(m);
+    }
     /* the judge's word per condition, over every run of the test that
      * carried one — passed runs included, so a check's fail count has
      * the whole test as its denominator */
@@ -645,6 +747,10 @@ function metaByName(ctx) {
       scenario_num: num(o.scenario_num), scenario_title: o.scenario_title || '',
       situation_num: num(o.situation_num), situation_title: o.situation_title || '',
       persona: o.persona || '', kind: o.kind || '', language: o.language || '',
+      /* who played the driver and who judged — the test file pins both
+       * (SIMULATION_MODELS in generate-tests.mjs), and a run from next
+       * month has to say which models it was measured with */
+      driver_model: body.simulated_user_model || '', judge_model: body.evaluation_model || '',
     };
   }
   return meta;
@@ -688,6 +794,15 @@ async function run(ctx, flags) {
     log(Object.keys(lock).length ? `no test in tests.lock.json${filter ? ` matches --filter "${flags.filter}" and` : ''} has a test file under ${ctx.p.configs} — generate the situation tests (node generate-tests.mjs --situations) and push-tests first` : 'tests.lock.json is empty — run push-tests first');
     return 1;
   }
+  /* --rows 6,8,10: only those situation rows — the quick model trial */
+  const rows = String(flags.rows || '').split(/[\s,]+/).filter(Boolean);
+  if (rows.length) {
+    if (rows.some(x => !/^\d+$/.test(x))) throw new UsageError(`--rows takes situation numbers, comma-separated (6,8,10), not "${flags.rows}"`);
+    const want = new Set(rows.map(Number));
+    entries = entries.filter(([name]) => { const m = /situation #(\d+)\b/.exec(name); return m && want.has(Number(m[1])); });
+    if (!entries.length) { log(`no test in tests.lock.json is for situation row(s) ${rows.join(', ')} — the numbers are the # on the SITUATIONS tab`); return 1; }
+    log(`rows ${rows.join(', ')}: ${entries.length} test(s)`);
+  }
   const { api, agentId } = needEleven(ctx);
   const branchId = flags.branch ? await resolveBranch(api, agentId, flags.branch, log) : '';
   const body = { tests: entries.map(([, id]) => ({ test_id: id })) };
@@ -701,6 +816,16 @@ async function run(ctx, flags) {
      * start and bill a second one — so the person decides */
     throw new Error(`${e.message} — not retried: a second run-tests would start (and bill) a second suite. If ElevenLabs did accept this one, it is on the agent's tests page and the reply above may name its id: poll GET /v1/convai/test-invocations/<id> instead of running again`);
   }
+  /* which model Otto ran on, and how much it was let think — read from
+   * the version the suite runs against, settings only, never the prompt
+   * beside them. A run from next month has to say what it measured; a
+   * model trial has to prove the branch took the setting. Read once the
+   * suite is started, so a hiccup here costs a line, never the run. */
+  let settings = null;
+  try { settings = llmSettings(await api.getAgent(agentId, branchId ? { branch_id: branchId } : {})); } catch (e) {
+    log(`  (the agent's model settings could not be read — ${String(e.message || e).slice(0, 120)} — so the results file will not say which model ran)`);
+  }
+  if (settings) log(`Otto's model on this run: ${settings.model || '?'}${settings.reasoning ? ', reasoning ' + settings.reasoning : ''}${settings.thinking_budget != null ? ', thinking budget ' + settings.thinking_budget : ''}`);
   if (!started) { log('  (dry run) would poll GET /v1/convai/test-invocations/<id> until no run is pending, then write results/<stamp>-<label>.json'); return 0; }
   const inv = await pollInvocation(api, started.id, ctx);
   const idToName = Object.fromEntries(entries.map(([n, id]) => [id, n]));
@@ -709,12 +834,26 @@ async function run(ctx, flags) {
   const file = path.join(ctx.p.results, `${stamp()}-${label}.json`);
   writeJson(file, {
     at: new Date().toISOString(), agent_id: agentId, invocation_id: started.id,
-    branch_id: branchId || null, label, repeat, tests,
+    branch_id: branchId || null, label, repeat, settings, tests,
   });
   printResults(log, tests);
   const passed = tests.reduce((s, t) => s + t.passed, 0), runs = tests.reduce((s, t) => s + t.runs, 0);
-  log(`\n${passed}/${runs} runs passed across ${tests.length} test(s) — ${tests.filter(t => t.pass_rate < 1).length} with a failure\nwrote ${file}`);
+  log(`\n${passed}/${runs} runs passed across ${tests.length} test(s) — ${tests.filter(t => t.pass_rate < 1).length} with a failure\n${statsLine(tests, settings)}\nwrote ${file}`);
   return 0;
+}
+
+/* the language-model settings of an agent (or of one of its versions,
+ * fetched with ?branch_id / ?version_id) — the four knobs a model trial
+ * turns, and nothing else from the prompt block they sit in */
+function llmSettings(agent) {
+  const p = agent && agent.conversation_config && agent.conversation_config.agent && agent.conversation_config.agent.prompt;
+  if (!p || typeof p !== 'object') return null;
+  return {
+    model: p.llm || null,
+    reasoning: p.reasoning_effort || null,
+    thinking_budget: p.thinking_budget ?? null,
+    temperature: p.temperature ?? null,
+  };
 }
 
 /* ---------- pull ---------- */
@@ -1294,6 +1433,63 @@ async function branch(ctx, flags) {
   return 0;
 }
 
+/* ---------- model-branch ----------
+ * A branch that differs from the live Otto in ONE thing: the language
+ * model, and with it how much it is let think. The prompt, the voice,
+ * the tools and everything else come from the version it is cut from —
+ * the body carries settings only, so an error from the API can be
+ * shown whole, and the branch's description can say what changed in
+ * the clear (a model name is a setting, not the prompt). The suite on
+ * that branch, compared against the baseline, then says what the model
+ * costs in pass rate, and the run's own timings what it saves in
+ * seconds. */
+const REASONING = {
+  keep: null,
+  off: { reasoning_effort: 'none', thinking_budget: 0 },
+  none: { reasoning_effort: 'none', thinking_budget: 0 },
+  minimal: { reasoning_effort: 'minimal' },
+  low: { reasoning_effort: 'low' },
+  medium: { reasoning_effort: 'medium' },
+  high: { reasoning_effort: 'high' },
+  xhigh: { reasoning_effort: 'xhigh' },
+  max: { reasoning_effort: 'max' },
+};
+async function modelBranch(ctx, flags) {
+  const { log } = ctx;
+  const model = String(flags.model || '').trim();
+  if (!model) throw new UsageError('--model NAME is required — the language model as ElevenLabs names it (gpt-4.1-mini, gemini-2.5-flash, claude-haiku-4-5, …)');
+  if (!/^[a-z0-9][a-z0-9._:/-]*$/i.test(model)) throw new UsageError(`"${model}" does not look like a model name — letters, digits, dots and dashes, as ElevenLabs spells it`);
+  const want = String(flags.reasoning == null || flags.reasoning === '' ? 'keep' : flags.reasoning).trim().toLowerCase();
+  if (!(want in REASONING)) throw new UsageError(`--reasoning is one of keep, off, minimal, low, medium, high, xhigh, max — not "${flags.reasoning}"`);
+  const { api, agentId } = needEleven(ctx);
+  const agent = await api.getAgent(agentId);
+  const parent = agent ? agent.version_id : '<version_id from GET agent>';
+  if (agent && !parent) throw new Error(`GET agent ${agentId} returned no version_id — the agent has no committed version to branch from`);
+  const live = llmSettings(agent);
+  if (live) log(`live Otto: model ${live.model || '?'}${live.reasoning ? ', reasoning ' + live.reasoning : ''}${live.thinking_budget != null ? ', thinking budget ' + live.thinking_budget : ''} (version ${parent})`);
+  const change = want === 'keep' ? '' : `, reasoning ${want}`;
+  const name = flags.name || `model ${model}${change} (${new Date().toISOString().slice(0, 16).replace('T', ' ')})`;
+  const body = {
+    parent_version_id: parent,
+    name,
+    description: `model trial: ${model}${change} — the prompt is the live one, unchanged`,
+    conversation_config: { agent: { prompt: { llm: model, ...(REASONING[want] || {}) } } },
+  };
+  let res;
+  try {
+    res = await api.createBranch(agentId, body);
+  } catch (e) {
+    /* no prompt in this body — what the API objected to is the model
+     * name or the reasoning setting, and it can say so */
+    throw new Error(`${String(e.message || e).slice(0, 400)} — ElevenLabs refused the model name or the reasoning setting. The names it takes are in the agent's LLM settings and in the API reference (conversation_config.agent.prompt.llm); reasoning is only available on some models`);
+  }
+  if (!res) return 0;
+  log(`branch "${name}" created: ${res.created_branch_id} (version ${res.created_version_id}, from ${parent}) — model ${model}${change}`);
+  if (flags.out) writeJson(flags.out, { branch_id: res.created_branch_id, version_id: res.created_version_id, parent_version_id: parent, name, model, reasoning: want, at: new Date().toISOString() });
+  log(`next: node loop.mjs run --branch ${res.created_branch_id} --label model\n      node loop.mjs compare --base results/<main>.json --branch results/<model>.json`);
+  return 0;
+}
+
 /* ---------- compare ---------- */
 
 /* The verdict on a branch run against the baseline — judged by ROW,
@@ -1394,6 +1590,11 @@ async function compare(ctx, flags) {
     { get: r => (r.dropped ? '✗ dropped' : r.improved ? '✓ improved' : ''), label: '', width: 10 },
     { key: 'why', label: 'why (branch, first failure)', width: 60 },
   ]));
+  const sa = speedOf(base.tests), sb = speedOf(branch.tests), ca = costOf(base.tests), cb = costOf(branch.tests);
+  const secs = sp => (sp && sp.source === 'metrics' ? sp.answer_s : sp && sp.source === 'timestamps' ? sp.gap_s : null);
+  if (secs(sa) != null && secs(sb) != null) {
+    log(`\nspeed — Otto's ${sa.source === 'metrics' && sb.source === 'metrics' ? 'first sentence' : 'answer'} after ${secs(sb)} s on the branch, ${secs(sa)} s on the base (medians)${ca && cb ? ` · cost — $${cb.per_call_usd} per call on the branch, $${ca.per_call_usd} on the base` : ''}`);
+  }
   log(`\n${accept ? 'ACCEPT' : 'REJECT'} — ${reason}${accept ? `\nnext: node loop.mjs promote --branch ${branch.branch_id || '<branch id>'}` : ''}`);
   return accept ? 0 : 1;
 }
@@ -1476,8 +1677,19 @@ export function agentRunRow(results, { runUrl = null, verdict = null, reason = n
       /* the judge's word per check over this test's runs; null from a
        * results file whose conditions did not ask for one */
       checks: t.checks && Object.keys(t.checks).length ? t.checks : null,
+      /* how fast Otto answered in this test's calls and what they cost
+       * in model tokens; null from a results file that kept neither */
+      speed: (() => { const sp = speedOf([t]); return sp ? { answer_s: sp.answer_s, gap_s: sp.gap_s, call_s: sp.call_s, turns: sp.turns, source: sp.source } : null; })(),
+      cost: (() => { const co = costOf([t]); return co ? { per_call_usd: co.per_call_usd, calls: co.calls } : null; })(),
     };
   });
+  const src = (results && results.tests) || [];
+  const speed = speedOf(src), cost = costOf(src);
+  const distinct = k => [...new Set(src.map(t => t[k]).filter(Boolean))];
+  const models = { otto: modelsOf(src), driver: distinct('driver_model'), judge: distinct('judge_model') };
+  const settings = results && results.settings && typeof results.settings === 'object'
+    ? { model: text(results.settings.model), reasoning: text(results.settings.reasoning), thinking_budget: numOf(results.settings.thinking_budget), temperature: numOf(results.settings.temperature) }
+    : null;
   /* the same, over the whole suite: "check 3 failed in 120 of 240 calls" */
   const byCheck = {};
   for (const t of tests) for (const [n, c] of Object.entries(t.checks || {})) {
@@ -1520,6 +1732,14 @@ export function agentRunRow(results, { runUrl = null, verdict = null, reason = n
       by_scenario: byNum(perScenario),
       by_situation: byNum(perSituation),
       ...(Object.keys(byCheck).length ? { by_check: byCheck } : {}),
+      /* the model trial's three numbers, on every run from here on:
+       * which model Otto was set to (settings), how fast he answered
+       * (speed), what the calls cost in tokens (cost), and which models
+       * ElevenLabs says answered, played the driver and judged (models) */
+      ...(settings ? { settings } : {}),
+      ...(speed ? { speed } : {}),
+      ...(cost ? { cost } : {}),
+      ...(models.otto.length || models.driver.length || models.judge.length ? { models } : {}),
     },
     ran_at: results.at || new Date().toISOString(),
   };
@@ -1562,7 +1782,7 @@ async function publish(ctx, flags) {
   if (flags.note != null) throw new UsageError('--note is gone: what a branch changed says what the prompt says, and agent_runs is world-readable (open pilot policies). The note stays on the ElevenLabs branch as its description, where "promote" reads it back; publish the verdict and the reason instead');
   const row = agentRunRow(results, { runUrl: flags.runUrl, verdict, reason: flags.reason });
   const db = needDb(ctx);
-  log(`publish — ${path.basename(resultsFile)}: ${row.summary.passed}/${row.summary.runs} runs passed across ${row.summary.tests} test(s)${row.verdict ? ', ' + row.verdict.toUpperCase() : ''} -> agent_runs`);
+  log(`publish — ${path.basename(resultsFile)}: ${row.summary.passed}/${row.summary.runs} runs passed across ${row.summary.tests} test(s)${row.verdict ? ', ' + row.verdict.toUpperCase() : ''} -> agent_runs\n${statsLine(results.tests, results.settings)}`);
   let stored;
   try { stored = await db.insert('agent_runs', row); } catch (e) {
     /* PostgREST's "no such table" is a 404 with code PGRST205; a table
@@ -1586,7 +1806,7 @@ async function publish(ctx, flags) {
 
 /* ---------- the command line ---------- */
 
-const COMMANDS = { configure, 'push-tests': pushTests, run, pull, score, cut, propose, branch, compare, promote, publish };
+const COMMANDS = { configure, 'push-tests': pushTests, run, pull, score, cut, propose, branch, 'model-branch': modelBranch, compare, promote, publish };
 const BOOLEAN_FLAGS = new Set(['dry-run', 'agent', 'no-stamp', 'force', 'help', 'no-mock-tools', 'quiet']);
 
 export function parseArgs(argv) {
@@ -1612,12 +1832,14 @@ const USAGE = `usage: node loop.mjs <command> [--dry-run] [--dir DIR] [flags]
   push-tests [--filter TEXT] [--no-mock-tools]
                                   test_configs/**.json -> ElevenLabs tests, by name; writes tests.lock.json;
                                   the agent's tools are mocked for the suite (a client tool has no phone to answer it)
-  run        [--branch ID|NAME] [--repeat N=3] [--filter TEXT] [--label TEXT]   (a branch by its agtbrch_ id or its ElevenLabs name)
+  run        [--branch ID|NAME] [--repeat N=3] [--filter TEXT] [--rows 6,8,10] [--label TEXT]   (a branch by its agtbrch_ id or its ElevenLabs name; --rows: only those situation rows)
   pull       [--since ISO | --days N=14] [--no-stamp]
   score      [--results FILE] [--field FILE]
   cut        [--field FILE]
   propose    [--results FILE] [--field FILE] [--prompt FILE | --agent] [--quiet]
   branch     --proposal FILE [--name TEXT]
+  model-branch --model NAME [--reasoning keep|off|minimal|low|medium|high|xhigh|max] [--name TEXT] [--out FILE]
+                                  a branch from the live version with only the language model (and its reasoning) changed
   compare    --base FILE --branch FILE [--margin 0.25]   (by situation: a drop is more than a quarter of its calls lost)
   promote    --branch ID|NAME [--target BRANCH_ID] [--force] [--quiet]
   publish    [--results FILE] [--run-url URL] [--verdict accept|reject] [--reason TEXT]

@@ -477,8 +477,8 @@ drifted (fix: `cd elevenlabs && node generate-tests.mjs`, commit).
 
 **The same workflow is the loop without a terminal.** Actions →
 agent-suite → Run workflow offers one dropdown — *configure*,
-*baseline*, *field*, *propose*, *promote* — and each press runs that
-stage and writes its table into the run's job summary:
+*baseline*, *field*, *propose*, *try*, *promote*, *models* — and each
+press runs that stage and writes its table into the run's job summary:
 
 | Button | What runs | Then |
 |---|---|---|
@@ -487,6 +487,7 @@ stage and writes its table into the run's job summary:
 | **field** | `pull` the last `days` of conversations with their grades, `score`, `cut` the regressions, register them | **propose** |
 | **propose** | the field again, `propose` the prompt diff, `branch` it onto the agent, the suite on that branch, `compare` against the latest baseline — **ACCEPT** or **REJECT**, and the branch id | **promote** on ACCEPT |
 | **promote** | merge that branch into the agent (paste the id into `branch_id`), then a fresh baseline | testers drive on the new prompt |
+| **models** | a model trial: a branch with the live prompt and another language model (`model`, and its `reasoning` setting), the suite on the situation `rows` named in the form (seven by default; `repeat` 1 makes it 35 calls), `compare` against the latest baseline, the run published with the seconds per answer and the cost per call | another model, or **promote** the branch if it convinced |
 
 What the loop writes back to git — `tests.lock.json` and
 `test_configs/regressions/` — the workflow commits to the branch the run
@@ -584,6 +585,22 @@ fine" list keeps it in view, with UNDO), and the loop's `propose` step
 hands the list to the proposer as decisions it must not touch. Your
 reason is world-readable like the rest of the pilot, so keep prompt
 text out of it.
+
+**Which model, how fast, what it costs.** Every run now measures
+itself: ElevenLabs times each of Otto's turns in a simulated call the
+way it does in a real one and prices its tokens, so a run's row carries
+the model Otto ran on, the seconds until his first whole sentence (the
+median over his turns), the length of a call and what a call cost in
+model tokens. The RUNS tab has a **MODELS** view that puts every run on
+one line by those numbers, fastest first among the runs that held up
+(a baseline, or a branch the loop accepted), the rejected ones after.
+To try another model, press **models** with the model's name as
+ElevenLabs spells it (`gpt-4.1-mini`, `gemini-2.5-flash`,
+`claude-haiku-4-5`, …) and a reasoning setting (*keep*, *off*, *low*,
+…): the loop cuts a branch that differs from the live Otto in that one
+thing, runs a quick trial of seven situations on it, compares it with
+the baseline and publishes the run with the numbers. The branch stays
+on the agent; **promote** switches Otto to it if the trial convinced.
 
 **Your prompt never leaves ElevenLabs.** This repository is public, so
 the loop prints no prompt, no diff and no proposal note — not in a job

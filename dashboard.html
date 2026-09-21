@@ -1120,6 +1120,31 @@
     letter-spacing: .09em;
     color: #c3a6ff;
   }
+  .rl-views { display: flex; gap: 8px; margin: 0 0 4px; }
+  .rl-views .mini-btn.on { border-color: rgba(195,166,255,.6); background: rgba(195,166,255,.12); color: #eef2f7; }
+  .rl-model { color: #c3a6ff; }
+  .rl-verdict.plain { color: #94a1b2; border-color: rgba(148,161,178,.35); }
+
+  /* ---------- the MODELS view: every run on one line ---------- */
+  .rm-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .rm-table th {
+    text-align: left;
+    padding: 6px 8px;
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: .1em;
+    font-weight: 500;
+    color: #94a1b2;
+    border-bottom: 1px solid rgba(195,166,255,.26);
+  }
+  .rm-table td { padding: 9px 8px; border-bottom: 1px solid rgba(195,166,255,.12); vertical-align: middle; }
+  .rm-table tbody tr { cursor: pointer; }
+  .rm-table tbody tr:hover, .rm-table tbody tr:focus-visible { background: rgba(195,166,255,.07); outline: none; }
+  .rm-when { white-space: nowrap; color: #eef2f7; }
+  .rm-model { font-family: ui-monospace, monospace; font-size: 11.5px; color: #eef2f7; }
+  .rm-what { font-family: ui-monospace, monospace; font-size: 9.5px; letter-spacing: .09em; color: #94a1b2; white-space: nowrap; }
+  .rm-num { white-space: nowrap; }
+  .rm-dim { color: #94a1b2; font-size: 11px; }
 
   /* ---------- one run's report ----------
    * Written for a busy reader: one big number, bars with the number on
@@ -1419,6 +1444,7 @@
   @media (max-width: 1000px) {
     .rl-when { min-width: 0; }
     .rl-go { display: none; }
+    .rm-table { display: block; overflow-x: auto; }
     .rs-tbl { font-size: 12px; }
     .rs-tbl th, .rs-tbl td { padding: 5px 5px; }
   }

@@ -41,6 +41,7 @@ optional (below) and only for keeping the agent's config in git.
 | 2 · suite | one simulation test per row × persona — the situation rows, the scenario sheet, or both; the run published for the dashboard | `npm run generate:situations` → `node loop.mjs push-tests` → `node loop.mjs run --filter "Otto · situation"` → `publish` |
 | 3 · field | conversations + analysis + grades pulled and joined; a debrief graded bad becomes a next-reply regression test | `node loop.mjs pull` → `score` → `cut` |
 | 4 · improve | a minimal prompt diff, on a branch, compared, promoted by hand | `propose` → `branch` → `run --branch` → `compare` → `promote` |
+| 5 · models | the live prompt on another language model (or reasoning setting), on a branch, compared — and read in seconds and cents next to its pass rate | `model-branch --model …` → `run --branch … --rows …` → `compare` → `publish` |
 
 ```
 node generate-tests.mjs [--sheet | --supabase [URL KEY]] [--out DIR] [--lang en,it] [--scenario N]
@@ -51,12 +52,13 @@ node loop.mjs <command> [--dry-run] [--quiet] [--dir DIR] [flags]
 configure                       evaluation + data collection + overrides (analysis.json) onto the agent
 push-tests [--no-mock-tools]    test_configs/**.json -> ElevenLabs tests, by name; writes tests.lock.json;
                                   the agent's tools are mocked for the suite (a client tool has no phone to answer it)
-run        [--branch ID] [--repeat N=3] [--filter TEXT] [--label TEXT]
+run        [--branch ID|NAME] [--repeat N=3] [--filter TEXT] [--rows 6,8,10] [--label TEXT]
 pull       [--since ISO | --days N=14] [--no-stamp]
 score      [--results FILE] [--field FILE]
 cut        [--field FILE]
 propose    [--results FILE] [--field FILE] [--prompt FILE | --agent] [--quiet]
 branch     --proposal FILE [--name TEXT]
+model-branch --model NAME [--reasoning keep|off|minimal|low|medium|high|xhigh|max] [--name TEXT] [--out FILE]
 compare    --base FILE --branch FILE [--margin 0.25]
 promote    --branch ID [--target BRANCH_ID] [--force] [--quiet]
 publish    [--results FILE] [--run-url URL] [--verdict accept|reject] [--reason TEXT]
@@ -65,7 +67,44 @@ publish    [--results FILE] [--run-url URL] [--verdict accept|reject] [--reason 
 `--filter` is how one suite is run on its own: the generator names the
 situation tests `Otto · situation #N …` and the trigger tests
 `Otto · #N …`, so `--filter "Otto · situation"` and `--filter "Otto · #"`
-each pick one, and no filter runs everything in `tests.lock.json`.
+each pick one, and no filter runs everything in `tests.lock.json` that
+has a test file on disk (a situation row switched off on the dashboard
+has none, so it is left out). `--rows 6,8,10` narrows further to those
+situation rows, by their # on the SITUATIONS tab — the quick model
+trial runs seven of them.
+
+**Every run measures itself.** ElevenLabs times every agent turn of a
+simulated call the way it times a real one and prices its tokens, so
+`run` keeps, per test and over every call: the seconds until Otto's
+first whole sentence (the median over his turns — the moment the voice
+can start), the length of a call, what the calls cost in model tokens,
+and which model ElevenLabs says answered. It also reads the LLM
+settings of the version it ran against — the model, its reasoning
+setting, thinking budget and temperature, nothing of the prompt beside
+them — and prints one line for the job summary:
+
+    speed and cost — Otto's first sentence after 0.9 s (median over 1400 turn(s); slowest 2.1 s) · a call lasts 41 s (median of 390) · $0.0031 per call in model tokens ($1.209 over 390 priced call(s)) · model set to gpt-4.1-mini, reasoning low; answered as gpt-4.1-mini
+
+When ElevenLabs sends no per-turn timings, the whole-second gap between
+the driver's turn and Otto's stands in, and the line says so. `publish`
+puts all of it on the run's row (`summary.settings`, `.speed`, `.cost`,
+`.models`, and `speed` / `cost` per test), which is what the MODELS
+view of the dashboard's RUNS tab lines up.
+
+**A model trial** is a branch that differs from the live Otto in one
+thing. `model-branch --model gpt-4.1-mini --reasoning low` cuts it from
+the version the agent is on, with only `conversation_config.agent.prompt.llm`
+(and `reasoning_effort`; `off` also sets `thinking_budget` to 0) in the
+body — the prompt, the voice, the tools and everything else are
+inherited — so the branch's description can say what changed in the
+clear (a model name is a setting, not the prompt) and an API refusal
+can be shown whole. Then `run --branch <id> --rows 6,8,10,13,24,25,28
+--repeat 1` (35 calls), `compare` against the latest baseline on the
+tests both have, and `publish` with the verdict. The reasoning setting
+is only available on some models; ElevenLabs refuses it on the others
+and the command says so. The model names are the ones ElevenLabs' agent
+settings offer (`gpt-4.1-mini`, `gpt-5-mini`, `gemini-2.5-flash`,
+`gemini-2.5-flash-lite`, `claude-haiku-4-5`, …).
 
 `--dry-run` prints every request a command would send — method, path,
 body — and sends nothing; it needs no key, which makes it the safe way
@@ -304,7 +343,10 @@ run's job summary (the run page, "Summary" at the top):
 
 The form has two dropdowns: **action** (which stage) and **suite**
 (which tests — *situations*, the default and the pilot's own; *triggers*,
-the scenario sheet; or *all*). Every action but *configure* regenerates
+the scenario sheet; or *all*), and for **models** three more fields:
+**model** (the language model, spelled as ElevenLabs does),
+**reasoning** (keep, off, minimal, low, medium, high) and **rows** (which
+situation rows, by number; empty = every row). Every action but *configure* regenerates
 the situation tests from the live rows before it pushes anything, so a
 row edited on the dashboard is in the next press.
 
@@ -316,6 +358,7 @@ row edited on the dashboard is in the next press.
 | **propose** | the field again → `propose --quiet` → `branch` → `run --branch … --label branch` → `compare` against the latest baseline → `publish` with the verdict | the branch run's table, **ACCEPT** or **REJECT** with the branch id, and the next button — *not* the proposal, the diff or the note |
 | **try** | `run --branch <branch from the form> --label branch` → `compare` against the latest baseline → `publish` with the verdict | the same, for a branch that already exists: a prompt edited by hand in the ElevenLabs dashboard, tried without a model and without `OPENAI_API_KEY`. The form takes the branch's **name** as typed in ElevenLabs or its `agtbrch_…` id; the agent's own id is refused by name |
 | **promote** | `promote --branch <branch_id from the form> --quiet` → `run --label main` → `publish` | the new baseline |
+| **models** | `model-branch --model <model> --reasoning <reasoning>` → `run --branch … --rows <rows> --label model` → `compare` against the latest baseline → `publish` with the verdict | a model trial: the live prompt on another model, on the rows the form names (a quick trial of seven by default: a dog, a gate code, a wrong pin, a dark stairwell, a normal delivery, a fire, a storm — `repeat` 1 makes it 35 calls), **ACCEPT** or **REJECT**, the seconds per answer and the cost per call. The branch stays; nothing is promoted. The dashboard's RUNS tab has a MODELS view that lines the trials up, fastest first among those that held up |
 
 One-time setup, in the browser: Settings → Secrets and variables →
 Actions. Add `ELEVENLABS_API_KEY` as a **secret**, `ELEVENLABS_AGENT_ID`
@@ -438,9 +481,13 @@ is the fast one) and its *optimize streaming latency* slider; the
 driver pauses); and, for a phone in a moving vehicle, the **audio
 formats** — µ-law at 8 kHz is a quarter of the bandwidth of 16 kHz PCM
 in either direction, at telephone quality, and the phone follows
-whatever the agent announces. Try a change on an agent branch and
-press **try**: the suite says what it cost in pass rate, the next
-**field** what it gained in seconds.
+whatever the agent announces. The suite's own calls carry the same
+timings, so every run says how fast Otto answered on its model (the
+"speed and cost" line, and the MODELS view on the dashboard); the
+**models** button tries another model or reasoning setting on a branch
+and says what it cost in pass rate and what it gained in seconds. For
+the voice and turn-taking knobs, try the change on an agent branch and
+press **try**, then read the next **field**.
 
 ### Grades
 
@@ -491,8 +538,11 @@ loop looks for that one field and nothing else.
 
 The suite is LLM-only: a simulation test is a simulated tester talking to
 the agent's LLM, judged by an evaluation model — no TTS, no minutes.
-`--repeat N` multiplies that (3 by default, up to 20); `--filter` runs a
-subset. `pull` reads; the only thing it pays for is nothing. `propose` is
+`--repeat N` multiplies that (3 by default, up to 20); `--filter` and
+`--rows` run a subset. What the agent's own model cost in tokens is on
+every run's row (`summary.cost`, per call and in total, as ElevenLabs
+priced it — the simulated driver and the judge are billed separately
+and are not in that number). `pull` reads; the only thing it pays for is nothing. `propose` is
 one chat completion, its input trimmed to 80 000 characters (the worst
 tests and the latest debriefs survive; `propose` prints what it left
 out) and its output sized to echo the prompt back. Field conversations cost what they cost on the
