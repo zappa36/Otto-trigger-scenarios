@@ -215,6 +215,11 @@ test('model-branch cuts a branch from the live version with only the language mo
   assert.deepEqual(sent('POST', /\/branches$/)[0].body.conversation_config, { agent: { prompt: { llm: 'gemini-2.5-flash', reasoning_effort: 'none', thinking_budget: 0 } } });
   assert.equal(sent('POST', /\/branches$/)[0].body.name, 'flash no thinking');
   mock.reset(); mock.requests.length = 0;
+  r = await loop(['model-branch', '--model', 'gemini-3.6-flash', '--reasoning', 'false'], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual(sent('POST', /\/branches$/)[0].body.conversation_config, { agent: { prompt: { llm: 'gemini-3.6-flash', reasoning_effort: 'none', thinking_budget: 0 } } }, 'the form\'s "false" is off');
+  assert.match(r.out, /— model gemini-3\.6-flash, reasoning off/);
+  mock.reset(); mock.requests.length = 0;
   r = await loop(['model-branch', '--model', 'claude-haiku-4-5'], dir);
   assert.equal(r.code, 0, r.out);
   assert.deepEqual(sent('POST', /\/branches$/)[0].body.conversation_config, { agent: { prompt: { llm: 'claude-haiku-4-5' } } });

@@ -120,7 +120,7 @@ test('the models button cuts a branch with the model and runs the suite on the r
   const inputs = (yaml.match(/workflow_dispatch:\n    inputs:\n([\s\S]*?)\n  schedule:/) || [])[1] || '';
   for (const name of ['model', 'reasoning', 'rows']) assert.match(inputs, new RegExp(`^      ${name}:$`, 'm'), `no ${name} input on the form`);
   assert.match(inputs, /^          - models$/m, 'models is not a choice of the action dropdown');
-  assert.match(inputs, /reasoning:\n[\s\S]*?options:\n          - keep\n          - off\n          - minimal\n          - low\n          - medium\n          - high/, 'the reasoning choices');
+  assert.match(inputs, /reasoning:\n[\s\S]*?options:\n          - keep\n          - "off"\n          - minimal\n          - low\n          - medium\n          - high/, 'the reasoning choices — "off" quoted, or YAML reads it as false and the form shows "false"');
   const live = job(yaml, 'live-suite');
   assert.match(live, /if ! \[ "\$REPEAT" -ge 1 \]/, 'a trial of one run per test must be allowed');
   assert.match(live, /if \[ "\$ACTION" = "models" \] && \[ -z "\$MODEL" \]; then\n\s+echo "::error::models needs model/, 'a models press without a model must fail with the instructions');

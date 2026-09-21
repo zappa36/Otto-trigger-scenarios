@@ -185,7 +185,7 @@ on:
         default: keep
         options:
           - keep
-          - off
+          - "off"
           - minimal
           - low
           - medium
