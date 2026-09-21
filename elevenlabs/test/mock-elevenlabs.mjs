@@ -61,6 +61,8 @@ export async function startMock(fixtureDir) {
     state.branchDescription = null;
     /* a status POST branches refuses with, its body quoting the prompt */
     state.branchRefuses = 0;
+    /* a merge with nothing to merge: the target already has it all */
+    state.mergeNoChanges = false;
     /* the reasoning settings a model refuses ("Not supported reasoning
      * effort"): reasoning_effort values as strings, 'null' for an unset
      * one, 'budget' for a thinking_budget sent on its own */
@@ -197,6 +199,7 @@ export async function startMock(fixtureDir) {
       }];
     }],
     ['POST', /^\/v1\/convai\/agents\/([^/]+)\/branches\/([^/]+)\/merge$/, (m, q, body) => {
+      if (state.mergeNoChanges) return [400, { detail: { type: 'invalid_request', code: 'bad_request', message: `No new changes to merge from source branch "${m[2]}" into target branch "${q.target_branch_id}"`, status: 'no_new_changes_to_merge', request_id: 'r2' } }];
       if (!q.target_branch_id) return [422, { detail: [{ loc: ['query', 'target_branch_id'], msg: 'field required', type: 'value_error.missing' }] }];
       state.merges.push({ source: m[2], target: q.target_branch_id, body });
       return [200, {}];

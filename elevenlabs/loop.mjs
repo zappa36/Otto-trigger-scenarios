@@ -1666,7 +1666,21 @@ async function promote(ctx, flags) {
   if (agent && !target) throw new Error(`GET agent ${agentId} returned no main_branch_id — pass --target BRANCH_ID`);
   const branchInfo = await api.getBranch(agentId, source);
   const note = branchInfo ? String(branchInfo.description || '').trim() : '';
-  const res = await api.mergeBranch(agentId, source, target, { force: !!flags.force });
+  let res;
+  try {
+    res = await api.mergeBranch(agentId, source, target, { force: !!flags.force });
+  } catch (e) {
+    /* "No new changes to merge": the live agent already carries what
+     * this branch changed — set by hand in the ElevenLabs dashboard in
+     * the meantime, or merged once already. Nothing to do here, and
+     * the fresh baseline that follows is still the right next step. */
+    if (e.status === 400 && /no_new_changes_to_merge|No new changes to merge/i.test(String(e.message || ''))) {
+      log(`nothing to merge: the live agent already carries everything branch ${source} changed (ElevenLabs: "No new changes to merge"). It was set on the agent by hand in the meantime, or promoted once already — the live Otto is what this branch is.`);
+      log('next: node loop.mjs run --label main     # the baseline on the live agent, as after a merge\n      node loop.mjs publish');
+      return 0;
+    }
+    throw e;
+  }
   if (res === null) return 0;
   log(`merged ${source} into ${target}${flags.force ? ' (forced)' : ''}; the source branch is archived.`);
   log(ctx.quiet
