@@ -407,7 +407,17 @@ async function pushTests(ctx, flags = {}) {
     if (id) lock[name] = id;
     rows.push({ name, action: ctx.dryRun ? 'would be ' + action : action, id: id || '—', file: path.relative(ctx.dir, file) });
   }
-  const stale = Object.keys(lock).filter(n => !configs.some(c => c.body.name === n));
+  /* A lock entry with no test file behind it any more — a situation
+   * row switched off on the dashboard, a test renamed — is dropped, or
+   * the next `run` would still run it: run 114 ran five switched-off
+   * rows (75 calls) that way, and the try after it was REJECTED on
+   * one of them. Measured against every file on disk, not the filtered
+   * set: a situations push must not forget the trigger tests. The
+   * tests themselves stay in the ElevenLabs workspace, and a row
+   * switched back on finds its test again by name. */
+  const onDisk = new Set(all.map(c => c.body.name));
+  const stale = Object.keys(lock).filter(n => !onDisk.has(n));
+  for (const n of stale) delete lock[n];
   if (!ctx.dryRun) writeJson(ctx.p.lock, sortKeys(lock));
   log(table(rows, [
     { key: 'name', label: 'test', width: 48 }, { key: 'action', label: 'action', width: 24 },
@@ -415,7 +425,7 @@ async function pushTests(ctx, flags = {}) {
   ]));
   log(`\n${rows.length} test(s) ${ctx.dryRun ? 'would be' : ''} pushed; ${ctx.dryRun ? 'tests.lock.json untouched (dry run)' : 'tests.lock.json written'}` +
     (replaced ? `; ${replaced} test(s) the API would not update were replaced` : '') +
-    (stale.length ? `; ${stale.length} lock entr${stale.length === 1 ? 'y' : 'ies'} without a file kept (${stale.slice(0, 3).join(', ')}${stale.length > 3 ? ', …' : ''})` : ''));
+    (stale.length ? `; ${stale.length} lock entr${stale.length === 1 ? 'y' : 'ies'} without a test file dropped — a row switched off, or a test renamed (${stale.slice(0, 3).join(', ')}${stale.length > 3 ? ', …' : ''}); the tests stay in ElevenLabs` : ''));
   return 0;
 }
 
@@ -659,9 +669,23 @@ async function run(ctx, flags) {
     lock = Object.fromEntries(listConfigs(ctx.p.configs, log).map(({ body }) => [body.name, '<id from tests.lock.json>']));
   }
   const filter = String(flags.filter || '').toLowerCase();
-  const entries = Object.entries(lock).filter(([name]) => !filter || name.toLowerCase().includes(filter));
+  let entries = Object.entries(lock).filter(([name]) => !filter || name.toLowerCase().includes(filter));
+  /* The suite is what is on disk NOW: the situation files are generated
+   * from the live rows at the start of every button, so a row switched
+   * off has no file, and its lock entry (the test is still in
+   * ElevenLabs, and was still in the lock until push-tests dropped it)
+   * is not run. Without a single file on disk nothing can be told
+   * apart, and the lock is run as it is. */
+  const onDisk = new Set(listConfigs(ctx.p.configs, () => {}).map(({ body }) => body.name));
+  if (onDisk.size) {
+    const skipped = entries.filter(([name]) => !onDisk.has(name)).map(([name]) => name);
+    if (skipped.length) {
+      entries = entries.filter(([name]) => onDisk.has(name));
+      log(`${skipped.length} test(s) in tests.lock.json ${skipped.length === 1 ? 'has' : 'have'} no test file now — a row switched off, or a test renamed — and ${skipped.length === 1 ? 'is' : 'are'} not run: ${skipped.slice(0, 3).join(', ')}${skipped.length > 3 ? ', …' : ''}`);
+    }
+  }
   if (!entries.length) {
-    log(Object.keys(lock).length ? `no test in tests.lock.json matches --filter "${flags.filter}"` : 'tests.lock.json is empty — run push-tests first');
+    log(Object.keys(lock).length ? `no test in tests.lock.json${filter ? ` matches --filter "${flags.filter}" and` : ''} has a test file under ${ctx.p.configs} — generate the situation tests (node generate-tests.mjs --situations) and push-tests first` : 'tests.lock.json is empty — run push-tests first');
     return 1;
   }
   const { api, agentId } = needEleven(ctx);

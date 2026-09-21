@@ -161,6 +161,38 @@ test('run --branch sends the branch id and the results carry it', async () => {
   assert.ok(res.tests.every(t => t.branch_id === 'agtbrch_loop1'));
 });
 
+test('a lock entry without a test file — a row switched off — is not run, and push-tests drops it', async () => {
+  const dir = workdir();
+  let r = await loop(['push-tests'], dir);
+  assert.equal(r.code, 0, r.out);
+  /* the lock as run 114 had it: a test whose row was switched off on
+   * the dashboard, so the generator wrote no file for it this time */
+  const lockFile = path.join(dir, 'tests.lock.json');
+  const OLD = 'Otto · situation #17 The shop is closed on Mondays · terse';
+  writeFileSync(lockFile, JSON.stringify({ ...readJson(lockFile), [OLD]: 'test_old17' }, null, 2));
+  mock.requests.length = 0;
+  r = await loop(['run', '--repeat', '2'], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual(sent('POST', /run-tests$/)[0].body.tests.map(t => t.test_id).sort(), ['test_001', 'test_pre8'], 'the switched-off row\'s test is not run');
+  assert.match(r.out, /1 test\(s\) in tests\.lock\.json has no test file now — a row switched off, or a test renamed — and is not run: Otto · situation #17 The shop is closed on Mondays · terse/);
+  assert.match(r.out, /run — 2 test\(s\) × 2 on main/);
+  /* push-tests forgets it — but only what has no file at all: a filter
+   * that leaves a test out must not throw its entry away */
+  r = await loop(['push-tests', '--filter', '#1 '], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /1 lock entry without a test file dropped — a row switched off, or a test renamed \(Otto · situation #17 The shop is closed on Mondays · terse\); the tests stay in ElevenLabs/);
+  assert.deepEqual(Object.keys(readJson(lockFile)).sort(), [T1, T8], 'the filtered-out test keeps its entry; the fileless one is gone');
+  assert.equal(sent('DELETE', /agent-testing/).length, 0, 'nothing is deleted in ElevenLabs');
+  /* with no file on disk at all, nothing can be told apart: the lock runs as it is */
+  rmSync(path.join(dir, 'test_configs'), { recursive: true, force: true });
+  writeFileSync(lockFile, JSON.stringify({ ...readJson(lockFile), [OLD]: 'test_old17' }, null, 2));
+  mock.requests.length = 0;
+  r = await loop(['run', '--repeat', '2'], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(sent('POST', /run-tests$/)[0].body.tests.length, 3);
+  assert.doesNotMatch(r.out, /has no test file now/);
+});
+
 test('run --branch takes the branch\'s ElevenLabs name too, and refuses the agent\'s own id by name', async () => {
   const dir = shared.dir;
   /* the name as typed in the dashboard: looked up, the id sent */

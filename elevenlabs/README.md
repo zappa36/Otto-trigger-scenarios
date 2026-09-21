@@ -326,7 +326,10 @@ with those instructions.
 
 State between presses: `tests.lock.json` and `test_configs/regressions/`
 are committed back to the branch the run started from by the workflow
-itself (as `github-actions[bot]`). `results/` and `field/` are uploaded
+itself (as `github-actions[bot]`). A situation row switched off on the
+dashboard has no test file from the next press on, so `run` leaves its
+test out and `push-tests` drops it from the lock (the test itself stays
+in ElevenLabs, and a row switched back on finds it again by name). `results/` and `field/` are uploaded
 as the run's Artifacts — `loop-baseline` (baseline, promote) and
 `loop-field` — and *propose* and *try* download the latest
 `loop-baseline` to compare against (running the suite on the live agent
