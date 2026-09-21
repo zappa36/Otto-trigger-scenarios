@@ -180,16 +180,18 @@ on:
         type: string
         default: ""
       reasoning:
-        description: "models: how much the model may think before answering — keep (as the live Otto), off, minimal, low, medium, high (only some models take it)"
+        description: "models: the reasoning effort, in ElevenLabs' own words — keep (as the live Otto), none, minimal, low, medium, high, xhigh, max. A model takes only some of them; none becomes the lowest the model allows"
         type: choice
         default: keep
         options:
           - keep
-          - "off"
+          - none
           - minimal
           - low
           - medium
           - high
+          - xhigh
+          - max
       rows:
         description: "models: which situation rows to run, by their # on the SITUATIONS tab (empty = every row). The default is a quick trial of seven — a dog, a gate code, a wrong pin, a dark stairwell, a normal delivery, a fire, a storm"
         type: string

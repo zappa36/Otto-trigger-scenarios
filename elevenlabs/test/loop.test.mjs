@@ -228,7 +228,7 @@ test('model-branch cuts a branch from the live version with only the language mo
   for (const [args, msg] of [
     [['model-branch'], /--model NAME is required/],
     [['model-branch', '--model', 'gpt 4'], /does not look like a model name/],
-    [['model-branch', '--model', 'gpt-4.1-mini', '--reasoning', 'lots'], /--reasoning is one of keep, off, minimal, low, medium, high, xhigh, max — not "lots"/],
+    [['model-branch', '--model', 'gpt-4.1-mini', '--reasoning', 'lots'], /--reasoning is one of keep, none, minimal, low, medium, high, xhigh, max \(ElevenLabs' own words; off is taken as none\) — not "lots"/],
   ]) {
     mock.requests.length = 0;
     r = await loop(args, dir);
