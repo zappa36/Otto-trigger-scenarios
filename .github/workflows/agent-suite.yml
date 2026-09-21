@@ -639,8 +639,12 @@ jobs:
           git push -q origin "HEAD:$GITHUB_REF_NAME"
           echo "committed to $GITHUB_REF_NAME: $(git diff --stat HEAD~1 --name-only | tr '\n' ' ')"
 
+      # only after the suite ran: a promote that stopped before its
+      # baseline must not leave an empty "latest baseline" for the next
+      # try or model trial to fetch (it would run a baseline first, at
+      # full cost, to make up for it)
       - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() && steps.plan.outputs.go == 'true' && (steps.plan.outputs.action == 'baseline' || steps.plan.outputs.action == 'promote') }}
+        if: ${{ success() && steps.plan.outputs.go == 'true' && (steps.plan.outputs.action == 'baseline' || steps.plan.outputs.action == 'promote') }}
         with:
           name: loop-baseline
           path: |

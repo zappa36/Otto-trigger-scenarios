@@ -768,6 +768,19 @@ test('compare accepts an improvement without drops and rejects a drop or a stand
   assert.equal(r.code, 1);
 });
 
+test('promote with nothing to merge — the live agent already has it — says so and lets the baseline follow', async () => {
+  const dir = workdir();
+  mock.state.mergeNoChanges = true;
+  const r = await loop(['promote', '--branch', 'agtbrch_loop1', '--quiet'], dir);
+  mock.state.mergeNoChanges = false;
+  assert.equal(r.code, 0, 'not a failure: the fresh baseline is still the right next step');
+  assert.equal(sent('POST', /\/merge$/).length, 1);
+  assert.equal(mock.state.merges.length, 0, 'nothing merged');
+  assert.match(r.out, /nothing to merge: the live agent already carries everything branch agtbrch_loop1 changed \(ElevenLabs: "No new changes to merge"\)\. It was set on the agent by hand in the meantime, or promoted once already — the live Otto is what this branch is\./);
+  assert.match(r.out, /next: node loop\.mjs run --label main/);
+  assert.doesNotMatch(r.out, /merged agtbrch_loop1/);
+});
+
 test('promote merges the branch into the main branch and takes the version note from the branch', async () => {
   const dir = shared.dir;
   /* the branch carries its own note: `branch` put the proposal's note
