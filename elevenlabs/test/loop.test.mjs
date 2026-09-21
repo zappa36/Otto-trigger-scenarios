@@ -166,10 +166,10 @@ test('run polls the invocation, aggregates per test worst-first, and writes the 
   assert.equal(res.tests[1].driver_model, '', 'the #8 fixture file pins no models');
   /* the agent's own LLM settings, read from GET agent once the suite is
    * started — the model and its reasoning knobs, nothing of the prompt */
-  assert.deepEqual(res.settings, { model: 'gpt-4o-mini', reasoning: null, thinking_budget: null, temperature: null });
+  assert.deepEqual(res.settings, { model: 'gpt-4o-mini', reasoning: null, thinking_budget: null, temperature: null, backup: null });
   assert.equal(sent('GET', /\/v1\/convai\/agents\/agent_test1$/).length, 1);
-  assert.match(r.out, /Otto's model on this run: gpt-4o-mini/);
-  assert.match(r.out, /speed and cost — Otto's first sentence after 0\.9 s \(median over 3 turn\(s\); slowest 1\.5 s\) · a call lasts 11 s \(median of 3\) · \$0\.000406 per call in model tokens \(\$0\.000406 over 1 priced call\(s\)\) · model set to gpt-4o-mini; answered as gpt-4o-mini/);
+  assert.match(r.out, /Otto's settings on this run: model gpt-4o-mini, reasoning default/);
+  assert.match(r.out, /speed and cost — Otto's first sentence after 0\.9 s \(median over 3 turn\(s\); slowest 1\.5 s\) · a call lasts 11 s \(median of 3\) · \$0\.000406 per call in model tokens \(\$0\.000406 over 1 priced call\(s\)\) · model set to gpt-4o-mini, reasoning default; answered as gpt-4o-mini/);
   assert.equal(res.tests[1].pass_rate, 1);
   assert.equal(res.tests[1].why, null);
   assert.equal(res.tests[1].failure, null, 'a test that passed every run has no failure to show');
@@ -189,7 +189,7 @@ test('run --branch sends the branch id and the results carry it', async () => {
   assert.ok(res.tests.every(t => t.branch_id === 'agtbrch_loop1'));
 });
 
-test('model-branch cuts a branch from the live version with only the language model changed, and names the model in the clear', async () => {
+test('model-branch cuts a branch from the live version with only the LLM panel\'s knobs changed, in its words', async () => {
   const dir = workdir();
   const out = path.join(dir, 'model-branch.json');
   let r = await loop(['model-branch', '--model', 'gpt-4.1-mini', '--reasoning', 'low', '--out', out], dir);
@@ -203,32 +203,43 @@ test('model-branch cuts a branch from the live version with only the language mo
     conversation_config: { agent: { prompt: { llm: 'gpt-4.1-mini', reasoning_effort: 'low' } } },
   }, 'settings only: no prompt travels in this body');
   assert.match(post[0].body.name, /^model gpt-4\.1-mini reasoning low \(\d{4}-\d\d-\d\d \d\d\.\d\d\)$/, 'a name unique within the agent, readable in the Versioning tab, in the characters ElevenLabs allows (no comma, no colon)');
-  assert.match(r.out, /live Otto: model gpt-4o-mini \(version agtvrsn_v1\)/);
+  assert.match(r.out, /live Otto: model gpt-4o-mini, reasoning default \(version agtvrsn_v1\)/);
   assert.match(r.out, /branch "model gpt-4\.1-mini reasoning low \(.*\)" created: agtbrch_loop1 \(version agtvrsn_b1, from agtvrsn_v1\) — model gpt-4\.1-mini, reasoning low/);
   assert.match(r.out, /next: node loop\.mjs run --branch agtbrch_loop1 --label model/);
   const wrote = readJson(out);
-  assert.deepEqual({ ...wrote, name: '', at: '' }, { branch_id: 'agtbrch_loop1', version_id: 'agtvrsn_b1', parent_version_id: 'agtvrsn_v1', name: '', model: 'gpt-4.1-mini', reasoning: 'low', set_as: { reasoning_effort: 'low' }, at: '' });
-  /* reasoning off turns both knobs off; keep (the default) sends the model alone; a name of one's own is taken */
+  assert.deepEqual({ ...wrote, name: '', at: '' }, { branch_id: 'agtbrch_loop1', version_id: 'agtvrsn_b1', parent_version_id: 'agtvrsn_v1', name: '', model: 'gpt-4.1-mini', reasoning: 'low', temperature: 'keep', backup: 'keep', at: '' });
+  /* the panel's Default is no effort at all (null); the slider and the
+   * backup setting travel the same way; keep (the default) sends the
+   * model alone; a name of one's own is taken, in the allowed characters */
   mock.reset(); mock.requests.length = 0;
-  r = await loop(['model-branch', '--model', 'gemini-2.5-flash', '--reasoning', 'off', '--name', 'flash: no thinking, please'], dir);
+  r = await loop(['model-branch', '--model', 'gemini-3.6-flash', '--reasoning', 'default', '--temperature', '0.3', '--backup', 'disabled', '--name', 'flash: no thinking, please'], dir);
   assert.equal(r.code, 0, r.out);
-  assert.deepEqual(sent('POST', /\/branches$/)[0].body.conversation_config, { agent: { prompt: { llm: 'gemini-2.5-flash', reasoning_effort: 'none', thinking_budget: 0 } } });
+  assert.deepEqual(sent('POST', /\/branches$/)[0].body.conversation_config, { agent: { prompt: { llm: 'gemini-3.6-flash', reasoning_effort: null, temperature: 0.3, backup_llm_config: { preference: 'disabled' } } } });
   assert.equal(sent('POST', /\/branches$/)[0].body.name, 'flash- no thinking- please', 'a name of one\'s own, in the characters ElevenLabs allows');
+  assert.equal(sent('POST', /\/branches$/)[0].body.description, 'model trial: gemini-3.6-flash, reasoning default, temperature 0.3, backup disabled — the prompt is the live one, unchanged');
+  assert.match(r.out, /— model gemini-3\.6-flash, reasoning default, temperature 0\.3, backup disabled/);
+  mock.reset(); mock.requests.length = 0;
+  r = await loop(['model-branch', '--model', 'claude-haiku-4-5', '--temperature', 'none', '--backup', 'default'], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual(sent('POST', /\/branches$/)[0].body.conversation_config, { agent: { prompt: { llm: 'claude-haiku-4-5', temperature: null, backup_llm_config: { preference: 'default' } } } }, '"don\'t send temperature" is null');
+  assert.equal(sent('POST', /\/branches$/)[0].body.description, 'model trial: claude-haiku-4-5, temperature not sent, backup default — the prompt is the live one, unchanged');
+  mock.reset(); mock.requests.length = 0;
+  r = await loop(['model-branch', '--model', 'claude-haiku-4-5', '--reasoning', '', '--temperature', '', '--backup', ''], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual(sent('POST', /\/branches$/)[0].body.conversation_config, { agent: { prompt: { llm: 'claude-haiku-4-5' } } }, 'empty form fields mean keep');
+  assert.equal(sent('POST', /\/branches$/)[0].body.description, 'model trial: claude-haiku-4-5 — the prompt is the live one, unchanged');
   mock.reset(); mock.requests.length = 0;
   r = await loop(['model-branch', '--model', 'gemini-3.6-flash', '--reasoning', 'false'], dir);
   assert.equal(r.code, 0, r.out);
-  assert.deepEqual(sent('POST', /\/branches$/)[0].body.conversation_config, { agent: { prompt: { llm: 'gemini-3.6-flash', reasoning_effort: 'none', thinking_budget: 0 } } }, 'the form\'s "false" is off');
-  assert.match(r.out, /— model gemini-3\.6-flash, reasoning off/);
-  mock.reset(); mock.requests.length = 0;
-  r = await loop(['model-branch', '--model', 'claude-haiku-4-5'], dir);
-  assert.equal(r.code, 0, r.out);
-  assert.deepEqual(sent('POST', /\/branches$/)[0].body.conversation_config, { agent: { prompt: { llm: 'claude-haiku-4-5' } } });
-  assert.equal(sent('POST', /\/branches$/)[0].body.description, 'model trial: claude-haiku-4-5 — the prompt is the live one, unchanged');
+  assert.deepEqual(sent('POST', /\/branches$/)[0].body.conversation_config, { agent: { prompt: { llm: 'gemini-3.6-flash', reasoning_effort: 'none' } } }, 'the form\'s "false" (a bare off in YAML) is none');
   /* what it refuses before sending anything */
   for (const [args, msg] of [
     [['model-branch'], /--model NAME is required/],
     [['model-branch', '--model', 'gpt 4'], /does not look like a model name/],
-    [['model-branch', '--model', 'gpt-4.1-mini', '--reasoning', 'lots'], /--reasoning is one of keep, none, minimal, low, medium, high, xhigh, max \(ElevenLabs' own words; off is taken as none\) — not "lots"/],
+    [['model-branch', '--model', 'gpt-4.1-mini', '--reasoning', 'lots'], /--reasoning is one of keep, default, minimal, low, medium, high \(the LLM panel's words; the API also takes none, xhigh, max\) — not "lots"/],
+    [['model-branch', '--model', 'gpt-4.1-mini', '--temperature', 'warm'], /--temperature is a number from 0 to 1 .* none \(don't send it\) or keep — not "warm"/],
+    [['model-branch', '--model', 'gpt-4.1-mini', '--temperature', '3'], /--temperature is a number from 0 to 1/],
+    [['model-branch', '--model', 'gpt-4.1-mini', '--backup', 'custom'], /--backup is one of keep, default, disabled \(the panel's Backup LLM configuration\) — not "custom"/],
   ]) {
     mock.requests.length = 0;
     r = await loop(args, dir);
@@ -243,36 +254,16 @@ test('model-branch cuts a branch from the live version with only the language mo
   assert.equal(r.code, 1);
   assert.match(r.out, /model-branch failed: 422 from POST \/v1\/convai\/agents\/agent_test1\/branches: .*— ElevenLabs refused the branch\./);
   mock.state.branchRefuses = 0;
-  /* a model that will not switch reasoning off ("Not supported
-   * reasoning effort", as gemini-3.6-flash answered live) gets the
-   * lowest setting it takes, and the log and the description say so */
+  /* an effort the model does not take ("Not supported reasoning
+   * effort", as gemini-3.6-flash answered "none" live) is refused with
+   * the panel named, and nothing is made */
   mock.reset(); mock.requests.length = 0;
-  mock.state.refuseReasoning = ['none', 'null'];
-  r = await loop(['model-branch', '--model', 'gemini-3.6-flash', '--reasoning', 'off', '--out', out], dir);
-  assert.equal(r.code, 0, r.out);
-  const tries = sent('POST', /\/branches$/);
-  assert.equal(tries.length, 3, 'none with budget 0, then unset with budget 0, then minimal');
-  assert.deepEqual(tries[0].body.conversation_config.agent.prompt, { llm: 'gemini-3.6-flash', reasoning_effort: 'none', thinking_budget: 0 });
-  assert.deepEqual(tries[1].body.conversation_config.agent.prompt, { llm: 'gemini-3.6-flash', reasoning_effort: null, thinking_budget: 0 });
-  assert.deepEqual(tries[2].body.conversation_config.agent.prompt, { llm: 'gemini-3.6-flash', reasoning_effort: 'minimal' });
-  assert.equal(tries[2].body.description, 'model trial: gemini-3.6-flash, reasoning off (set as reasoning minimal: this model does not take reasoning none, thinking budget 0 or reasoning unset, thinking budget 0) — the prompt is the live one, unchanged');
-  assert.match(r.out, /gemini-3\.6-flash does not take reasoning none, thinking budget 0 — trying the next setting\n\s+gemini-3\.6-flash does not take reasoning unset, thinking budget 0 — trying the next setting/);
-  assert.match(r.out, /created: agtbrch_loop1 .*— model gemini-3\.6-flash, reasoning off \(set as reasoning minimal — this model does not take reasoning none, thinking budget 0 or reasoning unset, thinking budget 0\)/);
-  assert.deepEqual(readJson(out).set_as, { reasoning_effort: 'minimal' });
-  assert.equal(mock.state.branches.length, 1, 'one branch made');
-  /* a level the model does not take at all is refused with its choices named */
-  mock.reset(); mock.requests.length = 0;
-  mock.state.refuseReasoning = ['medium'];
-  r = await loop(['model-branch', '--model', 'gpt-4.1', '--reasoning', 'medium'], dir);
+  mock.state.refuseReasoning = ['none'];
+  r = await loop(['model-branch', '--model', 'gemini-3.6-flash', '--reasoning', 'none'], dir);
   assert.equal(r.code, 1);
-  assert.equal(sent('POST', /\/branches$/).length, 1, 'no other rung to try');
-  assert.match(r.out, /gpt-4\.1 takes none of the settings that mean "reasoning medium" \(reasoning medium\)\. Its choices are in the agent's LLM settings in ElevenLabs; try another level, or "keep"/);
-  mock.reset(); mock.requests.length = 0;
-  mock.state.refuseReasoning = ['none', 'null', 'minimal', 'low'];
-  r = await loop(['model-branch', '--model', 'gpt-4.1', '--reasoning', 'off'], dir);
-  assert.equal(r.code, 1);
-  assert.equal(sent('POST', /\/branches$/).length, 4, 'every rung tried');
-  assert.match(r.out, /gpt-4\.1 takes none of the settings that mean "reasoning off"/);
+  assert.equal(sent('POST', /\/branches$/).length, 1);
+  assert.match(r.out, /gemini-3\.6-flash does not take reasoning none — ElevenLabs answered: 400 from POST .*Not supported reasoning effort.*The agent's LLM panel in ElevenLabs shows the efforts this model takes \(Default, Minimal, Low, Medium, High, or fewer\); pick one of those, or keep/);
+  assert.equal(mock.state.branches.length, 0, 'no branch made');
   mock.state.refuseReasoning = [];
   /* a dry run prints the request and sends nothing */
   mock.requests.length = 0;
@@ -444,7 +435,7 @@ test('publish posts the results file as one agent_runs row — the contract dash
     by_check: { 1: { pass: 2, fail: 0 }, 2: { pass: 1, fail: 1 }, 3: { pass: 0, fail: 1 } },
     /* the model trial's numbers, on every run: what Otto was set to,
      * how fast he answered, what the calls cost, who answered / drove / judged */
-    settings: { model: 'gpt-4o-mini', reasoning: null, thinking_budget: null, temperature: null },
+    settings: { model: 'gpt-4o-mini', reasoning: null, thinking_budget: null, temperature: null, backup: null },
     speed: { answer_s: 0.9, answer_max_s: 1.5, word_s: 0.6, gap_s: 3, call_s: 11, turns: 3, calls: 3, source: 'metrics' },
     cost: { per_call_usd: 0.000406, total_usd: 0.000406, tokens_in: 2500, tokens_out: 52, calls: 1 },
     models: { otto: ['gpt-4o-mini'], driver: ['claude-sonnet-4-6'], judge: ['claude-sonnet-4-6'] },

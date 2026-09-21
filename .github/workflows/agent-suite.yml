@@ -49,8 +49,10 @@ name: agent-suite
 #                            baseline → "loop-baseline"
 #                 models     a model trial: a branch cut from the live
 #                            version with only the language model (and
-#                            its reasoning setting) changed — model and
-#                            reasoning below — the suite on it (the rows
+#                            the LLM panel's knobs: reasoning effort,
+#                            temperature, backup LLM) changed — model,
+#                            reasoning, temperature and backup below —
+#                            the suite on it (the rows
 #                            below, or every row), the comparison
 #                            against the latest baseline, and the run
 #                            published with the model, the seconds per
@@ -163,10 +165,6 @@ on:
         description: "Runs per test (1–20); the pass rate is over these (baseline, propose, try, promote, models)"
         type: number
         default: 3
-      filter:
-        description: "Only tests whose name contains this — overrides the suite above (empty = the whole suite)"
-        type: string
-        default: ""
       days:
         description: "How many days of field conversations to pull (field, propose)"
         type: number
@@ -180,18 +178,28 @@ on:
         type: string
         default: ""
       reasoning:
-        description: "models: the reasoning effort, in ElevenLabs' own words — keep (as the live Otto), none, minimal, low, medium, high, xhigh, max. A model takes only some of them; none becomes the lowest the model allows"
+        description: "models: Reasoning Effort, as the agent's LLM panel in ElevenLabs offers it — keep (as the live Otto), default, minimal, low, medium, high"
         type: choice
         default: keep
         options:
           - keep
-          - none
+          - default
           - minimal
           - low
           - medium
           - high
-          - xhigh
-          - max
+      temperature:
+        description: "models: Temperature, as on the LLM panel's slider — empty = keep the live Otto's, a number from 0 (more deterministic) to 1 (more expressive), or none = don't send temperature"
+        type: string
+        default: ""
+      backup:
+        description: "models: Backup LLM configuration — keep (as the live Otto), default (ElevenLabs may answer a turn on a backup model when the primary is slow or fails), disabled (every turn on the model under test)"
+        type: choice
+        default: keep
+        options:
+          - keep
+          - default
+          - disabled
       rows:
         description: "models: which situation rows to run, by their # on the SITUATIONS tab (empty = every row). The default is a quick trial of seven — a dog, a gate code, a wrong pin, a dark stairwell, a normal delivery, a fire, a storm"
         type: string
@@ -274,16 +282,20 @@ jobs:
       ACTION: ${{ inputs.action || 'baseline' }}
       SUITE: ${{ inputs.suite || 'situations' }}
       REPEAT: ${{ inputs.repeat || 3 }}
-      # the plan step turns this into FILTER — the suite's own filter when
-      # the box was left empty. It is a different name on purpose: a
-      # value written to $GITHUB_ENV cannot override a job env of the
-      # same name, and the one the later steps read has to be the
-      # resolved one.
-      FILTER_INPUT: ${{ inputs.filter }}
+      # the plan step turns this into FILTER — the suite's own filter,
+      # since the form has no filter box any more (ten inputs is
+      # GitHub's limit, and the LLM panel's knobs took the room; the
+      # loop's --filter is still there for a terminal). It is a
+      # different name on purpose: a value written to $GITHUB_ENV cannot
+      # override a job env of the same name, and the one the later
+      # steps read has to be the resolved one.
+      FILTER_INPUT: ""
       DAYS: ${{ inputs.days || 14 }}
       BRANCH_ID: ${{ inputs.branch_id }}
       MODEL: ${{ inputs.model }}
       REASONING: ${{ inputs.reasoning || 'keep' }}
+      TEMPERATURE: ${{ inputs.temperature }}
+      BACKUP: ${{ inputs.backup || 'keep' }}
       ROWS: ${{ inputs.rows }}
     steps:
       - uses: actions/checkout@v4
@@ -333,6 +345,9 @@ jobs:
           fi
           if [ "$ACTION" = "models" ] && [ -z "$MODEL" ]; then
             echo "::error::models needs model — the language model to try, spelled as ElevenLabs does (gpt-4.1-mini, gemini-2.5-flash, claude-haiku-4-5 …)"; exit 1
+          fi
+          if [ -n "$TEMPERATURE" ] && [ "$TEMPERATURE" != "none" ] && ! [[ "$TEMPERATURE" =~ ^(0|1|0?\.[0-9]+|1\.0+)$ ]]; then
+            echo "::error::temperature is empty (keep), a number from 0 to 1, or none (don't send it) — got '$TEMPERATURE'"; exit 1
           fi
           echo "go=true" >> "$GITHUB_OUTPUT"
           echo "## agent-suite · $ACTION · $SUITE suite${filter:+ (filter \"$filter\")}" >> "$GITHUB_STEP_SUMMARY"
@@ -553,7 +568,7 @@ jobs:
         id: models
         if: steps.plan.outputs.go == 'true' && steps.plan.outputs.action == 'models'
         run: |
-          node loop.mjs model-branch --model "$MODEL" --reasoning "$REASONING" --out "$RUNNER_TEMP/model-branch.json" | tee "$RUNNER_TEMP/model-branch.txt"
+          node loop.mjs model-branch --model "$MODEL" --reasoning "$REASONING" --temperature "$TEMPERATURE" --backup "$BACKUP" --out "$RUNNER_TEMP/model-branch.json" | tee "$RUNNER_TEMP/model-branch.txt"
           bid="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).branch_id)' "$RUNNER_TEMP/model-branch.json")"
           args=(run --branch "$bid" --repeat "$REPEAT" --label model)
           if [ -n "$FILTER" ]; then args+=(--filter "$FILTER"); fi
@@ -574,7 +589,10 @@ jobs:
           else
             published="results not published — $(tail -n 1 "$RUNNER_TEMP/publish.txt")"
           fi
-          setting="$MODEL"; if [ "$REASONING" != "keep" ]; then setting="$MODEL, reasoning $REASONING"; fi
+          setting="$MODEL"
+          if [ "$REASONING" != "keep" ]; then setting="$setting, reasoning $REASONING"; fi
+          if [ -n "$TEMPERATURE" ]; then setting="$setting, temperature $TEMPERATURE"; fi
+          if [ "$BACKUP" != "keep" ]; then setting="$setting, backup $BACKUP"; fi
           { echo; echo "### Model trial — $setting — ×$REPEAT${ROWS:+ on rows $ROWS}${FILTER:+, filter \"$FILTER\"}"; echo; echo '```'; cat "$RUNNER_TEMP/model-branch.txt"; echo; cat "$RUNNER_TEMP/suite-model.txt"; echo '```'
             echo; echo "### $word"; echo; echo '```'; cat "$RUNNER_TEMP/compare.txt"; echo '```'; echo
             echo "$published"; echo

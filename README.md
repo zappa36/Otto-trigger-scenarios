@@ -483,11 +483,11 @@ press runs that stage and writes its table into the run's job summary:
 | Button | What runs | Then |
 |---|---|---|
 | **configure** | `analysis.json` onto the agent — the criteria, the data collection, the overrides | **baseline** |
-| **baseline** | `push-tests`, then the suite on the live agent (`repeat` runs per test, optional `filter`); also every Monday 06:00 UTC | testers drive; grade their debriefs |
+| **baseline** | `push-tests`, then the suite on the live agent (`repeat` runs per test); also every Monday 06:00 UTC | testers drive; grade their debriefs |
 | **field** | `pull` the last `days` of conversations with their grades, `score`, `cut` the regressions, register them | **propose** |
 | **propose** | the field again, `propose` the prompt diff, `branch` it onto the agent, the suite on that branch, `compare` against the latest baseline — **ACCEPT** or **REJECT**, and the branch id | **promote** on ACCEPT |
 | **promote** | merge that branch into the agent (paste the id into `branch_id`), then a fresh baseline | testers drive on the new prompt |
-| **models** | a model trial: a branch with the live prompt and another language model (`model`, and its `reasoning` setting), the suite on the situation `rows` named in the form (seven by default; `repeat` 1 makes it 35 calls), `compare` against the latest baseline, the run published with the seconds per answer and the cost per call | another model, or **promote** the branch if it convinced |
+| **models** | a model trial: a branch with the live prompt and the LLM panel's knobs changed (`model`; `reasoning` effort in the panel's words, default / minimal / low / medium / high; `temperature`; `backup` LLM default or disabled), the suite on the situation `rows` named in the form (seven by default; `repeat` 1 makes it 35 calls), `compare` against the latest baseline, the run published with the seconds per answer and the cost per call | another setting, or **promote** the branch if it convinced |
 
 What the loop writes back to git — `tests.lock.json` and
 `test_configs/regressions/` — the workflow commits to the branch the run
@@ -603,9 +603,12 @@ the conversation: did Otto ask about what the driver said, not repeat
 it, not invent anything, keep to three questions, close with the tip.
 To try another model, press **models** with the model's name as
 ElevenLabs spells it (`gpt-4.1-mini`, `gemini-2.5-flash`,
-`claude-haiku-4-5`, …) and a reasoning effort in ElevenLabs' own words
-(*none*, *minimal*, *low*, *medium*, *high*, or *keep* for the live
-setting): the loop cuts a branch that differs from the live Otto in that one
+`claude-haiku-4-5`, …) and the knobs of the agent's LLM panel in its
+own words: the reasoning effort (*default*, *minimal*, *low*, *medium*,
+*high*, or *keep* for the live setting), the temperature (a number from
+the slider, or *none* for "don't send"), and the backup LLM (*default*,
+or *disabled* so every turn runs on the model under test): the loop
+cuts a branch that differs from the live Otto in those knobs and nothing
 thing, runs a quick trial of seven situations on it, compares it with
 the baseline and publishes the run with the numbers. The branch stays
 on the agent; **promote** switches Otto to it if the trial convinced.

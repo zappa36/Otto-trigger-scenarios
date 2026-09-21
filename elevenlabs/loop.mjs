@@ -678,7 +678,7 @@ export function statsLine(tests, settings) {
   if (sp && sp.call_s != null) parts.push(`a call lasts ${sp.call_s} s (median of ${sp.calls})`);
   if (co) parts.push(`$${co.per_call_usd} per call in model tokens ($${co.total_usd} over ${co.calls} priced call(s))`);
   const m = modelsOf(tests);
-  const set = settings && settings.model ? `set to ${settings.model}${settings.reasoning ? ', reasoning ' + settings.reasoning : ''}` : '';
+  const set = settings && settings.model ? `set to ${settings.model}${settings.reasoning ? ', reasoning ' + settings.reasoning : ', reasoning default'}${settings.backup ? ', backup ' + settings.backup : ''}` : '';
   if (set || m.length) parts.push(`model ${[set, m.length ? `answered as ${m.join(', ')}` : ''].filter(Boolean).join('; ')}`);
   return parts.length ? 'speed and cost — ' + parts.join(' · ') : 'speed and cost — ElevenLabs sent no timings and no token prices for these calls';
 }
@@ -825,7 +825,7 @@ async function run(ctx, flags) {
   try { settings = llmSettings(await api.getAgent(agentId, branchId ? { branch_id: branchId } : {})); } catch (e) {
     log(`  (the agent's model settings could not be read — ${String(e.message || e).slice(0, 120)} — so the results file will not say which model ran)`);
   }
-  if (settings) log(`Otto's model on this run: ${settings.model || '?'}${settings.reasoning ? ', reasoning ' + settings.reasoning : ''}${settings.thinking_budget != null ? ', thinking budget ' + settings.thinking_budget : ''}`);
+  if (settings) log(`Otto's settings on this run: ${describeSettings(settings)}`);
   if (!started) { log('  (dry run) would poll GET /v1/convai/test-invocations/<id> until no run is pending, then write results/<stamp>-<label>.json'); return 0; }
   const inv = await pollInvocation(api, started.id, ctx);
   const idToName = Object.fromEntries(entries.map(([n, id]) => [id, n]));
@@ -853,8 +853,17 @@ function llmSettings(agent) {
     reasoning: p.reasoning_effort || null,
     thinking_budget: p.thinking_budget ?? null,
     temperature: p.temperature ?? null,
+    backup: (p.backup_llm_config && p.backup_llm_config.preference) || null,
   };
 }
+/* the settings in the panel's words: "model gemini-3.6-flash, reasoning medium, temperature 0.1, backup default" */
+const describeSettings = s => [
+  `model ${s.model || '?'}`,
+  `reasoning ${s.reasoning || 'default'}`,
+  s.temperature == null ? '' : `temperature ${s.temperature}`,
+  s.thinking_budget == null ? '' : `thinking budget ${s.thinking_budget}`,
+  s.backup ? `backup ${s.backup}` : '',
+].filter(Boolean).join(', ');
 
 /* ---------- pull ---------- */
 
@@ -1443,32 +1452,28 @@ async function branch(ctx, flags) {
  * that branch, compared against the baseline, then says what the model
  * costs in pass rate, and the run's own timings what it saves in
  * seconds. */
-/* What each setting means to ElevenLabs, per model: some models take a
- * reasoning_effort, some a thinking_budget, and a model refuses the
- * rest with "Not supported reasoning effort" (the first live trial:
- * gemini-3.6-flash would not take "none"). So every setting is a
- * ladder — the first rung the model accepts wins, and the log and the
- * branch's description say which; "off" ends at the lowest effort the
- * model takes rather than failing the button. */
-const OFF = [
-  { reasoning_effort: 'none', thinking_budget: 0 },
-  { reasoning_effort: null, thinking_budget: 0 },
-  { reasoning_effort: 'minimal' },
-  { reasoning_effort: 'low' },
-];
+/* The knobs of the agent's LLM panel in ElevenLabs, in its words:
+ * Reasoning Effort (Default, Minimal, Low, Medium, High — the API's
+ * reasoning_effort, null for Default; none, xhigh and max exist in the
+ * API for some models), Temperature (the slider, or "don't send") and
+ * the Backup LLM configuration (Default, Disabled). A model takes only
+ * some efforts and refuses the rest with "Not supported reasoning
+ * effort"; the refusal is shown with the panel's own list, so the
+ * button and the panel read the same. "off" is taken as none. */
 const REASONING = {
-  keep: [null],
-  off: OFF,
-  none: OFF,
-  minimal: [{ reasoning_effort: 'minimal' }, { reasoning_effort: 'low' }],
-  low: [{ reasoning_effort: 'low' }],
-  medium: [{ reasoning_effort: 'medium' }],
-  high: [{ reasoning_effort: 'high' }],
-  xhigh: [{ reasoning_effort: 'xhigh' }],
-  max: [{ reasoning_effort: 'max' }],
+  keep: undefined, default: null, minimal: 'minimal', low: 'low', medium: 'medium', high: 'high',
+  xhigh: 'xhigh', max: 'max', none: 'none', off: 'none',
 };
-const describeRung = p => (!p ? 'the live setting'
-  : [p.reasoning_effort !== undefined ? `reasoning ${p.reasoning_effort === null ? 'unset' : p.reasoning_effort}` : '', p.thinking_budget !== undefined ? `thinking budget ${p.thinking_budget}` : ''].filter(Boolean).join(', '));
+const BACKUP = { keep: undefined, default: { preference: 'default' }, disabled: { preference: 'disabled' } };
+/* the panel's slider: 0 to 1; the API takes a double, and null omits it */
+function parseTemperature(x) {
+  const t = String(x == null ? '' : x).trim().toLowerCase();
+  if (t === '' || t === 'keep') return undefined;
+  if (t === 'none' || t === 'null' || t === "don't send") return null;
+  const n = Number(t);
+  if (!Number.isFinite(n) || n < 0 || n > 2) throw new UsageError(`--temperature is a number from 0 to 1 (the panel's slider; up to 2 on the API), none (don't send it) or keep — not "${x}"`);
+  return n;
+}
 async function modelBranch(ctx, flags) {
   const { log } = ctx;
   const model = String(flags.model || '').trim();
@@ -1477,54 +1482,56 @@ async function modelBranch(ctx, flags) {
   let want = String(flags.reasoning == null || flags.reasoning === '' ? 'keep' : flags.reasoning).trim().toLowerCase();
   /* a YAML form reads a bare "off" as the boolean false and hands it
    * over as the word — the same setting */
-  if (want === 'false' || want === 'no' || want === '0') want = 'off';
-  if (!(want in REASONING)) throw new UsageError(`--reasoning is one of keep, none, minimal, low, medium, high, xhigh, max (ElevenLabs' own words; off is taken as none) — not "${flags.reasoning}"`);
+  if (want === 'false' || want === 'no' || want === '0') want = 'none';
+  if (!(want in REASONING)) throw new UsageError(`--reasoning is one of keep, default, minimal, low, medium, high (the LLM panel's words; the API also takes none, xhigh, max) — not "${flags.reasoning}"`);
+  const temperature = parseTemperature(flags.temperature);
+  const backup = String(flags.backup == null || flags.backup === '' ? 'keep' : flags.backup).trim().toLowerCase();
+  if (!(backup in BACKUP)) throw new UsageError(`--backup is one of keep, default, disabled (the panel's Backup LLM configuration) — not "${flags.backup}"`);
   const { api, agentId } = needEleven(ctx);
   const agent = await api.getAgent(agentId);
   const parent = agent ? agent.version_id : '<version_id from GET agent>';
   if (agent && !parent) throw new Error(`GET agent ${agentId} returned no version_id — the agent has no committed version to branch from`);
   const live = llmSettings(agent);
-  if (live) log(`live Otto: model ${live.model || '?'}${live.reasoning ? ', reasoning ' + live.reasoning : ''}${live.thinking_budget != null ? ', thinking budget ' + live.thinking_budget : ''} (version ${parent})`);
-  const change = want === 'keep' ? '' : `, reasoning ${want}`;
+  if (live) log(`live Otto: ${describeSettings(live)} (version ${parent})`);
+  /* what this branch changes, in the panel's words — for the log, the
+   * branch's name and its description */
+  const changes = [
+    want === 'keep' ? '' : `reasoning ${want}`,
+    temperature === undefined ? '' : `temperature ${temperature === null ? 'not sent' : temperature}`,
+    backup === 'keep' ? '' : `backup ${backup}`,
+  ].filter(Boolean);
+  const change = changes.length ? ', ' + changes.join(', ') : '';
   /* ElevenLabs takes letters, digits, spaces and () [] {} - / . _ in a
    * branch name — no comma, no colon: the first trial was refused on
    * its own name. The default keeps to that set; a name given by hand
    * has the rest swapped for dashes */
   const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '.');
-  const name = String(flags.name || `model ${model}${want === 'keep' ? '' : ' reasoning ' + want} (${stamp})`).replace(/[^A-Za-z0-9 ()[\]{}\-/._]+/g, '-').trim();
-  const rungs = REASONING[want];
-  const refused = [];
-  let res = null, used = null;
-  for (const rung of rungs) {
-    const setAs = refused.length ? ` (set as ${describeRung(rung)}: this model does not take ${refused.join(' or ')})` : '';
-    const body = {
-      parent_version_id: parent,
-      name,
-      description: `model trial: ${model}${change}${setAs} — the prompt is the live one, unchanged`,
-      conversation_config: { agent: { prompt: { llm: model, ...(rung || {}) } } },
-    };
-    try {
-      res = await api.createBranch(agentId, body);
-      used = rung;
-      break;
-    } catch (e) {
-      /* no prompt in this body — what the API objected to is the model
-       * name or the reasoning setting, and it can say so */
-      const msg = String(e.message || e);
-      const aboutReasoning = (e.status === 400 || e.status === 422) && /reasoning|thinking/i.test(msg);
-      if (aboutReasoning && rung !== rungs[rungs.length - 1]) {
-        refused.push(describeRung(rung));
-        log(`  ${model} does not take ${describeRung(rung)} — trying the next setting`);
-        continue;
-      }
-      if (aboutReasoning) throw new Error(`${msg.slice(0, 300)} — ${model} takes none of the settings that mean "reasoning ${want}" (${[...refused, describeRung(rung)].join(', ')}). Its choices are in the agent's LLM settings in ElevenLabs; try another level, or "keep"`);
-      throw new Error(`${msg.slice(0, 400)} — ElevenLabs refused the branch. If its message names the model: the names it takes are in the agent's LLM settings and in the API reference (conversation_config.agent.prompt.llm)`);
+  const name = String(flags.name || `model ${model}${changes.length ? ' ' + changes.join(' ') : ''} (${stamp})`).replace(/[^A-Za-z0-9 ()[\]{}\-/._]+/g, '-').trim();
+  const prompt = { llm: model };
+  if (want !== 'keep') prompt.reasoning_effort = REASONING[want];
+  if (temperature !== undefined) prompt.temperature = temperature;
+  if (backup !== 'keep') prompt.backup_llm_config = BACKUP[backup];
+  const body = {
+    parent_version_id: parent,
+    name,
+    description: `model trial: ${model}${change} — the prompt is the live one, unchanged`,
+    conversation_config: { agent: { prompt } },
+  };
+  let res;
+  try {
+    res = await api.createBranch(agentId, body);
+  } catch (e) {
+    /* no prompt in this body — what the API objected to is a setting,
+     * and it can say so */
+    const msg = String(e.message || e);
+    if ((e.status === 400 || e.status === 422) && /reasoning|thinking/i.test(msg)) {
+      throw new Error(`${model} does not take reasoning ${want} — ElevenLabs answered: ${msg.slice(0, 300)}. The agent's LLM panel in ElevenLabs shows the efforts this model takes (Default, Minimal, Low, Medium, High, or fewer); pick one of those, or keep`);
     }
+    throw new Error(`${msg.slice(0, 400)} — ElevenLabs refused the branch. If its message names the model: the names it takes are in the agent's LLM settings and in the API reference (conversation_config.agent.prompt.llm)`);
   }
-  const setAs = refused.length ? ` (set as ${describeRung(used)} — this model does not take ${refused.join(' or ')})` : '';
   if (!res) return 0;
-  log(`branch "${name}" created: ${res.created_branch_id} (version ${res.created_version_id}, from ${parent}) — model ${model}${change}${setAs}`);
-  if (flags.out) writeJson(flags.out, { branch_id: res.created_branch_id, version_id: res.created_version_id, parent_version_id: parent, name, model, reasoning: want, set_as: used, at: new Date().toISOString() });
+  log(`branch "${name}" created: ${res.created_branch_id} (version ${res.created_version_id}, from ${parent}) — model ${model}${change}`);
+  if (flags.out) writeJson(flags.out, { branch_id: res.created_branch_id, version_id: res.created_version_id, parent_version_id: parent, name, model, reasoning: want, temperature: temperature === undefined ? 'keep' : temperature, backup, at: new Date().toISOString() });
   log(`next: node loop.mjs run --branch ${res.created_branch_id} --label model\n      node loop.mjs compare --base results/<main>.json --branch results/<model>.json`);
   return 0;
 }
@@ -1727,7 +1734,7 @@ export function agentRunRow(results, { runUrl = null, verdict = null, reason = n
   const distinct = k => [...new Set(src.map(t => t[k]).filter(Boolean))];
   const models = { otto: modelsOf(src), driver: distinct('driver_model'), judge: distinct('judge_model') };
   const settings = results && results.settings && typeof results.settings === 'object'
-    ? { model: text(results.settings.model), reasoning: text(results.settings.reasoning), thinking_budget: numOf(results.settings.thinking_budget), temperature: numOf(results.settings.temperature) }
+    ? { model: text(results.settings.model), reasoning: text(results.settings.reasoning), thinking_budget: numOf(results.settings.thinking_budget), temperature: numOf(results.settings.temperature), backup: text(results.settings.backup) }
     : null;
   /* the same, over the whole suite: "check 3 failed in 120 of 240 calls" */
   const byCheck = {};
@@ -1877,9 +1884,9 @@ const USAGE = `usage: node loop.mjs <command> [--dry-run] [--dir DIR] [flags]
   cut        [--field FILE]
   propose    [--results FILE] [--field FILE] [--prompt FILE | --agent] [--quiet]
   branch     --proposal FILE [--name TEXT]
-  model-branch --model NAME [--reasoning keep|none|minimal|low|medium|high|xhigh|max] [--name TEXT] [--out FILE]
-                                  a branch from the live version with only the language model (and its reasoning effort,
-                                  in ElevenLabs' words; "off" is taken as none) changed
+  model-branch --model NAME [--reasoning keep|default|minimal|low|medium|high] [--temperature 0..1|none] [--backup keep|default|disabled] [--name TEXT] [--out FILE]
+                                  a branch from the live version with only the LLM panel's knobs changed (the model, its
+                                  reasoning effort, the temperature, the backup LLM), in ElevenLabs' words
   compare    --base FILE --branch FILE [--margin 0.25]   (by situation: a drop is more than a quarter of its calls lost)
   promote    --branch ID|NAME [--target BRANCH_ID] [--force] [--quiet]
   publish    [--results FILE] [--run-url URL] [--verdict accept|reject] [--reason TEXT]
