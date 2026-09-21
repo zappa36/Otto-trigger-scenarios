@@ -1471,7 +1471,12 @@ async function modelBranch(ctx, flags) {
   const live = llmSettings(agent);
   if (live) log(`live Otto: model ${live.model || '?'}${live.reasoning ? ', reasoning ' + live.reasoning : ''}${live.thinking_budget != null ? ', thinking budget ' + live.thinking_budget : ''} (version ${parent})`);
   const change = want === 'keep' ? '' : `, reasoning ${want}`;
-  const name = flags.name || `model ${model}${change} (${new Date().toISOString().slice(0, 16).replace('T', ' ')})`;
+  /* ElevenLabs takes letters, digits, spaces and () [] {} - / . _ in a
+   * branch name — no comma, no colon: the first trial was refused on
+   * its own name. The default keeps to that set; a name given by hand
+   * has the rest swapped for dashes */
+  const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '.');
+  const name = String(flags.name || `model ${model}${want === 'keep' ? '' : ' reasoning ' + want} (${stamp})`).replace(/[^A-Za-z0-9 ()[\]{}\-/._]+/g, '-').trim();
   const body = {
     parent_version_id: parent,
     name,
@@ -1484,7 +1489,7 @@ async function modelBranch(ctx, flags) {
   } catch (e) {
     /* no prompt in this body — what the API objected to is the model
      * name or the reasoning setting, and it can say so */
-    throw new Error(`${String(e.message || e).slice(0, 400)} — ElevenLabs refused the model name or the reasoning setting. The names it takes are in the agent's LLM settings and in the API reference (conversation_config.agent.prompt.llm); reasoning is only available on some models`);
+    throw new Error(`${String(e.message || e).slice(0, 400)} — ElevenLabs refused the branch. If its message names the model or the reasoning: the names it takes are in the agent's LLM settings and in the API reference (conversation_config.agent.prompt.llm), and reasoning is only available on some models`);
   }
   if (!res) return 0;
   log(`branch "${name}" created: ${res.created_branch_id} (version ${res.created_version_id}, from ${parent}) — model ${model}${change}`);
