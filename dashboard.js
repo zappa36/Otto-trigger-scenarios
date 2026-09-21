@@ -493,7 +493,7 @@ function agentSuite() {
   const mine = agentRuns.filter(r => r && String(r.agent_id || '') === agentId);
   const mains = mine.filter(r => r.label === 'main');
   const main = mains[0] || null;
-  const branch = mine.find(r => r.branch_id && r !== main && (!main || agentTime(r) > agentTime(main))) || null;
+  const branch = mine.find(r => r.branch_id && r.label !== 'model' && r !== main && (!main || agentTime(r) > agentTime(main))) || null;
   return { agentId, main, prev: mains[1] || null, branch };
 }
 /* A test belongs to the card by the sheet number it was generated for,
@@ -1822,6 +1822,9 @@ function renderSituationsEmpty() {
  * its EVERY SITUATION table should be scrolled to on the way in */
 let openRunId = null;
 let runFocusSit = null;
+/* the RUNS tab's two views: the reports (one per run) or the MODELS
+ * table — every run on one line by model, speed and cost */
+let runsView = 'reports';
 
 const runById = id => agentRuns.find(r => r && String(r.id) === String(id)) || null;
 
@@ -2474,31 +2477,123 @@ function copySuggestion(btn) {
 }
 
 /* ---------- the run list ---------- */
+/* ---------- what a run says about the model ----------
+ * Every run since the model trials carries, in its summary: the LLM
+ * settings Otto ran with (settings — the model and its reasoning
+ * knobs, read from the version that ran), how fast he answered (speed
+ * — seconds to his first whole sentence, the median over his turns;
+ * or, when ElevenLabs sent no timings, the whole-second gap after the
+ * driver's turn, marked rough), what a call cost in model tokens
+ * (cost) and which models ElevenLabs says answered, drove and judged
+ * (models). An older run has none of it and shows dashes. */
+const runSettings = r => { const s = agentRunSummary(r); return s && s.settings && typeof s.settings === 'object' ? s.settings : null; };
+function runModel(r) {
+  const s = runSettings(r), sm = agentRunSummary(r);
+  const seen = sm && sm.models && Array.isArray(sm.models.otto) ? sm.models.otto.filter(Boolean) : [];
+  return String((s && s.model) || seen[0] || '');
+}
+const runReasoning = r => { const s = runSettings(r); return s && s.reasoning ? String(s.reasoning) : ''; };
+function runSpeed(r) {
+  const sm = agentRunSummary(r);
+  const sp = sm && sm.speed && typeof sm.speed === 'object' ? sm.speed : null;
+  if (!sp) return null;
+  const rough = sp.source !== 'metrics';
+  const secs = rough ? sp.gap_s : sp.answer_s;
+  if (secs == null || !isFinite(+secs)) return null;
+  return { secs: +secs, rough, call: sp.call_s == null || !isFinite(+sp.call_s) ? null : +sp.call_s, turns: +sp.turns || 0 };
+}
+function runCost(r) {
+  const sm = agentRunSummary(r);
+  const c = sm && sm.cost && typeof sm.cost === 'object' ? sm.cost : null;
+  return c && c.per_call_usd != null && isFinite(+c.per_call_usd) ? +c.per_call_usd : null;
+}
+const fmtSecs = s => (s == null ? '—' : (Math.round(+s * 10) / 10).toFixed(1) + ' s');
+const fmtUsd = c => (c == null ? '—' : '$' + (+c < 0.01 ? (+c).toFixed(4) : (+c).toFixed(3)));
+const speedTitle = sp => (sp.rough
+  ? `Whole seconds from the driver's turn to Otto's answer — ElevenLabs sent no finer timings — the median over ${sp.turns} turns`
+  : `Seconds until Otto's first whole sentence, the median over ${sp.turns} of his turns`);
+/* what a run was: the live prompt, a proposed prompt on a branch, or a
+ * model trial (the live prompt on a branch with another model) */
+const runWhat = r => (r.label === 'model' ? 'MODEL TRIAL' : r.label === 'branch' || r.branch_id ? 'PROPOSED PROMPT' : 'LIVE PROMPT');
+
+function renderRunViews() {
+  return `
+      <div class="rl-views">
+        <button class="mini-btn${runsView === 'models' ? '' : ' on'}" type="button" data-runs-view="reports" title="One report per run">REPORTS · ${agentRuns.length}</button>
+        <button class="mini-btn${runsView === 'models' ? ' on' : ''}" type="button" data-runs-view="models" title="Every run on one line: the model Otto ran on, how fast he answered, what a call cost">MODELS</button>
+      </div>`;
+}
+
 function renderRunList() {
   const note = suiteStateNote(true);
   if (note) return `<div class="rl-empty"><p class="cmp-empty agent-note">${note}</p></div>`;
+  if (runsView === 'models') return `<div class="rl-list">${renderRunViews()}${renderModelsView()}</div>`;
   const rows = agentRuns.map(r => {
     const roll = runRollup(r);
-    const label = r.label === 'branch' || r.branch_id ? 'PROPOSED PROMPT' : 'LIVE PROMPT';
     const verdict = r.verdict ? `<span class="rl-verdict ${r.verdict === 'accept' ? 'ok' : 'bad'}"
         title="${esc('The loop\'s own verdict on this run' + (r.verdict_reason ? ': ' + r.verdict_reason : ''))}">${esc(String(r.verdict).toUpperCase())}</span>` : '';
+    const model = runModel(r), reasoning = runReasoning(r), sp = runSpeed(r), cost = runCost(r);
+    const modelChip = model ? `<span class="rl-label rl-model" title="${esc('The language model Otto ran on' + (reasoning ? ', reasoning ' + reasoning : ''))}">${esc(model)}${reasoning ? ' · ' + esc(reasoning) : ''}</span>` : '';
+    const numbers = [
+      sp ? `<span title="${esc(speedTitle(sp))}">${sp.rough ? '≈' : ''}${esc(fmtSecs(sp.secs))} to answer</span>` : '',
+      cost != null ? `<span title="what a call cost in model tokens, on average">${esc(fmtUsd(cost))} a call</span>` : '',
+    ].filter(Boolean);
     return `
       <article class="rl-row" data-run="${esc(r.id)}" tabindex="0"
         title="${esc(`ran ${fmtTime(agentRanAt(r))} · label ${r.label || '?'} · agent ${r.agent_id || '?'}${r.branch_id ? ' · branch ' + r.branch_id : ''}`)}">
         <span class="rl-when" title="${esc(fmtTime(agentRanAt(r)))}">${esc(fmtAgo(agentRanAt(r)) || '—')}</span>
-        <span class="rl-label">${esc(label)}${roll.suite ? ' · ' + esc(roll.suite) : ''}${roll.repeat ? ' · ×' + roll.repeat : ''}</span>
+        <span class="rl-label">${esc(runWhat(r))}${roll.suite ? ' · ' + esc(roll.suite) : ''}${roll.repeat ? ' · ×' + roll.repeat : ''}</span>
+        ${modelChip}
         <span class="agent-chip ${runCls(roll.rate)}">${esc(runPct(roll.rate))}</span>
         <span class="rl-tests">${roll.passed} of ${roll.conv} calls passed · ${roll.perfect} of ${roll.nTests} tests passed every time</span>
+        ${numbers.length ? `<span class="rl-tests rl-numbers">${numbers.join(' · ')}</span>` : ''}
         ${verdict}
         ${/^https?:\/\//i.test(String(r.run_url || '')) ? `<a class="row-link" href="${esc(r.run_url)}" target="_blank" rel="noopener">open the GitHub run ↗</a>` : ''}
         <span class="rl-go">open the report →</span>
       </article>`;
   }).join('');
   return `
-    <div class="rl-list">
+    <div class="rl-list">${renderRunViews()}
       <p class="rl-intro">One report per test run: what went well, what went wrong, and what to change. Reading it changes nothing on the agent.</p>
       ${rows}
     </div>`;
+}
+
+/* ---------- the MODELS view ----------
+ * One line per run, whatever it was, so a model trial sits next to the
+ * baselines it is measured against. Fastest first among the runs that
+ * held up — a baseline, or a branch run the loop ACCEPTED — then the
+ * rejected ones, then the runs with no timings. A click opens the
+ * run's report, like a row of the list. */
+function renderModelsView() {
+  const rows = agentRuns.map(r => ({ r, roll: runRollup(r), model: runModel(r), reasoning: runReasoning(r), sp: runSpeed(r), cost: runCost(r) }));
+  const held = x => (x.r.verdict === 'reject' ? 0 : 1);
+  rows.sort((a, b) => (held(b) - held(a)) || ((a.sp ? 0 : 1) - (b.sp ? 0 : 1)) || ((a.sp ? a.sp.secs : 0) - (b.sp ? b.sp.secs : 0)) || (agentTime(b.r) - agentTime(a.r)));
+  const withNumbers = rows.filter(x => x.sp || x.cost != null || x.model).length;
+  const intro = `
+      <p class="rl-intro">Every run on one line: which model Otto ran on, how many calls passed, how fast he answered and what a call cost in model tokens. Fastest first among the runs that held up — a baseline, or a branch the loop accepted — and the rejected ones after. “To answer” is the seconds until Otto's first whole sentence, the median over his turns.${withNumbers ? '' : ' Runs from before the model trials have no numbers here.'} To try another model: Actions → agent-suite → Run workflow → <b>models</b>.</p>`;
+  const tr = x => {
+    const { r, roll, sp } = x;
+    const verdict = r.verdict
+      ? `<span class="rl-verdict ${r.verdict === 'accept' ? 'ok' : 'bad'}" title="${esc(r.verdict_reason || '')}">${esc(String(r.verdict).toUpperCase())}</span>`
+      : r.label === 'main' ? '<span class="rl-verdict plain" title="The live prompt, the run the branches are measured against">BASELINE</span>' : '';
+    return `
+        <tr data-run="${esc(r.id)}" tabindex="0" title="${esc(`ran ${fmtTime(agentRanAt(r))} · ${runWhat(r).toLowerCase()} · click for the report`)}">
+          <td class="rm-when">${esc(fmtAgo(agentRanAt(r)) || '—')}</td>
+          <td class="rm-model">${x.model ? esc(x.model) : '<span class="rm-dim">not recorded</span>'}${x.reasoning ? `<span class="rm-dim"> · ${esc(x.reasoning)}</span>` : ''}</td>
+          <td class="rm-what">${esc(runWhat(r))}</td>
+          <td class="rm-num"><span class="agent-chip ${runCls(roll.rate)}">${esc(runPct(roll.rate))}</span> <span class="rm-dim">${roll.passed} of ${roll.conv}</span></td>
+          <td class="rm-num" title="${esc(sp ? speedTitle(sp) : 'no timings on this run')}">${sp ? (sp.rough ? '≈' : '') + esc(fmtSecs(sp.secs)) : '—'}</td>
+          <td class="rm-num">${sp && sp.call != null ? esc(fmtSecs(sp.call)) : '—'}</td>
+          <td class="rm-num">${x.cost != null ? esc(fmtUsd(x.cost)) : '—'}</td>
+          <td>${verdict}</td>
+        </tr>`;
+  };
+  return `${intro}
+      <table class="rm-table">
+        <thead><tr><th>when</th><th>model</th><th>what ran</th><th>calls passed</th><th>to answer</th><th>a call lasts</th><th>cost a call</th><th>verdict</th></tr></thead>
+        <tbody>${rows.map(tr).join('')}</tbody>
+      </table>`;
 }
 
 /* ---------- one real call, as evidence ----------
@@ -2689,7 +2784,10 @@ function renderRunSummary(run) {
         ${shape ? `<p class="rs-note">${esc(shape)}</p>` : ''}
         <p class="rs-meta">
           <span title="${esc(fmtTime(agentRanAt(run)))}">ran ${esc(fmtAgo(agentRanAt(run)) || '—')}</span>
-          · <span>${esc(run.label === 'branch' || run.branch_id ? 'a proposed prompt on a branch' : 'the live prompt')}</span>
+          · <span>${esc(run.label === 'model' ? 'a model trial on a branch — the live prompt, another model' : run.label === 'branch' || run.branch_id ? 'a proposed prompt on a branch' : 'the live prompt')}</span>
+          ${runModel(run) ? `· <span title="The language model Otto ran on, as set on the version that ran">Otto on ${esc(runModel(run))}${runReasoning(run) ? ', reasoning ' + esc(runReasoning(run)) : ''}</span>` : ''}
+          ${(() => { const sp = runSpeed(run); return sp ? `· <span title="${esc(speedTitle(sp))}">${sp.rough ? '≈' : ''}${esc(fmtSecs(sp.secs))} to answer${sp.call != null ? ', a call lasts ' + esc(fmtSecs(sp.call)) : ''}</span>` : ''; })()}
+          ${runCost(run) != null ? `· <span title="what a call cost in model tokens, on average">${esc(fmtUsd(runCost(run)))} a call</span>` : ''}
           · <span>agent ${esc(run.agent_id || '?')}</span>
           ${run.branch_id ? `· <span>branch ${esc(run.branch_id)}</span>` : ''}
           ${run.verdict ? `· <span class="${run.verdict === 'accept' ? 'ok' : 'bad'}">${esc(String(run.verdict).toUpperCase())}${run.verdict_reason ? ' — ' + esc(run.verdict_reason) : ''}</span>` : ''}
@@ -4448,6 +4546,8 @@ el('list').addEventListener('click', e => {
       if (act.dataset.runAct === 'all') { openRunId = null; runFocusSit = null; render(); }
       return;
     }
+    const view = e.target.closest('[data-runs-view]');
+    if (view) { runsView = view.dataset.runsView === 'models' ? 'models' : 'reports'; render(); return; }
     /* a row of the EVERY SITUATION table opens that situation's card —
      * the row is where it gets edited, and this page never edits */
     const sj = e.target.closest('[data-sitjump]');

@@ -5,7 +5,16 @@
       "test_run_id": "run_1", "test_invocation_id": "inv_1", "agent_id": "agent_test1", "status": "passed",
       "test_id": "test_001", "test_name": "Otto · #1 Parking loops · cooperative",
       "condition_result": { "result": "success", "rationale": { "messages": ["Criterion 1: PASS. Opened with the question.", "Criterion 2: PASS. Got a parking tip."], "summary": "" } },
-      "agent_responses": [{ "role": "agent", "time_in_call_secs": 0, "message": "Is it hard to park here at this time? Where did you find a spot?" }],
+      "agent_responses": [
+        { "role": "user", "time_in_call_secs": 3, "message": "Hi, done with the stop." },
+        { "role": "agent", "time_in_call_secs": 5, "message": "Is it hard to park here at this time? Where did you find a spot?", "producing_llm": "gpt-4o-mini",
+          "conversation_turn_metrics": { "metrics": { "convai_llm_service_ttfb": { "elapsed_time": 0.6 }, "convai_llm_service_ttf_sentence": { "elapsed_time": 0.9 } } },
+          "llm_usage": { "model_usage": { "gpt-4o-mini": { "input": { "tokens": 1200, "price": 0.00018 }, "input_cache_read": { "tokens": 0, "price": 0 }, "input_cache_write": { "tokens": 0, "price": 0 }, "output_total": { "tokens": 40, "price": 0.000024 } } } } },
+        { "role": "user", "time_in_call_secs": 9, "message": "Easy, right outside." },
+        { "role": "agent", "time_in_call_secs": 11, "message": "Thanks, safe travels.", "producing_llm": "gpt-4o-mini",
+          "conversation_turn_metrics": { "metrics": { "convai_llm_service_ttfb": { "elapsed_time": 0.4 }, "convai_llm_service_ttf_sentence": { "elapsed_time": 0.7 } } },
+          "llm_usage": { "model_usage": { "gpt-4o-mini": { "input": { "tokens": 1300, "price": 0.000195 }, "output_total": { "tokens": 12, "price": 0.0000072 } } } } }
+      ],
       "last_updated_at_unix": 1789000100, "branch_id": null, "version_id": "agtvrsn_v1"
     },
     {
@@ -14,7 +23,8 @@
       "condition_result": { "result": "failure", "rationale": { "messages": ["Criterion 1: PASS. It opened correctly.", "Criterion 2: FAIL. Asked four questions.", "Criterion 3: FAIL. Did not let the tester go."], "summary": "The agent asked four questions and never let the tester go. It opened correctly." } },
       "agent_responses": [
         { "role": "agent", "time_in_call_secs": 0, "tool_calls": [{ "request_id": "req_1", "tool_name": "report_incident", "params_as_json": "{\"summary\":\"parking\"}" }] },
-        { "role": "agent", "time_in_call_secs": 0, "message": "Is it hard to park here at this time? Where did you find a spot?" }
+        { "role": "agent", "time_in_call_secs": 0, "message": "Is it hard to park here at this time? Where did you find a spot?", "producing_llm": "gpt-4o-mini",
+          "conversation_turn_metrics": { "metrics": { "convai_llm_service_ttfb": { "elapsed_time": 1.0 }, "convai_llm_service_ttf_sentence": { "elapsed_time": 1.5 } } } }
       ],
       "last_updated_at_unix": 1789000101, "branch_id": null, "version_id": "agtvrsn_v1"
     },
@@ -28,7 +38,12 @@
       "test_run_id": "run_4", "test_invocation_id": "inv_1", "agent_id": "agent_test1", "status": "passed",
       "test_id": "test_pre8", "test_name": "Otto · #8 Blocked route · terse",
       "condition_result": { "result": "success", "rationale": { "messages": [], "summary": "" } },
-      "agent_responses": [], "last_updated_at_unix": 1789000103, "branch_id": null, "version_id": "agtvrsn_v1"
+      "agent_responses": [
+        { "role": "user", "time_in_call_secs": 2, "message": "Road was shut." },
+        { "role": "agent", "time_in_call_secs": 6, "message": "Which street was closed?" },
+        { "role": "user", "time_in_call_secs": 10, "message": "Danziger." },
+        { "role": "agent", "time_in_call_secs": 12, "message": "Thanks, bye." }
+      ], "last_updated_at_unix": 1789000103, "branch_id": null, "version_id": "agtvrsn_v1"
     },
     {
       "test_run_id": "run_5", "test_invocation_id": "inv_1", "agent_id": "agent_test1", "status": "passed",
