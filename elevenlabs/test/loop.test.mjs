@@ -207,7 +207,7 @@ test('model-branch cuts a branch from the live version with only the language mo
   assert.match(r.out, /branch "model gpt-4\.1-mini reasoning low \(.*\)" created: agtbrch_loop1 \(version agtvrsn_b1, from agtvrsn_v1\) — model gpt-4\.1-mini, reasoning low/);
   assert.match(r.out, /next: node loop\.mjs run --branch agtbrch_loop1 --label model/);
   const wrote = readJson(out);
-  assert.deepEqual({ ...wrote, name: '', at: '' }, { branch_id: 'agtbrch_loop1', version_id: 'agtvrsn_b1', parent_version_id: 'agtvrsn_v1', name: '', model: 'gpt-4.1-mini', reasoning: 'low', at: '' });
+  assert.deepEqual({ ...wrote, name: '', at: '' }, { branch_id: 'agtbrch_loop1', version_id: 'agtvrsn_b1', parent_version_id: 'agtvrsn_v1', name: '', model: 'gpt-4.1-mini', reasoning: 'low', set_as: { reasoning_effort: 'low' }, at: '' });
   /* reasoning off turns both knobs off; keep (the default) sends the model alone; a name of one's own is taken */
   mock.reset(); mock.requests.length = 0;
   r = await loop(['model-branch', '--model', 'gemini-2.5-flash', '--reasoning', 'off', '--name', 'flash: no thinking, please'], dir);
@@ -243,6 +243,37 @@ test('model-branch cuts a branch from the live version with only the language mo
   assert.equal(r.code, 1);
   assert.match(r.out, /model-branch failed: 422 from POST \/v1\/convai\/agents\/agent_test1\/branches: .*— ElevenLabs refused the branch\./);
   mock.state.branchRefuses = 0;
+  /* a model that will not switch reasoning off ("Not supported
+   * reasoning effort", as gemini-3.6-flash answered live) gets the
+   * lowest setting it takes, and the log and the description say so */
+  mock.reset(); mock.requests.length = 0;
+  mock.state.refuseReasoning = ['none', 'null'];
+  r = await loop(['model-branch', '--model', 'gemini-3.6-flash', '--reasoning', 'off', '--out', out], dir);
+  assert.equal(r.code, 0, r.out);
+  const tries = sent('POST', /\/branches$/);
+  assert.equal(tries.length, 3, 'none with budget 0, then unset with budget 0, then minimal');
+  assert.deepEqual(tries[0].body.conversation_config.agent.prompt, { llm: 'gemini-3.6-flash', reasoning_effort: 'none', thinking_budget: 0 });
+  assert.deepEqual(tries[1].body.conversation_config.agent.prompt, { llm: 'gemini-3.6-flash', reasoning_effort: null, thinking_budget: 0 });
+  assert.deepEqual(tries[2].body.conversation_config.agent.prompt, { llm: 'gemini-3.6-flash', reasoning_effort: 'minimal' });
+  assert.equal(tries[2].body.description, 'model trial: gemini-3.6-flash, reasoning off (set as reasoning minimal: this model does not take reasoning none, thinking budget 0 or reasoning unset, thinking budget 0) — the prompt is the live one, unchanged');
+  assert.match(r.out, /gemini-3\.6-flash does not take reasoning none, thinking budget 0 — trying the next setting\n\s+gemini-3\.6-flash does not take reasoning unset, thinking budget 0 — trying the next setting/);
+  assert.match(r.out, /created: agtbrch_loop1 .*— model gemini-3\.6-flash, reasoning off \(set as reasoning minimal — this model does not take reasoning none, thinking budget 0 or reasoning unset, thinking budget 0\)/);
+  assert.deepEqual(readJson(out).set_as, { reasoning_effort: 'minimal' });
+  assert.equal(mock.state.branches.length, 1, 'one branch made');
+  /* a level the model does not take at all is refused with its choices named */
+  mock.reset(); mock.requests.length = 0;
+  mock.state.refuseReasoning = ['medium'];
+  r = await loop(['model-branch', '--model', 'gpt-4.1', '--reasoning', 'medium'], dir);
+  assert.equal(r.code, 1);
+  assert.equal(sent('POST', /\/branches$/).length, 1, 'no other rung to try');
+  assert.match(r.out, /gpt-4\.1 takes none of the settings that mean "reasoning medium" \(reasoning medium\)\. Its choices are in the agent's LLM settings in ElevenLabs; try another level, or "keep"/);
+  mock.reset(); mock.requests.length = 0;
+  mock.state.refuseReasoning = ['none', 'null', 'minimal', 'low'];
+  r = await loop(['model-branch', '--model', 'gpt-4.1', '--reasoning', 'off'], dir);
+  assert.equal(r.code, 1);
+  assert.equal(sent('POST', /\/branches$/).length, 4, 'every rung tried');
+  assert.match(r.out, /gpt-4\.1 takes none of the settings that mean "reasoning off"/);
+  mock.state.refuseReasoning = [];
   /* a dry run prints the request and sends nothing */
   mock.requests.length = 0;
   r = await loop(['model-branch', '--model', 'gpt-4.1-mini', '--dry-run'], dir);
