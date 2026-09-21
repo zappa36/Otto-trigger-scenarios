@@ -89,7 +89,10 @@ When ElevenLabs sends no per-turn timings, the whole-second gap between
 the driver's turn and Otto's stands in, and the line says so. `publish`
 puts all of it on the run's row (`summary.settings`, `.speed`, `.cost`,
 `.models`, and `speed` / `cost` per test), which is what the MODELS
-view of the dashboard's RUNS tab lines up.
+view of the dashboard's RUNS tab lines up — best conversations first
+(the calls the judge passed, counted on the same tests as the live
+prompt), the seconds and the cents beside them, and under the table
+the same call on each model to read side by side.
 
 **A model trial** is a branch that differs from the live Otto in one
 thing. `model-branch --model gpt-4.1-mini --reasoning low` cuts it from
@@ -358,7 +361,7 @@ row edited on the dashboard is in the next press.
 | **propose** | the field again → `propose --quiet` → `branch` → `run --branch … --label branch` → `compare` against the latest baseline → `publish` with the verdict | the branch run's table, **ACCEPT** or **REJECT** with the branch id, and the next button — *not* the proposal, the diff or the note |
 | **try** | `run --branch <branch from the form> --label branch` → `compare` against the latest baseline → `publish` with the verdict | the same, for a branch that already exists: a prompt edited by hand in the ElevenLabs dashboard, tried without a model and without `OPENAI_API_KEY`. The form takes the branch's **name** as typed in ElevenLabs or its `agtbrch_…` id; the agent's own id is refused by name |
 | **promote** | `promote --branch <branch_id from the form> --quiet` → `run --label main` → `publish` | the new baseline |
-| **models** | `model-branch --model <model> --reasoning <reasoning>` → `run --branch … --rows <rows> --label model` → `compare` against the latest baseline → `publish` with the verdict | a model trial: the live prompt on another model, on the rows the form names (a quick trial of seven by default: a dog, a gate code, a wrong pin, a dark stairwell, a normal delivery, a fire, a storm — `repeat` 1 makes it 35 calls), **ACCEPT** or **REJECT**, the seconds per answer and the cost per call. The branch stays; nothing is promoted. The dashboard's RUNS tab has a MODELS view that lines the trials up, fastest first among those that held up |
+| **models** | `model-branch --model <model> --reasoning <reasoning>` → `run --branch … --rows <rows> --label model` → `compare` against the latest baseline → `publish` with the verdict | a model trial: the live prompt on another model, on the rows the form names (a quick trial of seven by default: a dog, a gate code, a wrong pin, a dark stairwell, a normal delivery, a fire, a storm — `repeat` 1 makes it 35 calls), **ACCEPT** or **REJECT**, the seconds per answer and the cost per call. The branch stays; nothing is promoted. The dashboard's RUNS tab has a MODELS view that lines the trials up next to the live prompt, best conversations first, with the same call on each model to read |
 
 One-time setup, in the browser: Settings → Secrets and variables →
 Actions. Add `ELEVENLABS_API_KEY` as a **secret**, `ELEVENLABS_AGENT_ID`
