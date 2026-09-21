@@ -1459,7 +1459,10 @@ async function modelBranch(ctx, flags) {
   const model = String(flags.model || '').trim();
   if (!model) throw new UsageError('--model NAME is required — the language model as ElevenLabs names it (gpt-4.1-mini, gemini-2.5-flash, claude-haiku-4-5, …)');
   if (!/^[a-z0-9][a-z0-9._:/-]*$/i.test(model)) throw new UsageError(`"${model}" does not look like a model name — letters, digits, dots and dashes, as ElevenLabs spells it`);
-  const want = String(flags.reasoning == null || flags.reasoning === '' ? 'keep' : flags.reasoning).trim().toLowerCase();
+  let want = String(flags.reasoning == null || flags.reasoning === '' ? 'keep' : flags.reasoning).trim().toLowerCase();
+  /* a YAML form reads a bare "off" as the boolean false and hands it
+   * over as the word — the same setting */
+  if (want === 'false' || want === 'no' || want === '0') want = 'off';
   if (!(want in REASONING)) throw new UsageError(`--reasoning is one of keep, off, minimal, low, medium, high, xhigh, max — not "${flags.reasoning}"`);
   const { api, agentId } = needEleven(ctx);
   const agent = await api.getAgent(agentId);
