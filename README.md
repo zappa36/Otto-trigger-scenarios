@@ -483,6 +483,7 @@ press runs that stage and writes its table into the run's job summary:
 | Button | What runs | Then |
 |---|---|---|
 | **configure** | `analysis.json` onto the agent — the criteria, the data collection, the overrides | **baseline** |
+| **settings** | nothing runs: prints what the live Otto runs on right now — model, reasoning effort, temperature, backup — so a change made in the ElevenLabs panel can be checked for free | **baseline** to measure it |
 | **baseline** | `push-tests`, then the suite on the live agent (`repeat` runs per test); also every Monday 06:00 UTC | testers drive; grade their debriefs |
 | **field** | `pull` the last `days` of conversations with their grades, `score`, `cut` the regressions, register them | **propose** |
 | **propose** | the field again, `propose` the prompt diff, `branch` it onto the agent, the suite on that branch, `compare` against the latest baseline — **ACCEPT** or **REJECT**, and the branch id | **promote** on ACCEPT |

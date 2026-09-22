@@ -273,6 +273,19 @@ test('model-branch cuts a branch from the live version with only the LLM panel\'
   assert.match(r.out, /POST .*\/branches/);
 });
 
+test('settings prints what the live Otto runs on — the panel\'s knobs, nothing of the prompt', async () => {
+  const dir = workdir();
+  const r = await loop(['settings'], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(sent('GET', /\/v1\/convai\/agents\/agent_test1$/).length, 1, 'one GET of the agent, nothing else');
+  assert.equal(mock.requests.length, 1);
+  assert.match(r.out, /^live Otto \(version agtvrsn_v1\): model gpt-4o-mini, reasoning default$/m);
+  assert.doesNotMatch(r.out, /Ask where they parked|You are Otto|prompt:/i, 'the prompt stays where it is');
+  const q = await loop(['settings', '--quiet'], dir);
+  assert.equal(q.code, 0);
+  assert.match(q.out, /live Otto \(version agtvrsn_v1\)/);
+});
+
 test('run --rows runs only those situation rows', async () => {
   const dir = workdir();
   rmSync(path.join(dir, 'test_configs'), { recursive: true, force: true });

@@ -47,6 +47,11 @@ name: agent-suite
 #                 promote    merge that branch into the agent's main
 #                            branch (branch_id below), then a fresh
 #                            baseline → "loop-baseline"
+#                 settings   free: prints what the live Otto runs on right
+#                            now — model, reasoning effort, temperature,
+#                            backup — so a change made in the ElevenLabs
+#                            panel can be checked before a baseline is
+#                            spent measuring it
 #                 models     a model trial: a branch cut from the live
 #                            version with only the language model (and
 #                            the LLM panel's knobs: reasoning effort,
@@ -152,6 +157,7 @@ on:
           - try
           - promote
           - models
+          - settings
       suite:
         description: "Which tests to run: the situations (what a driver reports — the pilot's suite), the trigger scenarios, or both"
         type: choice
@@ -371,8 +377,19 @@ jobs:
       # button never comes back with nothing to run. The trigger tests
       # are committed and need no step.
       - name: Generate the situation tests from the live rows
-        if: steps.plan.outputs.go == 'true' && steps.plan.outputs.action != 'configure'
+        if: steps.plan.outputs.go == 'true' && steps.plan.outputs.action != 'configure' && steps.plan.outputs.action != 'settings'
         run: node generate-tests.mjs --situations
+
+      # ---------- settings ----------
+      # Free, and quick: one GET of the agent, the LLM panel's knobs
+      # printed, nothing of the prompt. The answer to "did my change in
+      # ElevenLabs land?" before a baseline is spent measuring it.
+      - name: Show what the live Otto runs on
+        if: steps.plan.outputs.go == 'true' && steps.plan.outputs.action == 'settings'
+        run: |
+          node loop.mjs settings | tee "$RUNNER_TEMP/settings.txt"
+          { echo; echo "### The live Otto right now"; echo; echo '```'; cat "$RUNNER_TEMP/settings.txt"; echo '```'; echo
+            echo "Nothing ran and nothing changed. Next button: **baseline** to measure these settings, or change them in the agent's LLM panel in ElevenLabs and press **settings** again."; } >> "$GITHUB_STEP_SUMMARY"
 
       # ---------- baseline ----------
       # only the suite being run: a situations baseline has no business
@@ -628,7 +645,7 @@ jobs:
       # forgets. A commit made with the workflow token starts no other
       # workflow, so this cannot loop.
       - name: Commit what the loop wrote back to the branch
-        if: ${{ !cancelled() && steps.plan.outputs.go == 'true' && steps.plan.outputs.action != 'configure' }}
+        if: ${{ !cancelled() && steps.plan.outputs.go == 'true' && steps.plan.outputs.action != 'configure' && steps.plan.outputs.action != 'settings' }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
