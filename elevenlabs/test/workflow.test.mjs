@@ -103,7 +103,11 @@ test('every suite the buttons run generates the situation tests from the live ro
   const all = steps(live);
   const gen = all.findIndex(s => /node generate-tests\.mjs --situations/.test(s.text));
   assert.ok(gen >= 0, 'no step generates the situation tests');
-  assert.match(all[gen].text, /if: steps\.plan\.outputs\.go == 'true' && steps\.plan\.outputs\.action != 'configure'/, 'the generate step skips only configure');
+  assert.match(all[gen].text, /if: steps\.plan\.outputs\.go == 'true' && steps\.plan\.outputs\.action != 'configure' && steps\.plan\.outputs\.action != 'settings'/, 'the generate step skips only configure and settings, the two that run no suite');
+  const show = all.find(s => /node loop\.mjs settings/.test(s.text));
+  assert.ok(show, 'no step shows the live settings');
+  assert.match(show.text, /if: steps\.plan\.outputs\.go == 'true' && steps\.plan\.outputs\.action == 'settings'/);
+  assert.match(readFileSync(WORKFLOW, 'utf8'), /^          - settings$/m, 'settings is not a choice of the action dropdown');
   const push = all.findIndex(s => /node loop\.mjs push-tests/.test(s.text));
   assert.ok(push > gen, 'push-tests runs before the situation tests are generated');
   for (const action of ['baseline', 'field', 'propose', 'try', 'models']) {

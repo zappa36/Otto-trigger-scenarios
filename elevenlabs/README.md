@@ -50,6 +50,7 @@ node generate-tests.mjs --situations [--supabase [URL KEY] | --sheet | --file JS
 node loop.mjs <command> [--dry-run] [--quiet] [--dir DIR] [flags]
 
 configure                       evaluation + data collection + overrides (analysis.json) onto the agent
+settings                        what the live Otto runs on right now: model, reasoning effort, temperature, backup (no prompt)
 push-tests [--no-mock-tools]    test_configs/**.json -> ElevenLabs tests, by name; writes tests.lock.json;
                                   the agent's tools are mocked for the suite (a client tool has no phone to answer it)
 run        [--branch ID|NAME] [--repeat N=3] [--filter TEXT] [--rows 6,8,10] [--label TEXT]
@@ -371,6 +372,7 @@ row edited on the dashboard is in the next press.
 | Button | Runs | Summary ends with |
 |---|---|---|
 | **configure** | `configure` | the next button |
+| **settings** | `settings` — one GET of the agent, the LLM panel's knobs printed (model, reasoning effort, temperature, backup), nothing of the prompt; no suite, no cost | what the live Otto runs on right now |
 | **baseline** | `generate --situations` → `push-tests` → `run --label main` → `publish` (`repeat` from the form; Mondays 06:00 UTC too) | the suite's pass rates |
 | **field** | `pull --days N` → `score` → `cut` → `push-tests` | what was pulled, scored and cut — and how fast Otto answered ([reply speed](#reply-speed)) |
 | **propose** | the field again → `propose --quiet` → `branch` → `run --branch … --label branch` → `compare` against the latest baseline → `publish` with the verdict | the branch run's table, **ACCEPT** or **REJECT** with the branch id, and the next button — *not* the proposal, the diff or the note |

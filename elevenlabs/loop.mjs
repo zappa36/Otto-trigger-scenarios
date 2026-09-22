@@ -1442,6 +1442,22 @@ async function branch(ctx, flags) {
   return 0;
 }
 
+/* ---------- settings ----------
+ * What the live Otto runs on right now — the LLM panel's knobs of the
+ * version the agent is on, and nothing of the prompt beside them. A
+ * free button: the answer to "did my change in ElevenLabs land?"
+ * before a baseline is spent measuring it. */
+async function settings(ctx) {
+  const { log } = ctx;
+  const { api, agentId } = needEleven(ctx);
+  const agent = await api.getAgent(agentId);
+  if (!agent) return 0;
+  const s = llmSettings(agent);
+  log(`live Otto (version ${agent.version_id || '?'}): ${s ? describeSettings(s) : 'no LLM settings found on the agent'}`);
+  log('next: node loop.mjs run --label main     # a baseline measures these settings');
+  return 0;
+}
+
 /* ---------- model-branch ----------
  * A branch that differs from the live Otto in ONE thing: the language
  * model, and with it how much it is let think. The prompt, the voice,
@@ -1866,7 +1882,7 @@ async function publish(ctx, flags) {
 
 /* ---------- the command line ---------- */
 
-const COMMANDS = { configure, 'push-tests': pushTests, run, pull, score, cut, propose, branch, 'model-branch': modelBranch, compare, promote, publish };
+const COMMANDS = { configure, settings, 'push-tests': pushTests, run, pull, score, cut, propose, branch, 'model-branch': modelBranch, compare, promote, publish };
 const BOOLEAN_FLAGS = new Set(['dry-run', 'agent', 'no-stamp', 'force', 'help', 'no-mock-tools', 'quiet']);
 
 export function parseArgs(argv) {
@@ -1889,6 +1905,7 @@ export function parseArgs(argv) {
 const USAGE = `usage: node loop.mjs <command> [--dry-run] [--dir DIR] [flags]
 
   configure                       evaluation criteria + data collection + overrides (analysis.json) onto the agent
+  settings                        what the live Otto runs on right now: model, reasoning effort, temperature, backup (no prompt)
   push-tests [--filter TEXT] [--no-mock-tools]
                                   test_configs/**.json -> ElevenLabs tests, by name; writes tests.lock.json;
                                   the agent's tools are mocked for the suite (a client tool has no phone to answer it)
