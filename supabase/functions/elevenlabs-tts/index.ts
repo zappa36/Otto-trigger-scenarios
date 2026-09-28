@@ -83,6 +83,12 @@ Deno.serve(async (req) => {
         body: JSON.stringify({ text, model_id: model }),
       },
     );
+    // Which ElevenLabs region answered — USA, Netherlands or Singapore.
+    // ElevenLabs picks it by where the request comes from, and this
+    // function runs near the phone, so this is the region the drivers'
+    // readings actually go through. One line per reading in the
+    // function's logs: Dashboard -> Edge Functions -> elevenlabs-tts -> Logs.
+    console.log(`elevenlabs region: ${r.headers.get('x-region') || '(no x-region header)'} (HTTP ${r.status})`);
     if (!r.ok || !r.body) return fail(502, `tts failed: ${(await r.text()).slice(0, 300)}`);
 
     // The body is handed on as the stream it is: nothing is collected

@@ -61,6 +61,12 @@ Deno.serve(async (req) => {
       `https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=${encodeURIComponent(agentId)}`,
       { headers: { 'xi-api-key': key } },
     );
+    // Which ElevenLabs region answered — USA, Netherlands or Singapore.
+    // Picked by where the request comes from; this function runs near
+    // the phone, so it is the region the conversations are signed in.
+    // One line per conversation in the function's logs:
+    // Dashboard -> Edge Functions -> elevenlabs-token -> Logs.
+    console.log(`elevenlabs region: ${r.headers.get('x-region') || '(no x-region header)'} (HTTP ${r.status})`);
     if (!r.ok) return fail(502, `signing failed: ${(await r.text()).slice(0, 300)}`);
 
     const d = await r.json();
