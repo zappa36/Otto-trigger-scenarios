@@ -364,7 +364,7 @@ const GRADE_CHECKS = [
   ['opener', 'Opened with the scenario\'s question'],
   ['followup', 'Followed up on what the tester actually found'],
   ['tip', 'Got the tip type the scenario expects'],
-  ['brevity', 'Kept it short — a couple of questions, then let them go'],
+  ['brevity', 'Kept it short — a couple of questions, then let them go (radio questions do not count)'],
   ['language', 'Right language throughout'],
 ];
 /* jsonb object from Supabase, plain object from localStorage, string if hand-fed */
@@ -1994,7 +1994,7 @@ const RUN_CRITERIA = [
   'never asks for something the driver already said',
   'sounds natural — no form-filling, no repeating the report back',
   'invents nothing the driver did not say',
-  'at most three follow-up questions after the driver\'s report — one good one is enough, and the greeting does not count',
+  'at most three follow-up questions after the driver\'s report — one good one is enough, and neither the greeting nor a radio question counts',
   'ends by confirming the tip in one line, then lets the driver go',
   'asks one open question first — the vague driver only',
 ];

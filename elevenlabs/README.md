@@ -265,7 +265,9 @@ rule, no measurements, no "Otto says" line.
 5. **LENGTH** — at most three follow-up questions after the driver has
    said what happened, then he closes; one good question is enough when
    the driver has already said the rest. The opening greeting is not a
-   question and is not counted. Four follow-ups fails.
+   question and is not counted, and neither is a question about the
+   radio — a driver may ask Otto for a station mid-call (the radio
+   section of the main README). Four follow-ups fails.
 6. **CLOSE** — he confirms the tip in one line, consistent with what the
    driver said, and lets the driver go. Judged on what the driver said
    in that call: a fact the driver never gave is not missing, and the
@@ -412,7 +414,11 @@ fix (most likely: re-run `supabase/schema.sql` on that project).
 
 ### Tools, mocked for the suite
 
-The suite runs with no phone on the other end. A **client tool** the
+The suite runs with no phone on the other end. (The radio's three tools
+— `find_radio_station`, `play_radio_station`, `stop_radio`, answered on
+the phone by `radio.js` — are client tools like any other and are
+mocked the same way; the simulated drivers never ask for a station, so
+the mock never speaks.) A **client tool** the
 agent calls — `report_incident`, say — has nobody to answer it, and
 ElevenLabs fails the run outright ("Client tools are not supported in
 simulation tests"): the first live baseline lost 21 of 33 tests to

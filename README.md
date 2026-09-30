@@ -1064,6 +1064,101 @@ phone's. Re-run [`supabase/schema.sql`](supabase/schema.sql) once
 (or paste just its `dart_throws` block) to add the table; until then
 the phone plays and warns in the console that nothing was saved.
 
+## The radio — a station by asking Otto
+
+Drivers are on their own all day, and a van has a radio. So the phone
+has one too, and Otto is the dial: press **REPORT**, say "put on some
+jazz from Germany", and Otto reads out the three best matches — "1:
+Smooth Jazz from Germany, 2: JazzRadio Berlin, 3: …" — asks which
+one, and it plays. "Otto, radio off" stops it. The same REPORT button,
+the same Otto, the same voice: a report and a station can share a
+call, and a call that was only a station files nothing — no debrief on
+the dashboard, no dart.
+
+The stations come from [Radio Browser](https://www.radio-browser.info),
+a community-run directory of about sixty thousand live stations
+worldwide: free, no key, searchable by name, style, country, place and
+language, and it answers the phone directly. Otto turns what the driver
+said into that search — "Italian news" becomes a style and a language,
+"SWR3" a name — and the phone plays the stream
+([`radio.js`](radio.js)).
+
+**What was decided, and how it shows:**
+
+- **Secure stations only.** The app page is https, and a secure page
+  refuses an insecure stream. The search asks the directory for https
+  stations and checks each one again (a working certificate, a codec
+  the phone plays, no HLS). About one in three popular stations
+  qualifies — SWR3, BBC World Service and Deutschlandfunk among them —
+  and Otto is never told about one the phone cannot play. Letting the
+  Android app play the rest would be one line in the wrapper; it is
+  not made.
+- **The radio gets out of Otto's way.** It falls silent the moment a
+  REPORT call opens — the microphone streams everything it hears to
+  ElevenLabs, and a station would end up in the transcript — and comes
+  back when the call closes. A station chosen *during* a call starts
+  when the call ends, and Otto says so. While Otto reads a pre-arrival
+  note it only gets quieter; while the dart game's ear is open for
+  "stop", it is silent, like on a call.
+- **Otto reads out three and waits.** The driver picks by number or by
+  name ("the second one", "SWR3"); Otto plays it. That question is not
+  one of Otto's three: the grading in ElevenLabs
+  ([`analysis.json`](elevenlabs/analysis.json)), both test suites and
+  the dashboard's brevity check say that questions about the radio do
+  not count — and a call that was only a radio request is not a
+  debrief that failed to get a tip.
+- **One entry per station.** The directory lists "SWR3", "SWR3 - 96K
+  AAC" and "SWR3 | 48k aac" as three rows; the phone folds them into
+  one, keeps the name of the best-known row, and plays the lower-data
+  stream of the same station (never below 48 kbps) — a shift on a phone
+  plan is long: a 128 kbps stream is about 58 MB an hour, a 96 kbps one
+  43. The other rows stay as fallbacks for when the chosen one will not
+  play; when none will, the bar says so.
+- **The last station is remembered.** "Play the radio", with no name,
+  brings it back.
+
+The now-playing line sits above the REPORT button (■ switches the
+radio off; the lock screen and a car's controls get the station too),
+and the ⚙ sheet has a plain search box for a driver who would rather
+tap than ask. The mic self-test reports what is playing and whether the
+directory answers from that phone.
+
+### Setting Otto up for it — three client tools in ElevenLabs
+
+Otto asks the phone to do the work through **client tools**: tools of
+type *Client* on the agent, answered by the phone
+([`radio.js`](radio.js), handed every call by
+[`otto-agent.js`](otto-agent.js)). Add these three to the agent, names
+exactly as written, every parameter an optional text, and tick **wait
+for response** on each so Otto waits for the phone's answer before he
+speaks:
+
+| Tool | Parameters | What the phone answers |
+|---|---|---|
+| `find_radio_station` | `name` (a station the driver named), `style` (jazz, news, rock, classical, talk…), `country` (two letters: DE, IT, GB — a name works too), `place` (a city or region: Berlin), `language` (in English: italian) | "Found 3 stations. 1: SWR3 from Germany (news, pop). 2: … 3: …" — and a reminder to read them out and ask which |
+| `play_radio_station` | `choice` — the driver's pick: the number (1, 2, 3) or the station's name | "Now playing SWR3." — or "SWR3 is set. It starts playing as soon as this call ends." |
+| `stop_radio` | none | "The radio is off." |
+
+Then tell Otto in his prompt, in your own words: when the driver asks
+for a station, find it, read the choices out, ask which one, play
+their pick, and say in one line that it starts when the call ends;
+"radio off" means `stop_radio`. Every call also tells Otto what is
+playing and reminds him of those steps (the briefing the phone sends
+as the line opens), so "what's on?" needs no tool. Press **configure**
+(Actions → agent-suite) so ElevenLabs grades with the reworded
+criteria, then a fresh **baseline**. The suite mocks every tool before
+a run, the radio's three included, so the buttons keep measuring what
+they measured. A tool the phone cannot answer — a name that does not
+match, an older phone page — is answered with an error in the tool's
+name, and Otto says so rather than waiting.
+
+Two things the radio does not do: listen for a wake word (Otto's line
+is metered by the minute, so it opens on the REPORT tap only), and
+play on a page that is not https (GPS and the microphone need https
+anyway). What a station's own terms say about playing it inside a
+company app is worth a look before drivers get this for good: the
+streams are public, the terms are the station's.
+
 ## The dispatcher dashboard — map and notes, live
 
 [`parcelvox-dashboard.html`](parcelvox-dashboard.html) is the ParcelVox
@@ -1336,6 +1431,7 @@ word). Everything else is the kit as extracted:
 | new | `dashboard.html`, `dashboard.js`, `supabase/functions/scenario-ai/` | Trigger scenarios: define, pin, compare, verdict — and the tuning loop (draft, sliders, feedback, versions, spec export) |
 | new | `otto-agent.js`, `supabase/functions/elevenlabs-token/` | Otto as your own ElevenLabs agent: the same debrief as a live conversation, with the scenario as its context |
 | new | `otto-stream.js`, `supabase/functions/elevenlabs-tts/` | The pre-arrival reading in Otto's ElevenLabs voice, played from its first chunk while the rest is still being made |
+| new | `radio.js` | Live radio by asking Otto: the station directory, a player that falls silent for a call and quieter under a voice, and the three client tools the agent calls and the phone answers |
 | new | `elevenlabs/`, `.github/workflows/agent-suite.yml` | The tuning loop for the agent's prompt: scenario tests from the sheet, field conversations joined to their dashboard grades, proposed prompt diffs on an agent branch — Node, no dependencies |
 
 The dashboard composes through the same seams: `FieldMap.mount` draws the
@@ -1378,10 +1474,11 @@ The composition happens entirely through the kits' public seams:
 
 | File | Purpose |
 |---|---|
-| `index.html` | Phone shell: the REPORT button, map, HUD, card, Otto screen (pins come from the dashboard) |
-| `app.js` | Destinations, messages, the card (incl. the Delivered tap on route stops), the REPORT flow, Otto wiring, the ⚙ settings sheet |
+| `index.html` | Phone shell: the REPORT button, map, HUD, card, Otto screen, the radio's now-playing bar (pins come from the dashboard) |
+| `app.js` | Destinations, messages, the card (incl. the Delivered tap on route stops), the REPORT flow, Otto wiring, the ⚙ settings sheet, the radio's hooks (silent on a call, quieter under a voice, the sheet's search box) |
 | `darts.js/.css` | The dart game after a report: the card, the flick, the rings, one throw per stop, only while still, the depot's best today |
-| `otto-agent.js` | Otto as a live ElevenLabs agent conversation — the kit's mount seams over a WebSocket, with the scenario as its context |
+| `radio.js` | Live radio by asking Otto: the station directory (secure streams only, one entry per station, the lower-data stream), a player that falls silent for a call and quieter under a voice, and the three client tools Otto calls and the phone answers — `test/radio.test.mjs` holds its node tests, run by `agent-suite.yml` |
+| `otto-agent.js` | Otto as a live ElevenLabs agent conversation — the kit's mount seams over a WebSocket, with the scenario as its context — and the agent's client tools, answered on the phone (the radio's three); a call that was only such a request files nothing |
 | `otto-stream.js` | The reading voice's player: an ElevenLabs mp3 played from its first chunk while the rest is still being made (Media Source Extensions), whole where the browser cannot stream mp3 — `test/` holds its node tests, run by `agent-suite.yml` |
 | `dashboard.html` | Desktop shell: scenario list, map, form / address / import sheets |
 | `dashboard.js` | Trigger scenarios and situations (their own tab): CRUD, describe→draft, tunable-value sliders, voice feedback → proposed versions, history, spec export, Excel paste-import, address pinning, compare + verdict — and loading the starter sheet / demo route |

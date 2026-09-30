@@ -238,9 +238,12 @@ jobs:
       # The reading voice's stream player (otto-stream.js — the phone's
       # side of elevenlabs-tts) has no browser here; a stand-in
       # MediaSource under test/ holds it to the rules a real one enforces.
-      - name: Stream player tests
+      # The radio (radio.js — the directory search, the folding of a
+      # station's variants, Otto's three tools) runs the same way, with
+      # stand-ins for the directory and the audio element.
+      - name: Stream player and radio tests
         working-directory: ${{ github.workspace }}
-        run: node --test test/otto-stream.test.mjs
+        run: node --test test/otto-stream.test.mjs test/radio.test.mjs
 
       # The committed test files are the generator's output for the
       # starter sheet; regenerate into a scratch directory and diff. The

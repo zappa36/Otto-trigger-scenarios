@@ -14,14 +14,14 @@
           "name": "Elicited a concrete, actionable tip",
           "type": "prompt",
           "scope": "conversation",
-          "conversation_goal_prompt": "Did the agent get at least one concrete, actionable tip out of the tester — something the next driver at this address could act on, such as where to park, where the real entrance is, when somebody answers, who else takes parcels, or what blocks the approach? Vague acknowledgements ('it was hard') do not count. A conversation in which the tester says there was nothing unusual and the agent accepts that also counts as success: the tip is 'nothing to report'."
+          "conversation_goal_prompt": "Did the agent get at least one concrete, actionable tip out of the tester — something the next driver at this address could act on, such as where to park, where the real entrance is, when somebody answers, who else takes parcels, or what blocks the approach? Vague acknowledgements ('it was hard') do not count. A conversation in which the tester says there was nothing unusual and the agent accepts that also counts as success: the tip is 'nothing to report'. A conversation in which the tester only asked for a radio station and reported nothing about a delivery is not a debrief: count it as success."
         },
         {
           "id": "otto_three_questions",
           "name": "At most three questions",
           "type": "prompt",
           "scope": "conversation",
-          "conversation_goal_prompt": "Count every question the agent put to the tester across the whole conversation, the opening question included; two questions in one turn count as two. Success if the total is three or fewer. Failure if it is four or more."
+          "conversation_goal_prompt": "Count every question the agent put to the tester across the whole conversation, the opening question included; two questions in one turn count as two. Questions about the radio — which station to play, or whether to play or stop it — are not part of the debrief and are not counted. Success if the total is three or fewer. Failure if it is four or more."
         },
         {
           "id": "otto_one_language",
@@ -58,7 +58,7 @@
       },
       "question_count": {
         "type": "integer",
-        "description": "How many questions the agent put to the tester over the whole conversation, the opening question included; two questions in one turn count as two."
+        "description": "How many questions the agent put to the tester over the whole conversation, the opening question included; two questions in one turn count as two. Questions about the radio — which station to play, or whether to play or stop it — are not part of the debrief and are not counted."
       },
       "tester_language": {
         "type": "string",

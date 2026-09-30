@@ -645,6 +645,91 @@
   }
   .rp-labels small { display: block; font-size: 11.5px; color: rgba(255,255,255,.82); }
 
+  /* ---------- the radio bar ----------
+     what is playing, above the REPORT button; the card and the ⚙ sheet
+     cover it while they are open (they sit higher). ■ switches it off. */
+  #radio-bar {
+    position: absolute;
+    left: 50%; bottom: 96px;
+    transform: translateX(-50%);
+    z-index: 11;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: min(320px, calc(100% - 44px));
+    padding: 6px 8px 6px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,217,94,.45);
+    background: rgba(8,18,16,.86);
+    color: #ffd95e;
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 10.5px;
+    letter-spacing: .08em;
+  }
+  #radio-bar[hidden] { display: none; }
+  #radio-bar.warn { border-color: rgba(255,120,69,.5); color: #ffab8a; }
+  #rb-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #rb-stop {
+    flex: none;
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    border: 1px solid rgba(255,217,94,.4);
+    background: transparent;
+    color: inherit;
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  /* the ⚙ sheet's radio box: a search for a driver who would rather tap */
+  .st-mini {
+    flex: none;
+    padding: 8px 11px;
+    border-radius: 9px;
+    border: 1px solid rgba(255,217,94,.45);
+    background: rgba(255,217,94,.1);
+    color: #ffd95e;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .st-mini[hidden] { display: none; }
+  .st-find { display: flex; gap: 8px; margin: 2px 0 8px; }
+  #st-radio-q {
+    flex: 1;
+    min-width: 0;
+    padding: 9px 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(140,165,200,.3);
+    background: rgba(255,255,255,.05);
+    color: #eef2f7;
+    font: inherit;
+    font-size: 14px;
+  }
+  #st-radio-q:focus { outline: none; border-color: rgba(124,140,255,.7); }
+  #st-radio-go {
+    flex: none;
+    padding: 9px 14px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,217,94,.45);
+    background: rgba(255,217,94,.1);
+    color: #ffd95e;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  #st-radio-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+  #st-radio-list[hidden] { display: none; }
+  #st-radio-list button {
+    text-align: left;
+    padding: 9px 11px;
+    border-radius: 10px;
+    border: 1px solid rgba(140,165,200,.2);
+    background: rgba(140,165,200,.07);
+    color: #eef2f7;
+    font-size: 13.5px;
+    cursor: pointer;
+  }
+  #st-radio-list button small { display: block; margin-top: 2px; font-size: 11px; color: #94a1b2; }
+  .st-note { font-size: 12px; color: #94a1b2; }
+
   /* ---------- Otto screen ---------- */
   #otto-screen {
     position: absolute;
@@ -696,7 +781,7 @@
     <span class="chip" id="gps">LOCATION OFF · TAP TO LOCATE</span>
     <a class="chip plain" id="dash-link" href="dashboard.html" title="Trigger-scenarios dashboard">TESTS</a>
     <span class="chip" id="reload" title="Reload scenarios and pins from the dashboard" role="button">↻</span>
-    <span class="chip" id="settings-chip" title="Settings — your name and the dart game" role="button">⚙</span>
+    <span class="chip" id="settings-chip" title="Settings — your name, the dart game, the radio" role="button">⚙</span>
     <span class="chip plain" id="backend">GRID</span>
   </div>
   <div class="hud2">
@@ -820,6 +905,15 @@
         <button type="button" data-pace="slow">slow</button><button type="button" data-pace="normal">normal</button><button type="button" data-pace="fast">fast</button>
       </span>
     </label>
+    <div class="st-row">
+      <span class="st-label">Radio<small id="st-radio-now">Off. During a report, ask Otto for a station — or search here.</small></span>
+      <button id="st-radio-stop" type="button" class="st-mini" hidden>■ off</button>
+    </div>
+    <div class="st-find">
+      <input id="st-radio-q" type="search" placeholder="a station, a style or a country" autocomplete="off">
+      <button id="st-radio-go" type="button">find</button>
+    </div>
+    <div id="st-radio-list" hidden></div>
     <button id="st-practice" type="button" class="st-btn">🎯 Practice throw — not counted</button>
     <p class="st-foot">How to play: three times, Otto says "two", keeps a silent beat, then says "four" — and you say "stop". Side: on two for left, in the silence for the middle, on four for right. Height: two is the top, the silence the middle, four the bottom. Strength: the silence is just right; two falls short, four flies over. Say nothing and he takes four. Stop in the silence three times for a bullseye; a miss is nothing. Otto explains this himself the first three times.</p>
     <button id="st-rules" type="button" class="st-btn">🔊 Hear the rules</button>
@@ -832,6 +926,12 @@
       <small>tell Otto what you found</small>
     </span>
   </button>
+
+  <div id="radio-bar" hidden>
+    <span aria-hidden="true">♪</span>
+    <span id="rb-text"></span>
+    <button id="rb-stop" type="button" aria-label="Switch the radio off">■</button>
+  </div>
 
   <section id="otto-screen" hidden>
     <div class="otto-top">
@@ -853,6 +953,7 @@
 <script src="otto-agent.js"></script>
 <script src="otto-stream.js"></script>
 <script src="darts.js"></script>
+<script src="radio.js"></script>
 <script src="app.js"></script>
 
 </body>

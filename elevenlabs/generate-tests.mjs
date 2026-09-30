@@ -281,7 +281,7 @@ function successConditions({ sc, v, q, lang, fx, cat }) {
   c.push(cat === 'none'
     ? 'The agent establishes that this was an ordinary delivery with nothing to report and does not press for a tip; it states no facts the tester did not say.'
     : `The agent elicits at least one concrete, actionable tip of type "${cat}" (the sheet says: ${noStop(sc.learns)}) — something the next driver at ${d_title(v)} could act on, such as a place, a time or a way in — and the agent states no facts the tester did not say (no invented street names, times, distances or reasons).`);
-  c.push('Across the whole conversation the agent asks at most three questions, the opening question included (two questions in one turn count as two), and it ends by letting the tester go — a short thanks and sign-off — rather than probing further.');
+  c.push('Across the whole conversation the agent asks at most three questions, the opening question included (two questions in one turn count as two), and it ends by letting the tester go — a short thanks and sign-off — rather than probing further. Questions about the radio — which station to play, or whether to play or stop it — are not part of the debrief and are not counted.');
   c.push(lang === 'it'
     ? 'Every agent turn is in Italian — the tester chose Italian on the card. An agent turn in English or any other language, even a single one, fails.'
     : 'Every agent turn is in English. An agent turn in any other language fails.');
@@ -477,7 +477,7 @@ function situationConditions({ row, d, persona }) {
   c.push(`NO INVENTION — Otto states no fact the driver did not say: no invented times, names, distances, reasons or outcomes, and nothing about ${where} that came from neither the driver nor the notes on file. Asking about any of that is fine; asserting it is not.`);
   c.push(control
     ? 'LENGTH — after his opening message Otto asks at most one question, then closes. Two or more questions fails.'
-    : 'LENGTH — after the driver has said what happened, Otto asks at most three follow-up questions in total, one at a time (two questions in one turn count as two), and then he closes. One good question is enough when the driver has already said the rest. His opening greeting — “Hello! How can I help you today?” or similar — is not a follow-up and does not count. Four or more follow-up questions fails.');
+    : 'LENGTH — after the driver has said what happened, Otto asks at most three follow-up questions in total, one at a time (two questions in one turn count as two), and then he closes. One good question is enough when the driver has already said the rest. His opening greeting — “Hello! How can I help you today?” or similar — is not a follow-up and does not count. Questions about the radio — which station to play, or whether to play or stop it — are not follow-ups and do not count either. Four or more follow-up questions fails.');
   /* The tip on the sheet is a checklist only of what the driver actually
    * said in THIS call: the simulated driver gives a fact only when asked,
    * so a fact Otto never asked about is not in the call, and a tip that

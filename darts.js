@@ -525,6 +525,9 @@ const Darts = (() => {
     ear.born = now();
     ear.timer = setInterval(listen, 20);
     ear.ok = true;
+    /* the radio is silent while the ear is open, as on a call — a
+     * station from the phone's own speaker is a "stop" nobody said */
+    if (typeof Radio !== 'undefined') Radio.hold('darts');
     return true;
   }
   function listen() {
@@ -609,6 +612,7 @@ const Darts = (() => {
     clearInterval(ear.timer);
     ear.timer = 0;
     ear.on = null;
+    if (typeof Radio !== 'undefined') Radio.release('darts'); // the radio comes back (radio.js)
     try { if (ear.src) ear.src.disconnect(); } catch { /* gone */ }
     ear.src = ear.an = ear.buf = null;
     if (ear.stream) { ear.stream.getTracks().forEach(tr => tr.stop()); ear.stream = null; }

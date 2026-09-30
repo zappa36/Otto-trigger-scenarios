@@ -73,6 +73,15 @@ try { Object.assign(settings, JSON.parse(localStorage.getItem(LS_SETTINGS) || '{
 const saveSettings = () => { try { localStorage.setItem(LS_SETTINGS, JSON.stringify(settings)); } catch { /* private mode */ } };
 const playerName = () => String(settings.name || '').trim().slice(0, 24) || 'someone';
 
+/* ---------- the radio (radio.js) ----------
+ * Quieter while a voice of Otto's speaks, silent while a line to him
+ * is open — both no-ops on a page without the module. */
+const radioDuck = () => { if (typeof Radio !== 'undefined') Radio.duck('voice'); };
+const radioUnduck = () => { if (typeof Radio !== 'undefined') Radio.unduck('voice'); };
+/* a REPORT call that was only a request to the phone (a station) earns
+ * no dart — nothing was reported; set by onNothing, read by closeOtto */
+let radioOnlyCall = false;
+
 /* Trigger scenarios (defined on dashboard.html) — read-only here. A
  * destination that belongs to a scenario carries the test steps on its
  * card, and Otto opens the debrief with the scenario's own question. */
@@ -661,10 +670,12 @@ function detectorStep(snap) {
  * you. */
 function speakThen(text, done, lang) {
   stopOttoAudio(); // one voice at a time — a reading clip in flight yields
+  radioDuck(); // the radio, quieter under the voice
   let called = false;
   const finish = () => {
     if (called) return;
     called = true;
+    radioUnduck();
     /* only clear the bridge callback if it is still OURS — a later
      * speakThen (a trigger question cutting off a pre-arrival reading)
      * may already have registered its own */
@@ -776,10 +787,12 @@ function stopOttoAudio() {
  * callers can label truthfully. */
 async function speakOtto(text, done, onVoice, lang) {
   text = String(text || '');
+  radioDuck(); // the radio, quieter under the voice
   let called = false;
   const finish = () => {
     if (called) return;
     called = true;
+    radioUnduck();
     if (ottoAudio && ottoAudio.__finish === finish) ottoAudio.__finish = ottoAudio.__stop = null;
     done();
   };
@@ -1547,6 +1560,9 @@ function reportBriefing(v) {
     : 'You are Otto. A driver has just pressed REPORT on the road, no stop nearby.');
   if (v.destination_notes) lines.push(sentence(`The notes on file for this stop: ${v.destination_notes}`));
   lines.push('Ask what happened, keep it to two or three questions, confirm the tip in one line, and let them go.');
+  /* the radio: what is on, and what to do when a station is asked for
+   * (the tools are the agent's own; radio.js answers them) */
+  if (typeof Radio !== 'undefined') lines.push(Radio.describe() + ' ' + Radio.hint());
   /* belt to the language override's braces, exactly as below */
   if (testLang === 'it') lines.push('This driver chose Italian: conduct the entire debrief in Italian — every question and reply.');
   return lines.join(' ');
@@ -1577,6 +1593,7 @@ function agentBriefing() {
   }
   if (v.activity_summary) lines.push(`Activity the phone observed: ${v.activity_summary}.`);
   lines.push('Ask about what they actually found on the ground, keep it to a couple of short questions, and let them go.');
+  if (typeof Radio !== 'undefined') lines.push(Radio.describe() + ' ' + Radio.hint());
   /* belt to the language override's braces: an agent whose prompt never
    * mentions language still gets told, in words, which one this run is */
   if (testLang === 'it') lines.push('This tester chose Italian: conduct the entire debrief in Italian — every question and reply.');
@@ -1602,6 +1619,16 @@ function mountOtto(recorderOnly) {
       vars: agentVars,
       briefing: agentBriefing,
       language: () => testLang,
+      /* the radio's tools, answered here on the phone (radio.js) */
+      tools: typeof Radio !== 'undefined' ? Radio.tools : {},
+      onNothing(why) {
+        /* a REPORT call that was only a radio request: back to the map,
+         * the station starts as the screen closes — no dart, nothing was
+         * reported. A silent call keeps its "tap to talk again" screen. */
+        if (why !== 'request' || !reporting) return;
+        radioOnlyCall = true;
+        setTimeout(() => { if (reporting && !el('otto-screen').hidden) closeOtto(); }, 1200);
+      },
       onFallback() {
         voice = mountOtto(true);
         /* a trigger that fired still owes the tester its question */
@@ -1626,6 +1653,10 @@ function openOtto(d, asReport) {
   /* a pre-arrival reading must not talk over the debrief — the keyless
    * path cancels it itself (speakThen), the agent path would not */
   stopOttoAudio();
+  /* and the radio falls silent for the whole call: the microphone
+   * streams everything it hears (radio.js drops the stream; closeOtto
+   * reconnects it) */
+  if (typeof Radio !== 'undefined') Radio.hold('call');
   try {
     if (window.OttoTTS && OttoTTS.stop) OttoTTS.stop();
     if ('speechSynthesis' in window) speechSynthesis.cancel();
@@ -1660,12 +1691,20 @@ function closeOtto() {
     if ('speechSynthesis' in window) speechSynthesis.cancel();
   } catch { /* optional */ }
   el('otto-screen').hidden = true;
+  /* the radio comes back — after a beat when the agent is still filing
+   * (finish holds the socket and the mic open a moment for the last
+   * transcript), at once when it was the recorder; never into a call
+   * that opened again meanwhile */
+  if (typeof Radio !== 'undefined') {
+    setTimeout(() => { if (el('otto-screen').hidden) Radio.release('call'); }, voice.agent ? 2500 : 0);
+  }
   /* back where the debrief came from: the card that opened it, or — for
    * a REPORT — the map, which is where the button lives. `reporting` is
    * left standing: the agent files what was said AFTER this returns. */
   if (current && !reporting) openCard(current); // the card, now with the new message
   renderReport();
-  if (reporting) offerDartThrow(); // the report was the chore; this is the reward
+  if (reporting && !radioOnlyCall) offerDartThrow(); // the report was the chore; this is the reward — none for a station request
+  radioOnlyCall = false;
 }
 
 /* ---------- the REPORT button ----------
@@ -1953,6 +1992,21 @@ el('build').onclick = async () => {
     out.push('notes reading voice: device TTS (backend OFF)');
   }
   out.push('wrapper TTS: ' + (window.OttoTTS ? 'yes' : 'no (browser)'));
+  /* the radio: what is on, and whether the directory answers from here */
+  if (typeof Radio !== 'undefined') {
+    const rs = Radio.status();
+    const st = rs.station;
+    out.push('radio: ' + (st && rs.wanted ? (rs.playing ? 'playing ' : 'set: ') + st.name + ' (' + [st.codec, st.bitrate ? st.bitrate + ' kbps' : ''].filter(Boolean).join(' ') + ')' : 'off')
+      + (rs.held.length ? ' · silent for: ' + rs.held.join(', ') : '') + (rs.error ? ' · ' + rs.error : '')
+      + (Radio.last() ? ' · last station ' + Radio.last().name : ''));
+    try {
+      const t0 = Date.now();
+      const hits = await Radio.find({ name: 'swr3' });
+      out.push('radio directory: OK (' + hits.length + ' playable for "swr3" in ' + ((Date.now() - t0) / 1000).toFixed(1) + ' s)');
+    } catch (e) {
+      out.push('radio directory: unreachable (' + ((e && e.message) || e) + ')');
+    }
+  }
   /* the dart game's own numbers: how many flicks this phone has seen,
    * what it takes for a normal one, and the last throw — a report that
    * "the flick does nothing" then comes with something to read */
@@ -2037,6 +2091,76 @@ if (el('settings-chip') && el('settings')) {
     warmReadingVoice();
     if (typeof Darts !== 'undefined') Darts.practice({ player: playerName(), voice: settings.voice !== false, pace: paceMs() });
   };
+}
+
+/* ---------- the radio (radio.js) ----------
+ * The now-playing bar above the REPORT button, and the ⚙ sheet's own
+ * search box — the fallback for a driver who would rather tap than ask
+ * Otto. Guarded like the sheet: an index.html from before the radio has
+ * neither, and app.js must still boot. */
+function renderRadio(s) {
+  const st = s.station;
+  const bar = el('radio-bar');
+  if (bar) {
+    const text = s.error ? s.error
+      : !st || !s.wanted ? ''
+      : s.held.length ? `${st.name} · back after the call`
+      : s.playing ? st.name : `${st.name} · connecting…`;
+    bar.hidden = !text;
+    el('rb-text').textContent = text;
+    bar.classList.toggle('warn', !!s.error);
+  }
+  if (el('st-radio-now')) {
+    el('st-radio-now').textContent = s.error ? s.error
+      : st && s.wanted ? `${st.name}${st.bitrate ? ' · ' + st.bitrate + ' kbps' : ''}${s.held.length ? ' · back after the call' : ''}`
+      : 'Off. During a report, ask Otto for a station — or search here.';
+    el('st-radio-stop').hidden = !s.wanted;
+  }
+}
+if (typeof Radio !== 'undefined') {
+  Radio.onChange(renderRadio);
+  renderRadio(Radio.status());
+  if (el('rb-stop')) el('rb-stop').onclick = e => { e.stopPropagation(); Radio.stop(); };
+  if (el('st-radio-q')) {
+    const list = el('st-radio-list');
+    const note = text => {
+      list.innerHTML = '';
+      const n = document.createElement('span');
+      n.className = 'st-note';
+      n.textContent = text;
+      list.appendChild(n);
+      list.hidden = false;
+    };
+    const find = async () => {
+      const q = el('st-radio-q').value.trim();
+      if (!q) return;
+      el('st-radio-go').disabled = true;
+      note('looking…');
+      try {
+        const found = await Radio.find({ name: q });
+        if (!found.length) { note('nothing playable by that name — try a style, or a country'); return; }
+        list.innerHTML = '';
+        found.forEach(st => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.textContent = st.name;
+          const small = document.createElement('small');
+          small.textContent = [st.country, ...st.tags].filter(Boolean).join(' · ');
+          b.appendChild(small);
+          b.onclick = () => { list.hidden = true; Radio.play(st); };
+          list.appendChild(b);
+        });
+        list.hidden = false;
+      } catch (e) {
+        note('the radio directory did not answer (' + ((e && e.message) || e) + ')');
+      } finally {
+        el('st-radio-go').disabled = false;
+      }
+    };
+    el('st-radio-go').onclick = find;
+    el('st-radio-q').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); find(); } };
+    el('st-radio-stop').onclick = () => Radio.stop();
+  }
 }
 
 /* ↻ — pull fresh scenarios, pins and debriefs without reloading the

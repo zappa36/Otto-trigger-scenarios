@@ -47,6 +47,18 @@
  * A private agent adds the elevenlabs-token Edge Function, which
  * holds the API key; a public agent needs no key at all.
  *
+ * Client tools: a tool the agent carries with type "client" is
+ * answered HERE — mount({ tools: { name: async params => text } })
+ * maps each by name (the radio's three, radio.js). The agent's
+ * client_tool_call comes down the socket, the phone's answer goes
+ * back as client_tool_result, and the agent speaks on. A tool the
+ * phone has no handler for is answered with an error in its name,
+ * so the agent can say so instead of waiting for nothing. The
+ * driver's words that led to such a call ("some jazz", "the second
+ * one") are a request to the phone, not a report: they are left out
+ * of what gets filed, and a conversation made only of them files
+ * nothing (onNothing('request')).
+ *
  * What a REPORT tap waits for is the line opening: the signed URL
  * (a round trip to the Edge Function and on to ElevenLabs — 0.4 s
  * warm, twice that cold), then the socket, then the agent's first
@@ -109,6 +121,9 @@ const OttoAgent = (() => {
     /* the line DID connect — it just heard no words to file. Saying
      * "could not connect" here sent testers hunting the wrong problem. */
     empty: ['Nothing was filed', 'Tap to talk to Otto again'],
+    /* the call was a request to the phone (a radio station, say) —
+     * done, and rightly unfiled */
+    request: ['Done', 'Nothing to file — that was a request to the phone'],
   };
 
   /* A conversation is metered by the minute at both ends of the wire, so
@@ -293,6 +308,9 @@ const OttoAgent = (() => {
        * override and the agent stays in its own default language */
       language: () => '',
       extra: () => ({}), onSaved: null, onError: null, onFallback: null,
+      /* client tools answered on the phone, by name (radio.js) — and what
+       * to do when a call ends with nothing to file ('request' | 'silent') */
+      tools: {}, onNothing: null,
       ...(options || {}),
     };
     const root = typeof opt.el === 'string' ? document.querySelector(opt.el) : opt.el;
@@ -316,6 +334,7 @@ const OttoAgent = (() => {
       retriedUrl: false,  // ... and, if that URL had gone stale, was tried again on a fresh one
       inFmt: { codec: 'pcm', rate: 16000 }, outFmt: { codec: 'pcm', rate: 16000 },
       queue: [], playHead: 0,
+      requests: 0,        // client tools the phone answered (onToolCall) — those turns are not a report
     };
 
     const contextLabel = () => {
@@ -339,7 +358,7 @@ const OttoAgent = (() => {
       const [cap, sub] = CAPTIONS[state.phase] || CAPTIONS.listening;
       ui.caption.textContent = cap;
       ui.sub.textContent = sub;
-      ui.mic.hidden = state.phase === 'done' || state.phase === 'think';
+      ui.mic.hidden = state.phase === 'done' || state.phase === 'think' || state.phase === 'request';
       /* the button is an END button here: there is no tap-to-talk in a
        * conversation, so the only thing left to press is "that's it" */
       const live = state.phase === 'listening' || state.phase === 'speaking';
@@ -392,6 +411,53 @@ const OttoAgent = (() => {
       state.queue.forEach(n => { try { n.stop(); } catch { /* already done */ } });
       state.queue = [];
       state.playHead = 0;
+    }
+
+    /* ---------- client tools ----------
+     * The agent hands the phone a job and waits for the answer (the
+     * tool's "wait for response" in ElevenLabs). Whatever the handler
+     * returns goes back as text; a handler that throws, or takes longer
+     * than TOOL_MS, answers with an error in the tool's name, and so
+     * does a tool this phone has no handler for — the agent then says
+     * so instead of hanging on a promise that never comes. */
+    const TOOL_MS = 12000;
+    /* the driver's words that led to a tool the phone answers are a
+     * request to the phone ("the second one"), not a report: the last
+     * short turn of theirs is marked, and finish() leaves it out. A long
+     * turn stays — a report with a station tacked on is still a report. */
+    function markRequest(name) {
+      state.requests++;
+      const last = [...state.turns].reverse().find(t => t.from === 'me');
+      if (last && !last.tool && last.text.split(/\s+/).length <= 14) last.tool = name;
+    }
+    async function onToolCall(call) {
+      const name = String(call.tool_name || '');
+      const id = call.tool_call_id;
+      const answer = (result, isError) => {
+        /* a tool built without "wait for response" wants no answer */
+        if (!id || call.expects_response === false || !state.ws || state.ws.readyState !== 1) return;
+        const text = result == null ? 'Done.' : typeof result === 'object' ? JSON.stringify(result) : String(result);
+        state.ws.send(JSON.stringify({ type: 'client_tool_result', tool_call_id: id, result: text, is_error: !!isError }));
+      };
+      const fn = opt.tools && typeof opt.tools[name] === 'function' ? opt.tools[name] : null;
+      if (!fn) { answer(`The tool ${name} is not available on this phone.`, true); return; }
+      markRequest(name);
+      let params = call.parameters;
+      if (typeof params === 'string') { try { params = JSON.parse(params); } catch { params = {}; } }
+      chip(name.replace(/_/g, ' ').toUpperCase() + '…');
+      let timer = null;
+      try {
+        const out = await Promise.race([
+          Promise.resolve().then(() => fn(params || {})),
+          new Promise((_, rej) => { timer = setTimeout(() => rej(new Error('the phone took too long')), TOOL_MS); }),
+        ]);
+        answer(out, false);
+      } catch (e) {
+        answer(`${name} failed: ${(e && e.message) || e}`, true);
+      } finally {
+        clearTimeout(timer);
+        if (!state.dead) chip('ELEVENLABS');
+      }
     }
 
     /* ---------- capture ---------- */
@@ -607,8 +673,11 @@ const OttoAgent = (() => {
             case 'client_error':
               console.warn('OttoAgent: ' + JSON.stringify(d.error_event || {}).slice(0, 300));
               break;
+            case 'client_tool_call':
+              onToolCall(d.client_tool_call || {});
+              break;
             default:
-              break; // tool calls, vad scores, agent_response_complete — nothing to draw
+              break; // vad scores, agent_response_complete, tool responses — nothing to draw
           }
         };
 
@@ -690,12 +759,24 @@ const OttoAgent = (() => {
         await new Promise(r => setTimeout(r, 2000));
       }
       teardown();
-      const spoken = state.turns.filter(t => t.from === 'me').map(t => t.text).join(' ').trim();
+      /* what the driver said to the PHONE — "some jazz", "the second
+       * one" — is not a report (markRequest tagged those turns) */
+      const report = state.turns.filter(t => !t.tool);
+      const spoken = report.filter(t => t.from === 'me').map(t => t.text).join(' ').trim();
       if (!spoken) {
+        if (state.requests) {
+          /* a call that was only a request to the phone: done, nothing
+           * filed, and the host takes the screen back */
+          state.saved = true;
+          render({ from: 'ai', text: 'Done. Nothing was filed — that was a request to the phone, not a report.' }, 'request');
+          if (opt.onNothing) { try { opt.onNothing('request'); } catch { /* host's problem */ } }
+          return;
+        }
         render({ from: 'ai', text: 'Nothing was said, so there is nothing to file. Tap to talk to Otto again.' }, 'empty');
         ui.mic.hidden = false;
         state.ending = false;
         state.tried = 0;
+        if (opt.onNothing) { try { opt.onNothing('silent'); } catch { /* host's problem */ } }
         return;
       }
       render({ from: 'ai', text: 'Got it — filing that against the pin…' }, 'think');
@@ -708,7 +789,7 @@ const OttoAgent = (() => {
       let note = { title: headline(spoken), category: null };
       try {
         if (Backend.enabled && Backend.structureText) {
-          const d = await Backend.structureText({ transcript: spoken, context, conversation: state.turns });
+          const d = await Backend.structureText({ transcript: spoken, context, conversation: report });
           if (d && d.note && d.note.title) note = { title: String(d.note.title).slice(0, 60), category: d.note.category || null };
         }
       } catch (e) {

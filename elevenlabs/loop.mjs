@@ -72,7 +72,7 @@ export const GRADE_CHECKS = {
   opener: 'Opened with the scenario\'s question',
   followup: 'Followed up on what the tester actually found',
   tip: 'Got the tip type the scenario expects',
-  brevity: 'Kept it short — a couple of questions, then let them go',
+  brevity: 'Kept it short — a couple of questions, then let them go (radio questions do not count)',
   language: 'Right language throughout',
 };
 
