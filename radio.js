@@ -19,6 +19,9 @@
  *   play_radio_station({ choice })      the number or the name
  *       -> "Now playing …" / "… starts when the call ends"
  *   stop_radio()
+ *   keep_radio_station({ choice })      "keep this one" — the station
+ *       playing, or the one named -> "… is kept as a favourite"
+ *   forget_radio_station({ choice })    lets a favourite go
  *
  * The ⚙ sheet has a plain search box for the same thing (app.js).
  *
@@ -49,8 +52,9 @@
  *     found station or the one playing keeps it (up to MAX_FAVS), the ⚙
  *     sheet lists them one tap each. Otto knows them too: a favourite
  *     plays by name with no search, find_radio_station lists the ones
- *     that fit first (all of them when nothing was asked for), and the
- *     briefing names them.
+ *     that fit first (all of them when nothing was asked for), the
+ *     briefing names them, and "keep this one" / "forget it" said to
+ *     Otto keep and drop them without a tap.
  *
  * DOM-free on purpose: app.js draws the now-playing line and the
  * settings box from onChange(); the node tests (test/radio.test.mjs)
@@ -452,6 +456,21 @@ const Radio = (() => {
     return false;
   }
 
+  /* the choice a tool was handed, whatever the field was called */
+  const choiceOf = p => { p = p || {}; return words(p.choice != null ? p.choice : p.station != null ? p.station : p.number != null ? p.number : p.name); };
+  /* the station a choice names: one read out, a favourite, or one the
+   * directory knows by that name — nothing named means the station on */
+  async function stationNamed(choice) {
+    if (!choice) return state.want && state.station ? state.station : null;
+    let st = state.results.length ? resolveChoice(choice, state.results) : null;
+    if (!st) st = resolveChoice(choice, favourites(), { byNumber: !state.results.length });
+    if (!st) {
+      const found = await search({ name: choice });
+      if (found.length) st = found[0];
+    }
+    return st;
+  }
+
   const api = {
     find: search,
     choices: () => state.results,
@@ -530,7 +549,7 @@ const Radio = (() => {
       if (!st || !state.want) return 'No radio is playing.';
       return `The radio is playing ${st.name}${state.holds.size ? ' (silent while this call lasts)' : ''}.`;
     },
-    hint: () => 'If the driver asks for a radio station, call find_radio_station, read the choices out and ask which one, then call play_radio_station with their pick; stop_radio switches it off. A station chosen during a call starts when the call ends.',
+    hint: () => 'If the driver asks for a radio station, call find_radio_station, read the choices out and ask which one, then call play_radio_station with their pick; stop_radio switches it off. A station chosen during a call starts when the call ends. "Keep this one" is keep_radio_station (the station playing, or a named one); forget_radio_station lets a favourite go.',
     onChange(fn) { if (typeof fn === 'function') state.listeners.push(fn); },
 
     /* ---------- the tools, as the agent calls them ---------- */
@@ -553,8 +572,7 @@ const Radio = (() => {
         return spokenList(stations);
       },
       async play_radio_station(p) {
-        p = p || {};
-        const choice = words(p.choice != null ? p.choice : p.station != null ? p.station : p.number != null ? p.number : p.name);
+        const choice = choiceOf(p);
         let st = null;
         if (state.results.length) st = choice ? resolveChoice(choice, state.results) : (state.results.length === 1 ? state.results[0] : null);
         /* a favourite plays by name with no search — and by its number
@@ -580,6 +598,27 @@ const Radio = (() => {
       async stop_radio() {
         api.stop();
         return 'The radio is off.';
+      },
+      /* "keep this one" — the station playing, or a choice / a name */
+      async keep_radio_station(p) {
+        const choice = choiceOf(p);
+        const st = await stationNamed(choice);
+        if (!st) return choice ? `No station found for "${choice}" to keep.` : 'No station is playing. Name one, or play one first.';
+        if (isFavourite(st)) return `${st.name} is already a favourite.`;
+        if (!api.addFavourite(st)) return `The favourites are full — ${MAX_FAVS} is the most. Ask which one to let go (forget_radio_station).`;
+        return `${st.name} is kept as a favourite.`;
+      },
+      /* "forget it" — a favourite by name or number, or the station playing */
+      async forget_radio_station(p) {
+        const choice = choiceOf(p);
+        let st = null;
+        if (choice) {
+          st = state.results.length ? resolveChoice(choice, state.results) : null;
+          if (!st) st = resolveChoice(choice, favourites());
+        } else if (state.want && state.station) st = state.station;
+        if (!st) return choice ? `No favourite called "${choice}". The favourites are: ${favourites().map(f => f.name).join(', ') || 'none'}.` : 'No station is playing. Name the favourite to let go.';
+        if (!api.removeFavourite(st)) return `${st.name} is not a favourite.`;
+        return `${st.name} is no longer a favourite.`;
       },
     },
 

@@ -292,7 +292,7 @@ test('a name straight to play, no choices read out first — and a pick nobody r
 
 test('the hint and the description are one sentence each, for the briefing', () => {
   assert.match(Radio.hint(), /^If the driver asks for a radio station, call find_radio_station/);
-  assert.match(Radio.hint(), /starts when the call ends\.$/);
+  assert.match(Radio.hint(), /starts when the call ends\. "Keep this one" is keep_radio_station/);
 });
 
 /* ---------- favourites: the stations kept on this phone ---------- */
@@ -372,4 +372,53 @@ test('which favourites fit: by name, style or country — all of them when nothi
   assert.deepEqual(names({ country: 'Italy' }), ['RAI Radio 1']);
   assert.deepEqual(names({}), ['SWR3', 'RAI Radio 1']);
   assert.deepEqual(names({ name: 'bbc' }), []);
+});
+
+/* ---------- "keep this one" / "forget it", said to Otto ---------- */
+
+test('"keep this one": the station playing is kept; twice is once; nothing playing says so', async () => {
+  reset();
+  assert.equal(await Radio.tools.keep_radio_station({}), 'No station is playing. Name one, or play one first.');
+  await Radio.tools.play_radio_station({ choice: 'swr1' });
+  assert.equal(await Radio.tools.keep_radio_station({}), 'SWR1 is kept as a favourite.');
+  assert.deepEqual(Radio.favourites().map(f => f.name), ['SWR1']);
+  assert.equal(await Radio.tools.keep_radio_station({}), 'SWR1 is already a favourite.');
+});
+
+test('"keep the second one" after choices were read out, and "keep SWR3" with nothing playing', async () => {
+  reset();
+  await Radio.tools.find_radio_station({ name: 'swr' });
+  assert.equal(await Radio.tools.keep_radio_station({ choice: 'the second one' }), 'SWR1 is kept as a favourite.');
+  reset();
+  assert.equal(await Radio.tools.keep_radio_station({ choice: 'swr3' }), 'SWR3 is kept as a favourite.');
+  assert.equal(Radio.status().wanted, false, 'kept, not played');
+  assert.equal(await Radio.tools.keep_radio_station({ choice: 'bbc' }), 'No station found for "bbc" to keep.');
+});
+
+test('the twelve are full: Otto is told to ask which one to let go', async () => {
+  reset();
+  for (let i = 0; i < 12; i++) Radio.addFavourite(row('Station ' + i));
+  await Radio.tools.play_radio_station({ choice: 'swr1' });
+  assert.equal(await Radio.tools.keep_radio_station({}), 'The favourites are full — 12 is the most. Ask which one to let go (forget_radio_station).');
+});
+
+test('"forget it": the station playing, a favourite by name, and one that is not a favourite', async () => {
+  reset();
+  const [swr3, swr1] = P.dedupe(SWR());
+  Radio.addFavourite(swr3);
+  Radio.addFavourite(swr1);
+  assert.equal(await Radio.tools.forget_radio_station({ choice: 'swr3' }), 'SWR3 is no longer a favourite.');
+  assert.deepEqual(Radio.favourites().map(f => f.name), ['SWR1']);
+  assert.equal(await Radio.tools.forget_radio_station({ choice: 'bbc' }), 'No favourite called "bbc". The favourites are: SWR1.');
+  assert.equal(await Radio.tools.forget_radio_station({}), 'No station is playing. Name the favourite to let go.');
+  await Radio.tools.play_radio_station({ choice: 'swr4' });
+  assert.equal(await Radio.tools.forget_radio_station({}), 'SWR4 BW is not a favourite.');
+  await Radio.tools.play_radio_station({ choice: 'swr1' });
+  assert.equal(await Radio.tools.forget_radio_station({}), 'SWR1 is no longer a favourite.');
+  assert.equal(Radio.favourites().length, 0);
+});
+
+test('the hint tells Otto about keep and forget', () => {
+  assert.match(Radio.hint(), /keep_radio_station/);
+  assert.match(Radio.hint(), /forget_radio_station/);
 });

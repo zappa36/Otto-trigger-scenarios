@@ -1116,15 +1116,17 @@ said into that search — "Italian news" becomes a style and a language,
   play; when none will, the bar says so.
 - **The last station is remembered.** "Play the radio", with no name,
   brings it back.
-- **Favourites, kept on the phone.** ☆ next to a station a search
-  found, or "☆ keep" next to the one playing, keeps it (up to twelve,
-  ✕ lets one go); the ⚙ sheet lists them, one tap each, so nobody
-  searches for the same station twice. Otto knows them too: every
-  call names them in his briefing, "play SWR3" plays a favourite by
-  name with no search, "one of my stations" has him read them out,
-  and when the driver asks for jazz, a jazz favourite is choice
-  number one, marked as such. They live on the phone with the other
-  settings, not in the shared store.
+- **Favourites, kept on the phone.** "Otto, keep this one" keeps the
+  station playing (or "keep SWR3" a named one); "forget it" lets one
+  go. On the ⚙ sheet the same: ☆ next to a station a search found, or
+  "☆ keep" next to the one playing, keeps it (up to twelve, ✕ lets
+  one go), and the sheet lists them, one tap each, so nobody searches
+  for the same station twice. Otto knows them too: every call names
+  them in his briefing, "play SWR3" plays a favourite by name with no
+  search, "one of my stations" has him read them out, and when the
+  driver asks for jazz, a jazz favourite is choice number one, marked
+  as such. They live on the phone with the other settings, not in the
+  shared store.
 
 The now-playing line sits above the REPORT button (■ switches the
 radio off; the lock screen and a car's controls get the station too),
@@ -1133,26 +1135,30 @@ driver who would rather tap than ask. The mic self-test reports what
 is playing, how many favourites are kept, and whether the directory
 answers from that phone.
 
-### Setting Otto up for it — three client tools in ElevenLabs
+### Setting Otto up for it — five client tools in ElevenLabs
 
 Otto asks the phone to do the work through **client tools**: tools of
 type *Client* on the agent, answered by the phone
 ([`radio.js`](radio.js), handed every call by
-[`otto-agent.js`](otto-agent.js)). Add these three to the agent, names
+[`otto-agent.js`](otto-agent.js)). Add these to the agent, names
 exactly as written, every parameter an optional text, and tick **wait
 for response** on each so Otto waits for the phone's answer before he
-speaks:
+speaks. The first three are the radio; the last two are the favourites
+by voice, and can wait:
 
 | Tool | Parameters | What the phone answers |
 |---|---|---|
 | `find_radio_station` | `name` (a station the driver named), `style` (jazz, news, rock, classical, talk…), `country` (two letters: DE, IT, GB — a name works too), `place` (a city or region: Berlin), `language` (in English: italian) | "Found 3 stations. 1: SWR3 (a favourite) from Germany (news, pop). 2: … 3: …" — favourites that fit first, then the directory — and a reminder to read them out and ask which; with nothing asked for, the favourites alone |
 | `play_radio_station` | `choice` — the driver's pick: the number (1, 2, 3) or the station's name; a favourite's name works with no search first | "Now playing SWR3." — or "SWR3 is set. It starts playing as soon as this call ends." |
 | `stop_radio` | none | "The radio is off." |
+| `keep_radio_station` | `choice` — nothing for the station playing, or a number from the choices read out, or a name | "SWR3 is kept as a favourite." — or "SWR3 is already a favourite.", or that the twelve are full |
+| `forget_radio_station` | `choice` — nothing for the station playing, or a favourite's name | "SWR3 is no longer a favourite." |
 
 Then tell Otto in his prompt, in your own words: when the driver asks
 for a station, find it, read the choices out, ask which one, play
 their pick, and say in one line that it starts when the call ends;
-"radio off" means `stop_radio`. Every call also tells Otto what is
+"radio off" means `stop_radio`; "keep this one" means
+`keep_radio_station` and "forget it" `forget_radio_station`. Every call also tells Otto what is
 playing and reminds him of those steps (the briefing the phone sends
 as the line opens), so "what's on?" needs no tool. Press **configure**
 (Actions → agent-suite) so ElevenLabs grades with the reworded
