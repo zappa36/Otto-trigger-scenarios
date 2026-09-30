@@ -1116,12 +1116,22 @@ said into that search — "Italian news" becomes a style and a language,
   play; when none will, the bar says so.
 - **The last station is remembered.** "Play the radio", with no name,
   brings it back.
+- **Favourites, kept on the phone.** ☆ next to a station a search
+  found, or "☆ keep" next to the one playing, keeps it (up to twelve,
+  ✕ lets one go); the ⚙ sheet lists them, one tap each, so nobody
+  searches for the same station twice. Otto knows them too: every
+  call names them in his briefing, "play SWR3" plays a favourite by
+  name with no search, "one of my stations" has him read them out,
+  and when the driver asks for jazz, a jazz favourite is choice
+  number one, marked as such. They live on the phone with the other
+  settings, not in the shared store.
 
 The now-playing line sits above the REPORT button (■ switches the
 radio off; the lock screen and a car's controls get the station too),
-and the ⚙ sheet has a plain search box for a driver who would rather
-tap than ask. The mic self-test reports what is playing and whether the
-directory answers from that phone.
+and the ⚙ sheet has the favourites and a plain search box for a
+driver who would rather tap than ask. The mic self-test reports what
+is playing, how many favourites are kept, and whether the directory
+answers from that phone.
 
 ### Setting Otto up for it — three client tools in ElevenLabs
 
@@ -1135,8 +1145,8 @@ speaks:
 
 | Tool | Parameters | What the phone answers |
 |---|---|---|
-| `find_radio_station` | `name` (a station the driver named), `style` (jazz, news, rock, classical, talk…), `country` (two letters: DE, IT, GB — a name works too), `place` (a city or region: Berlin), `language` (in English: italian) | "Found 3 stations. 1: SWR3 from Germany (news, pop). 2: … 3: …" — and a reminder to read them out and ask which |
-| `play_radio_station` | `choice` — the driver's pick: the number (1, 2, 3) or the station's name | "Now playing SWR3." — or "SWR3 is set. It starts playing as soon as this call ends." |
+| `find_radio_station` | `name` (a station the driver named), `style` (jazz, news, rock, classical, talk…), `country` (two letters: DE, IT, GB — a name works too), `place` (a city or region: Berlin), `language` (in English: italian) | "Found 3 stations. 1: SWR3 (a favourite) from Germany (news, pop). 2: … 3: …" — favourites that fit first, then the directory — and a reminder to read them out and ask which; with nothing asked for, the favourites alone |
+| `play_radio_station` | `choice` — the driver's pick: the number (1, 2, 3) or the station's name; a favourite's name works with no search first | "Now playing SWR3." — or "SWR3 is set. It starts playing as soon as this call ends." |
 | `stop_radio` | none | "The radio is off." |
 
 Then tell Otto in his prompt, in your own words: when the driver asks
@@ -1477,7 +1487,7 @@ The composition happens entirely through the kits' public seams:
 | `index.html` | Phone shell: the REPORT button, map, HUD, card, Otto screen, the radio's now-playing bar (pins come from the dashboard) |
 | `app.js` | Destinations, messages, the card (incl. the Delivered tap on route stops), the REPORT flow, Otto wiring, the ⚙ settings sheet, the radio's hooks (silent on a call, quieter under a voice, the sheet's search box) |
 | `darts.js/.css` | The dart game after a report: the card, the flick, the rings, one throw per stop, only while still, the depot's best today |
-| `radio.js` | Live radio by asking Otto: the station directory (secure streams only, one entry per station, the lower-data stream), a player that falls silent for a call and quieter under a voice, and the three client tools Otto calls and the phone answers — `test/radio.test.mjs` holds its node tests, run by `agent-suite.yml` |
+| `radio.js` | Live radio by asking Otto: the station directory (secure streams only, one entry per station, the lower-data stream), the favourites kept on the phone, a player that falls silent for a call and quieter under a voice, and the three client tools Otto calls and the phone answers — `test/radio.test.mjs` holds its node tests, run by `agent-suite.yml` |
 | `otto-agent.js` | Otto as a live ElevenLabs agent conversation — the kit's mount seams over a WebSocket, with the scenario as its context — and the agent's client tools, answered on the phone (the radio's three); a call that was only such a request files nothing |
 | `otto-stream.js` | The reading voice's player: an ElevenLabs mp3 played from its first chunk while the rest is still being made (Media Source Extensions), whole where the browser cannot stream mp3 — `test/` holds its node tests, run by `agent-suite.yml` |
 | `dashboard.html` | Desktop shell: scenario list, map, form / address / import sheets |

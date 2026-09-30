@@ -81,7 +81,13 @@ const SWR = () => [
 /* between tests: nothing playing, nothing held, no choices on the table
  * (a call opening clears them), the one audio element's log emptied,
  * and the directory answering by name the way the real one does */
-const byName = q => SWR().filter(r => !q.get('name') || r.name.toLowerCase().includes(q.get('name').toLowerCase()));
+const byName = q => SWR().filter(r => {
+  const name = q.get('name');
+  const tag = q.get('tag');
+  if (name && !r.name.toLowerCase().includes(name.toLowerCase())) return false;
+  if (tag && !r.tags.split(',').includes(tag.toLowerCase())) return false;
+  return true;
+});
 const reset = () => {
   calls.length = 0; down.clear(); FakeAudio.refuse.clear(); store.clear();
   Radio.stop(); Radio.hold('call'); Radio.release('call'); Radio.unduck('voice');
@@ -287,4 +293,83 @@ test('a name straight to play, no choices read out first — and a pick nobody r
 test('the hint and the description are one sentence each, for the briefing', () => {
   assert.match(Radio.hint(), /^If the driver asks for a radio station, call find_radio_station/);
   assert.match(Radio.hint(), /starts when the call ends\.$/);
+});
+
+/* ---------- favourites: the stations kept on this phone ---------- */
+
+test('a station kept is listed once, up to twelve; a quality tag is the same station; ✕ lets it go', () => {
+  reset();
+  const [swr3, swr1] = P.dedupe(SWR());
+  assert.equal(Radio.favourites().length, 0);
+  assert.equal(Radio.addFavourite(swr3), true);
+  assert.equal(Radio.addFavourite(swr3), true, 'kept twice stays once');
+  assert.equal(Radio.addFavourite(swr1), true);
+  assert.deepEqual(Radio.favourites().map(f => f.name), ['SWR3', 'SWR1']);
+  assert.equal(Radio.isFavourite(swr1), true);
+  assert.equal(Radio.isFavourite({ name: 'SWR3 - 96K AAC', url: 'https://streams.example/other' }), true, 'the same station under a quality tag');
+  assert.equal(Radio.removeFavourite(swr3), true);
+  assert.equal(Radio.removeFavourite(swr3), false);
+  assert.deepEqual(Radio.favourites().map(f => f.name), ['SWR1']);
+  for (let i = 0; i < 12; i++) Radio.addFavourite(row('Station ' + i));
+  assert.equal(Radio.favourites().length, 12, 'twelve at most');
+  assert.equal(Radio.addFavourite(row('One too many')), false);
+  assert.equal(Radio.addFavourite(null), false);
+});
+
+test('a favourite that fits comes first when Otto searches, marked, and the directory fills the rest without doubling it', async () => {
+  reset();
+  answer = () => SWR(); // a directory with jazz on every SWR station, for the merge
+  const [swr3] = P.dedupe(SWR());
+  Radio.addFavourite({ ...swr3, tags: ['jazz', 'smooth'] });
+  const text = await Radio.tools.find_radio_station({ style: 'jazz' });
+  assert.match(text, /^Found 3 stations\. 1: SWR3 \(a favourite\) from Germany \(jazz, smooth\)\. 2: SWR1 from Germany \(pop, oldies\)\. 3: SWR4 BW/);
+  assert.ok(calls.some(u => u.includes('tag=jazz')), 'the directory was asked too');
+  assert.equal(Radio.choices().filter(s => s.name === 'SWR3').length, 1);
+});
+
+test('"one of my stations": nothing asked for, the favourites alone, no directory call', async () => {
+  reset();
+  const [swr3, swr1] = P.dedupe(SWR());
+  Radio.addFavourite(swr3);
+  Radio.addFavourite(swr1);
+  const text = await Radio.tools.find_radio_station({});
+  assert.equal(text, 'Found 2 stations. 1: SWR3 (a favourite) from Germany (pop, rock). 2: SWR1 (a favourite) from Germany (pop, oldies). Read them out, ask the driver which one, then call play_radio_station with the number or the name.');
+  assert.equal(calls.length, 0);
+});
+
+test('a favourite plays by name with no search, by its number when nothing was read out, and still by name when choices are on the table', async () => {
+  reset();
+  const [swr3, swr1] = P.dedupe(SWR());
+  Radio.addFavourite(swr3);
+  Radio.addFavourite(swr1);
+  assert.equal(await Radio.tools.play_radio_station({ choice: 'swr1' }), 'Now playing SWR1.');
+  assert.equal(calls.filter(u => u.includes('/json/stations/')).length, 0, 'no search');
+  assert.equal(await Radio.tools.play_radio_station({ choice: 'the first one' }), 'Now playing SWR3.');
+  await Radio.tools.find_radio_station({ name: 'swr4' });
+  assert.equal(await Radio.tools.play_radio_station({ choice: '1' }), 'Now playing SWR4 BW.', 'a number picks from the choices read out');
+  assert.equal(await Radio.tools.play_radio_station({ choice: 'swr1' }), 'Now playing SWR1.', 'a favourite by name outranks "which one?"');
+  assert.equal(await Radio.tools.play_radio_station({ choice: 'bbc' }), 'Which one? The choices are 1: SWR4 BW. Ask the driver, then call play_radio_station again.');
+});
+
+test('the briefing names the favourites, and says they need no search', () => {
+  reset();
+  assert.equal(Radio.favouritesLine(), '');
+  const [swr3, swr1] = P.dedupe(SWR());
+  Radio.addFavourite(swr3);
+  Radio.addFavourite(swr1);
+  assert.equal(Radio.favouritesLine(), 'The driver keeps 2 favourite stations: SWR3, SWR1. Any of them plays by name with play_radio_station, no search needed.');
+});
+
+test('which favourites fit: by name, style or country — all of them when nothing was asked for', () => {
+  const favs = [
+    { name: 'SWR3', url: 'u', tags: ['pop'], country: 'Germany', countrycode: 'DE' },
+    { name: 'RAI Radio 1', url: 'u', tags: ['news'], country: 'Italy', countrycode: 'IT' },
+  ];
+  const names = p => P.matchFavourites(favs, p).map(f => f.name);
+  assert.deepEqual(names({ name: 'rai' }), ['RAI Radio 1']);
+  assert.deepEqual(names({ style: 'News' }), ['RAI Radio 1']);
+  assert.deepEqual(names({ country: 'de' }), ['SWR3']);
+  assert.deepEqual(names({ country: 'Italy' }), ['RAI Radio 1']);
+  assert.deepEqual(names({}), ['SWR3', 'RAI Radio 1']);
+  assert.deepEqual(names({ name: 'bbc' }), []);
 });

@@ -1562,7 +1562,7 @@ function reportBriefing(v) {
   lines.push('Ask what happened, keep it to two or three questions, confirm the tip in one line, and let them go.');
   /* the radio: what is on, and what to do when a station is asked for
    * (the tools are the agent's own; radio.js answers them) */
-  if (typeof Radio !== 'undefined') lines.push(Radio.describe() + ' ' + Radio.hint());
+  if (typeof Radio !== 'undefined') lines.push([Radio.describe(), Radio.favouritesLine(), Radio.hint()].filter(Boolean).join(' '));
   /* belt to the language override's braces, exactly as below */
   if (testLang === 'it') lines.push('This driver chose Italian: conduct the entire debrief in Italian — every question and reply.');
   return lines.join(' ');
@@ -1593,7 +1593,7 @@ function agentBriefing() {
   }
   if (v.activity_summary) lines.push(`Activity the phone observed: ${v.activity_summary}.`);
   lines.push('Ask about what they actually found on the ground, keep it to a couple of short questions, and let them go.');
-  if (typeof Radio !== 'undefined') lines.push(Radio.describe() + ' ' + Radio.hint());
+  if (typeof Radio !== 'undefined') lines.push([Radio.describe(), Radio.favouritesLine(), Radio.hint()].filter(Boolean).join(' '));
   /* belt to the language override's braces: an agent whose prompt never
    * mentions language still gets told, in words, which one this run is */
   if (testLang === 'it') lines.push('This tester chose Italian: conduct the entire debrief in Italian — every question and reply.');
@@ -1998,7 +1998,8 @@ el('build').onclick = async () => {
     const st = rs.station;
     out.push('radio: ' + (st && rs.wanted ? (rs.playing ? 'playing ' : 'set: ') + st.name + ' (' + [st.codec, st.bitrate ? st.bitrate + ' kbps' : ''].filter(Boolean).join(' ') + ')' : 'off')
       + (rs.held.length ? ' · silent for: ' + rs.held.join(', ') : '') + (rs.error ? ' · ' + rs.error : '')
-      + (Radio.last() ? ' · last station ' + Radio.last().name : ''));
+      + (Radio.last() ? ' · last station ' + Radio.last().name : '')
+      + ' · ' + Radio.favourites().length + ' favourite' + (Radio.favourites().length === 1 ? '' : 's'));
     try {
       const t0 = Date.now();
       const hits = await Radio.find({ name: 'swr3' });
@@ -2115,12 +2116,55 @@ function renderRadio(s) {
       : st && s.wanted ? `${st.name}${st.bitrate ? ' · ' + st.bitrate + ' kbps' : ''}${s.held.length ? ' · back after the call' : ''}`
       : 'Off. During a report, ask Otto for a station — or search here.';
     el('st-radio-stop').hidden = !s.wanted;
+    /* ☆ keep — for the station playing, until it is kept */
+    if (el('st-radio-fav')) el('st-radio-fav').hidden = !(st && s.wanted && !Radio.isFavourite(st));
   }
+  renderFavs();
+}
+/* one station as a row: the station to tap, and a small button beside it */
+function stationRow(st, onPick, side) {
+  const row = document.createElement('div');
+  row.className = 'st-station-row';
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'st-station';
+  b.textContent = st.name;
+  const small = document.createElement('small');
+  small.textContent = [st.country, ...(st.tags || [])].filter(Boolean).join(' · ');
+  b.appendChild(small);
+  b.onclick = onPick;
+  row.appendChild(b);
+  const x = document.createElement('button');
+  x.type = 'button';
+  x.className = 'st-side';
+  x.textContent = side.text;
+  x.title = side.title;
+  x.setAttribute('aria-label', side.title);
+  x.onclick = side.onClick;
+  row.appendChild(x);
+  return row;
+}
+/* the favourites kept on this phone — one tap plays, ✕ lets one go */
+function renderFavs() {
+  const box = el('st-radio-favs');
+  if (!box) return;
+  box.innerHTML = '';
+  const favs = Radio.favourites();
+  if (!favs.length) {
+    const n = document.createElement('span');
+    n.className = 'st-note';
+    n.textContent = 'No favourites yet — find a station below and tap ☆ to keep it. Otto plays a favourite by name, no search.';
+    box.appendChild(n);
+    return;
+  }
+  favs.forEach(st => box.appendChild(stationRow(st, () => Radio.play(st),
+    { text: '✕', title: 'Let this favourite go', onClick: () => Radio.removeFavourite(st) })));
 }
 if (typeof Radio !== 'undefined') {
   Radio.onChange(renderRadio);
   renderRadio(Radio.status());
   if (el('rb-stop')) el('rb-stop').onclick = e => { e.stopPropagation(); Radio.stop(); };
+  if (el('st-radio-fav')) el('st-radio-fav').onclick = () => { const st = Radio.status().station; if (st) Radio.addFavourite(st); };
   if (el('st-radio-q')) {
     const list = el('st-radio-list');
     const note = text => {
@@ -2131,6 +2175,23 @@ if (typeof Radio !== 'undefined') {
       list.appendChild(n);
       list.hidden = false;
     };
+    /* what a search found: tap to play, ☆ to keep (★ once kept — tap again to let go) */
+    const show = found => {
+      list.innerHTML = '';
+      found.forEach(st => {
+        const kept = Radio.isFavourite(st);
+        list.appendChild(stationRow(st, () => { list.hidden = true; Radio.play(st); }, {
+          text: kept ? '★' : '☆',
+          title: kept ? 'Let this favourite go' : 'Keep as a favourite',
+          onClick: () => {
+            if (kept) Radio.removeFavourite(st);
+            else if (!Radio.addFavourite(st)) note('the favourites are full — let one go first');
+            if (!list.hidden && list.children.length) show(found);
+          },
+        }));
+      });
+      list.hidden = false;
+    };
     const find = async () => {
       const q = el('st-radio-q').value.trim();
       if (!q) return;
@@ -2139,18 +2200,7 @@ if (typeof Radio !== 'undefined') {
       try {
         const found = await Radio.find({ name: q });
         if (!found.length) { note('nothing playable by that name — try a style, or a country'); return; }
-        list.innerHTML = '';
-        found.forEach(st => {
-          const b = document.createElement('button');
-          b.type = 'button';
-          b.textContent = st.name;
-          const small = document.createElement('small');
-          small.textContent = [st.country, ...st.tags].filter(Boolean).join(' · ');
-          b.appendChild(small);
-          b.onclick = () => { list.hidden = true; Radio.play(st); };
-          list.appendChild(b);
-        });
-        list.hidden = false;
+        show(found);
       } catch (e) {
         note('the radio directory did not answer (' + ((e && e.message) || e) + ')');
       } finally {

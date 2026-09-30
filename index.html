@@ -715,9 +715,15 @@
     font-size: 12.5px;
     cursor: pointer;
   }
-  #st-radio-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+  /* the favourites (one tap each) and what a search found: a station
+     row is the station to tap, and a small button beside it — ☆ keeps
+     a found one, ✕ lets a favourite go */
+  #st-radio-favs, #st-radio-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
   #st-radio-list[hidden] { display: none; }
-  #st-radio-list button {
+  .st-station-row { display: flex; gap: 6px; align-items: stretch; }
+  .st-station {
+    flex: 1;
+    min-width: 0;
     text-align: left;
     padding: 9px 11px;
     border-radius: 10px;
@@ -727,7 +733,17 @@
     font-size: 13.5px;
     cursor: pointer;
   }
-  #st-radio-list button small { display: block; margin-top: 2px; font-size: 11px; color: #94a1b2; }
+  .st-station small { display: block; margin-top: 2px; font-size: 11px; color: #94a1b2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .st-side {
+    flex: none;
+    width: 40px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,217,94,.35);
+    background: transparent;
+    color: #ffd95e;
+    font-size: 15px;
+    cursor: pointer;
+  }
   .st-note { font-size: 12px; color: #94a1b2; }
 
   /* ---------- Otto screen ---------- */
@@ -907,8 +923,10 @@
     </label>
     <div class="st-row">
       <span class="st-label">Radio<small id="st-radio-now">Off. During a report, ask Otto for a station — or search here.</small></span>
+      <button id="st-radio-fav" type="button" class="st-mini" hidden title="Keep the station that is playing as a favourite">☆ keep</button>
       <button id="st-radio-stop" type="button" class="st-mini" hidden>■ off</button>
     </div>
+    <div id="st-radio-favs"></div>
     <div class="st-find">
       <input id="st-radio-q" type="search" placeholder="a station, a style or a country" autocomplete="off">
       <button id="st-radio-go" type="button">find</button>

@@ -45,6 +45,12 @@
  *     for when the chosen one will not play.
  *   - The last station is remembered: "play the radio" with no name
  *     brings it back.
+ *   - FAVOURITES, kept on this phone like the other settings: ☆ on a
+ *     found station or the one playing keeps it (up to MAX_FAVS), the ⚙
+ *     sheet lists them one tap each. Otto knows them too: a favourite
+ *     plays by name with no search, find_radio_station lists the ones
+ *     that fit first (all of them when nothing was asked for), and the
+ *     briefing names them.
  *
  * DOM-free on purpose: app.js draws the now-playing line and the
  * settings box from onChange(); the node tests (test/radio.test.mjs)
@@ -57,6 +63,8 @@
  *   Radio.hold('call') / Radio.release('call')     silent, then back
  *   Radio.duck('voice') / Radio.unduck('voice')    quieter, then back
  *   Radio.status(), Radio.describe(), Radio.hint(), Radio.last()
+ *   Radio.favourites(), Radio.isFavourite(st), Radio.addFavourite(st),
+ *   Radio.removeFavourite(st), Radio.favouritesLine()
  *   Radio.onChange(fn)                             the status, on every change
  *   Radio.tools                                    the three tools, by name
  * ============================================================ */
@@ -64,6 +72,8 @@
 const Radio = (() => {
   const root = typeof window !== 'undefined' ? window : globalThis;
   const LS_STATION = 'od_radio_station';
+  const LS_FAVS = 'od_radio_favs';
+  const MAX_FAVS = 12;
   /* the directory's mirrors, tried in this order; the last is its
    * round-robin name */
   const MIRRORS = ['https://de1.api.radio-browser.info', 'https://de2.api.radio-browser.info', 'https://all.api.radio-browser.info'];
@@ -174,7 +184,7 @@ const Radio = (() => {
   /* the three choices, as the line Otto reads out — and what to do next */
   function spokenList(stations) {
     if (!stations.length) return 'No station found.';
-    const parts = stations.map((s, i) => `${i + 1}: ${s.name}${s.country ? ' from ' + s.country : ''}${s.tags.length ? ' (' + s.tags.slice(0, 2).join(', ') + ')' : ''}`);
+    const parts = stations.map((s, i) => `${i + 1}: ${s.name}${s.fav ? ' (a favourite)' : ''}${s.country ? ' from ' + s.country : ''}${s.tags && s.tags.length ? ' (' + s.tags.slice(0, 2).join(', ') + ')' : ''}`);
     return `Found ${stations.length} station${stations.length === 1 ? '' : 's'}. ${parts.join('. ')}. Read them out, ask the driver which one, then call play_radio_station with the number or the name.`;
   }
   const describeQuery = p => {
@@ -198,14 +208,17 @@ const Radio = (() => {
   const STOP = new Set(['the', 'one', 'radio', 'station', 'please', 'play', 'put', 'on', 'number', 'that', 'this', 'from', 'with',
     'il', 'la', 'lo', 'quello', 'quella', 'numero', 'stazione', 'metti', 'per', 'favore',
     'die', 'der', 'das', 'den', 'sender', 'nummer', 'bitte', 'mach', 'an', 'und', 'and', 'of']);
-  function resolveChoice(text, stations) {
+  function resolveChoice(text, stations, opts) {
+    const byNumber = !opts || opts.byNumber !== false;
     const t = norm(text).replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
     if (!t || !Array.isArray(stations) || !stations.length) return null;
     const tw = t.split(' ');
     const has = w => tw.includes(w);
     /* a digit or an ordinal is a pick by position */
-    for (let i = 0; i < ORDINALS.length; i++) {
-      if (ORDINALS[i].some(w => !CARDINALS.has(w) && has(w))) return stations[i] || null;
+    if (byNumber) {
+      for (let i = 0; i < ORDINALS.length; i++) {
+        if (ORDINALS[i].some(w => !CARDINALS.has(w) && has(w))) return stations[i] || null;
+      }
     }
     /* the name, whole or in part */
     const named = stations.find(s => norm(s.name) === t)
@@ -219,8 +232,10 @@ const Radio = (() => {
     });
     if (byWord) return byWord;
     /* a bare number word last — "one" is also a word in "the SWR one" */
-    for (let i = 0; i < ORDINALS.length; i++) {
-      if (ORDINALS[i].some(has)) return stations[i] || null;
+    if (byNumber) {
+      for (let i = 0; i < ORDINALS.length; i++) {
+        if (ORDINALS[i].some(has)) return stations[i] || null;
+      }
     }
     return null;
   }
@@ -304,6 +319,39 @@ const Radio = (() => {
       const st = JSON.parse(ls.getItem(LS_STATION) || 'null');
       return st && st.url && st.name ? st : null;
     } catch { return null; }
+  }
+
+  /* ---------- favourites: the stations kept on this phone ---------- */
+  function favourites() {
+    const ls = storage();
+    if (!ls) return [];
+    try {
+      const list = JSON.parse(ls.getItem(LS_FAVS) || '[]');
+      return Array.isArray(list) ? list.filter(f => f && f.url && f.name) : [];
+    } catch { return []; }
+  }
+  function saveFavourites(list) {
+    const ls = storage();
+    if (!ls) return;
+    try { ls.setItem(LS_FAVS, JSON.stringify(list)); } catch { /* private mode */ }
+  }
+  const sameStation = (a, b) => !!a && !!b && ((!!a.uuid && a.uuid === b.uuid) || cleanName(a.name) === cleanName(b.name));
+  const isFavourite = st => favourites().some(f => sameStation(f, st));
+  /* the favourites that fit what was asked for — by name, style or
+   * country — or all of them when nothing was ("one of my stations") */
+  function matchFavourites(list, p) {
+    p = p || {};
+    const name = norm(p.name);
+    const style = norm(p.style);
+    const country = norm(p.country);
+    if (!name && !style && !country) return (list || []).slice();
+    return (list || []).filter(f => {
+      const n = norm(f.name);
+      if (name && (n.includes(name) || name.includes(n))) return true;
+      if (style && (f.tags || []).some(t => norm(t).includes(style) || style.includes(norm(t)))) return true;
+      if (country && (norm(f.countrycode) === country || (f.country && norm(f.country).includes(country)))) return true;
+      return false;
+    });
   }
   function status() {
     return {
@@ -408,6 +456,34 @@ const Radio = (() => {
     find: search,
     choices: () => state.results,
     last: lastStation,
+    favourites,
+    isFavourite,
+    /* keep a station — at most MAX_FAVS, a station kept twice stays once */
+    addFavourite(st) {
+      if (!st || !st.url || !st.name) return false;
+      const list = favourites().filter(f => !sameStation(f, st));
+      if (list.length >= MAX_FAVS) return false;
+      const kept = { ...st, alts: Array.isArray(st.alts) ? st.alts : [] };
+      delete kept.fav;
+      list.push(kept);
+      saveFavourites(list);
+      emit();
+      return true;
+    },
+    removeFavourite(st) {
+      const list = favourites();
+      const left = list.filter(f => !sameStation(f, st));
+      if (left.length === list.length) return false;
+      saveFavourites(left);
+      emit();
+      return true;
+    },
+    /* for the agent's briefing: the names, and that they need no search */
+    favouritesLine() {
+      const list = favourites();
+      if (!list.length) return '';
+      return `The driver keeps ${list.length} favourite station${list.length === 1 ? '' : 's'}: ${list.map(f => f.name).join(', ')}. Any of them plays by name with play_radio_station, no search needed.`;
+    },
     /* a station from find(), or nothing for the last one played */
     async play(st) {
       if (st == null) st = lastStation();
@@ -460,7 +536,17 @@ const Radio = (() => {
     /* ---------- the tools, as the agent calls them ---------- */
     tools: {
       async find_radio_station(p) {
-        const stations = await search(p);
+        /* the favourites that fit come first — all of them when nothing
+         * was asked for — and the directory fills the choices up to three */
+        const stations = matchFavourites(favourites(), p).slice(0, CHOICES).map(f => ({ ...f, fav: true }));
+        if (stations.length < CHOICES && queriesFor(p).length) {
+          let more = [];
+          try { more = await search(p); } catch (e) { if (!stations.length) throw e; }
+          for (const st of more) {
+            if (stations.length >= CHOICES) break;
+            if (!stations.some(f => sameStation(f, st))) stations.push(st);
+          }
+        }
         state.results = stations;
         emit();
         if (!stations.length) return `No playable station found for ${describeQuery(p)}. Tell the driver, and offer another name, style or country.`;
@@ -471,7 +557,10 @@ const Radio = (() => {
         const choice = words(p.choice != null ? p.choice : p.station != null ? p.station : p.number != null ? p.number : p.name);
         let st = null;
         if (state.results.length) st = choice ? resolveChoice(choice, state.results) : (state.results.length === 1 ? state.results[0] : null);
-        if (!st && choice) {
+        /* a favourite plays by name with no search — and by its number
+         * when no choices were read out */
+        if (!st && choice) st = resolveChoice(choice, favourites(), { byNumber: !state.results.length });
+        if (!st && choice && !state.results.length) {
           /* a name straight to play — no choices read out first */
           const found = await search({ name: choice });
           if (found.length) st = found[0];
@@ -494,7 +583,7 @@ const Radio = (() => {
       },
     },
 
-    _pure: { cleanName, playable, dedupe, queriesFor, spokenList, resolveChoice, shortCountry },
+    _pure: { cleanName, playable, dedupe, queriesFor, spokenList, resolveChoice, shortCountry, matchFavourites, sameStation },
   };
   return api;
 })();
