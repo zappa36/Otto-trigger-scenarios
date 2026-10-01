@@ -28,7 +28,7 @@ import { promisify } from 'node:util';
 import { startMock } from './mock-elevenlabs.mjs';
 import { loadCallsSheet, loadRoute } from '../lib/sheet.mjs';
 import { callOf, callOpener, callBriefing, surnameOf, LANG_TEXT, agentVars, initDynamicVariables } from '../lib/scenario-vars.mjs';
-import { buildCallTests, buildCallTest, CALL_PERSONAS, CALL_VARS, SITUATION_VARS, SITUATION_PERSONAS, TRIGGER_PERSONAS, PERSONAS } from '../generate-tests.mjs';
+import { buildCallTests, buildCallTest, CALL_PERSONAS, CALL_VARS, SITUATION_VARS, SITUATION_PERSONAS, TRIGGER_PERSONAS, PERSONAS, endsWithNothingAgreed } from '../generate-tests.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
@@ -189,9 +189,25 @@ test('the conditions are the row\'s: purpose, what to establish, what is off top
   assert.match(driver.success_conditions[0], /^PURPOSE — Otto rang the driver, .* and talks to the driver as a colleague\./);
   assert.match(driver.success_conditions[2], /never asks the driver for something/);
   assert.match(driver.success_conditions[6], /consistent with what the driver said/);
-  /* the wrong number: the off-topic list is the delivery itself */
+  /* the wrong number: the off-topic list is the delivery itself — and
+   * there is nothing to agree, so the length and the close turn round:
+   * one more question at most, and an apology with a goodbye is the pass */
+  const wrongRow = rows.find(r => r.num === 10);
+  assert.ok(endsWithNothingAgreed(wrongRow), 'row #10 has nothing to agree');
+  assert.ok(!rows.filter(r => r.num !== 10).some(endsWithNothingAgreed), 'no other starter row has');
   const wrong = built.find(t => t.file === 'call-10-wrong-number--cooperative.json').body;
   assert.match(wrong.success_conditions[1], /that this is the wrong number; nothing more — Otto apologises and ends the call\. A question about something else \(for example the address, the name of the street, what is being delivered/);
+  assert.match(wrong.success_conditions[5], /^LENGTH — once the customer has answered, Otto asks at most one more question, then ends the call\./);
+  assert.match(wrong.success_conditions[6], /^CLOSE — there is nothing to agree on this call \(that this is the wrong number\), so the right close is a short apology, or thanks, and a goodbye — that is a pass\./);
+  assert.match(wrong.success_conditions[6], /What the office does afterwards \(Wrong number for Aydın — nothing about the delivery was said; the office checks the number on file\) is not something Otto has to say\./);
+  assert.doesNotMatch(wrong.success_conditions[6], /a closing that is only thanks/);
+  /* every other row keeps the summary close */
+  assert.match(fischer.success_conditions[6], /a closing that is only thanks/);
+  assert.match(fischer.success_conditions[5], /at most three questions in total/);
+  assert.ok(endsWithNothingAgreed({ must_establish: ['who answered', 'none — hang up'] }));
+  assert.ok(endsWithNothingAgreed({ must_establish: ['Nothing else: say sorry and hang up'] }));
+  assert.ok(!endsWithNothingAgreed({ must_establish: ['nothing showed up on the bell panel'] }), 'a fact that happens to start with "nothing" is still a fact to establish');
+  assert.ok(!endsWithNothingAgreed({ must_establish: ['that there is nothing more to arrange'] }), 'the words have to lead the item');
 });
 
 test('the suspicious person gets an eighth condition: Otto says who he is when asked', () => {
@@ -242,7 +258,8 @@ test('generation is deterministic: the CLI run twice writes byte-identical files
     const out = execFileSync(process.execPath, [GEN, '--calls', '--sheet', '--out', a], { encoding: 'utf8' });
     assert.match(out, /GENERATE — 10 call\(s\) from the starter sheet × 4 persona\(s\) → 40 test\(s\)/);
     assert.match(out, /wrote 40 file\(s\)/);
-    assert.doesNotMatch(out, /^note:/m, 'every chained starter row carries its previous_call');
+    assert.match(out, /^note: "Wrong number — a stranger answers" has nothing to agree — its tests grade Otto for ending the call with an apology, not for an outcome$/m);
+    assert.equal((out.match(/^note:/gm) || []).length, 1, 'every chained starter row carries its previous_call — the one note is the wrong number\'s');
     execFileSync(process.execPath, [GEN, '--calls', '--sheet', '--out', b], { encoding: 'utf8' });
     const fa = readdirSync(a).sort(), fb = readdirSync(b).sort();
     assert.deepEqual(fa, fb);

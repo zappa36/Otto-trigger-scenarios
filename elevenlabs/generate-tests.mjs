@@ -590,6 +590,16 @@ const callVars = v => initDynamicVariables(Object.fromEntries(CALL_VARS.map(k =>
 /* who is on the other end of the line, in the words the conditions use */
 const calleeWord = row => (callOf(row).callee === 'driver' ? 'the driver' : 'the customer');
 
+/* A row with nothing to agree: its must_establish says, after the one
+ * thing to find out, "nothing more" — the wrong number, where the right
+ * call is an apology and a goodbye. The first calls baseline failed all
+ * four wrong-number calls on the close, for not summing up what was
+ * agreed when nothing was; the row's outcome there is what the office
+ * does afterwards, not a line Otto has to say. Such a row is judged the
+ * other way round: one question at most, and a close that is an apology
+ * and a goodbye with nothing about the delivery in it. */
+export const endsWithNothingAgreed = row => listOf(row && row.must_establish).some(x => /^(nothing (more|else|further)|none|no more)\b/i.test(x));
+
 /* The person Otto rang, in the first person. Everything they may say
  * comes from the row: what they say once Otto has got to the point,
  * and the facts they give up only when asked. The customer is the
@@ -635,9 +645,14 @@ function callConditions({ row, d, persona }) {
   c.push(`NO REPETITION — Otto never asks ${who} for something they have already said in this conversation; every question adds something they have not given yet. Asking again for a detail that was already in their own words — reworded, or as a check — fails.`);
   c.push(`NATURAL — Otto sounds like a person from the office on the phone: a short, natural acknowledgement of what ${who} just said before the next question, plain spoken language, one thing at a time, polite without being stiff. Reading from a script, form-filling phrasing (“please confirm the following”), lecturing ${who} about the rules, or reading the whole call back in the middle of the conversation fails.`);
   c.push(`NO INVENTION — Otto states no fact that ${who} did not say and the office did not already know. What the office knows: ${purpose}${previous ? ` What the office learned before this call: ${noStop(previous)}.` : ''} Telling ${who} something from that is fine; an invented time, name, reason, address or promise is not. Asking about something is fine; asserting it is not.`);
-  c.push(`LENGTH — after saying why he is calling, Otto asks at most three questions in total, one at a time (two questions in one turn count as two), and then he closes. One question is enough when ${who} has already said the rest. Four or more questions fails.`);
+  const nothingAgreed = endsWithNothingAgreed(row);
+  c.push(nothingAgreed
+    ? `LENGTH — once ${who} has answered, Otto asks at most one more question, then ends the call. Two or more further questions fails.`
+    : `LENGTH — after saying why he is calling, Otto asks at most three questions in total, one at a time (two questions in one turn count as two), and then he closes. One question is enough when ${who} has already said the rest. Four or more questions fails.`);
   const outcomeBody = noStop(row.outcome);
-  c.push(`CLOSE — Otto ends by confirming in one line what was agreed and what happens next, consistent with what ${who} said. For this call that is something like: “${outcomeBody}”; equivalent wording is fine. Judge it only on what ${who} said in this conversation: a fact they never mentioned is not missing, and the address need not be said. What fails: no summary at all, a summary that contradicts ${who}, or a closing that is only thanks. Then he lets ${who} go with a short goodbye.`);
+  c.push(nothingAgreed
+    ? `CLOSE — there is nothing to agree on this call (${must[0] || 'what the person said'}), so the right close is a short apology, or thanks, and a goodbye — that is a pass. Otto says nothing about the delivery, the address or the customer to the person on the line, asks them to pass nothing on, and does not press on with the call. What the office does afterwards (${outcomeBody}) is not something Otto has to say. What fails: carrying on with the delivery, telling the person anything about it, or asking them for anything more.`
+    : `CLOSE — Otto ends by confirming in one line what was agreed and what happens next, consistent with what ${who} said. For this call that is something like: “${outcomeBody}”; equivalent wording is fine. Judge it only on what ${who} said in this conversation: a fact they never mentioned is not missing, and the address need not be said. What fails: no summary at all, a summary that contradicts ${who}, or a closing that is only thanks. Then he lets ${who} go with a short goodbye.`);
   if (persona.id === 'suspicious') {
     c.push(`IDENTIFIES HIMSELF — when ${who} asks who is calling or how Otto got their number, Otto says plainly who he is and which delivery this is about before going on, without getting defensive and without pressing his own question first. Brushing the ask aside, or answering it with a question, fails.`);
   }
@@ -857,6 +872,10 @@ async function generateCalls(o) {
   const count = new Set(tests.map(t => t.body._otto.call_title)).size;
   console.log(`\nGENERATE — ${count} call(s) from ${from} × ${CALL_PERSONAS.length} persona(s) → ${tests.length} test(s)\n`);
   printTests(tests);
+  /* a row with nothing to agree grades the other way round (Otto must
+   * end the call, not sum anything up), which is easy to miss in a sheet */
+  const hangUps = [...new Set(tests.filter(t => endsWithNothingAgreed(rows.find(r => String(r.title || '') === t.body._otto.call_title) || {})).map(t => t.body._otto.call_title))];
+  hangUps.forEach(title => console.log(`note: "${title}" has nothing to agree — its tests grade Otto for ending the call with an apology, not for an outcome`));
   /* a row that is followed by another call is tested on its own here —
    * the chain is the phone's; the next row carries what the office
    * learned as its previous_call, which is easy to leave empty */
