@@ -341,7 +341,7 @@ where they are edited from then on. Each row carries:
 | `previous_call` | what the office learned on the call before this one, when it follows one (sent as `{{call_previous}}`) |
 | `they_say` | what the person says once Otto has said why he is calling |
 | `they_know` | what the person can tell **if asked, and only then** |
-| `must_establish` | what the call has to establish, as a list |
+| `must_establish` | what the call has to establish, as a list. A last item that begins "nothing more" (or "nothing else", "none", "no more") says the call has nothing to agree — the wrong number — and turns the LENGTH and CLOSE conditions round: one more question at most, and an apology with a goodbye is the pass |
 | `off_topic` | what would not fit here (this row's wrong questions) |
 | `outcome` | the one line Otto should end the call confirming — what was agreed and what happens next |
 | `next_call` | the `num` of the call that follows on the phone; the suite tests each row on its own |
@@ -387,7 +387,12 @@ send as a contextual update rides under `_otto.briefing`.
 7. **CLOSE** — he confirms what was agreed and what happens next in one
    line, consistent with what the person said (the row's `outcome` is
    the yardstick, judged on what was said in that call), and lets them
-   go.
+   go. On a row with nothing to agree (`must_establish` ends "nothing
+   more …"), the two turn round: LENGTH allows one more question once
+   the person has answered, and CLOSE passes an apology, or thanks, and
+   a goodbye with nothing about the delivery in it — the row's `outcome`
+   is then what the office does afterwards, not a line Otto has to say.
+   The generator prints a `note:` for each such row.
 
 The **suspicious** persona gets an eighth: **IDENTIFIES HIMSELF** — when
 asked who is calling, Otto says plainly who he is and which delivery
