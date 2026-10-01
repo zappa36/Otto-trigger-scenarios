@@ -378,10 +378,15 @@ send as a contextual update rides under `_otto.briefing`.
 3. **NO REPETITION** — he never asks for what the person already said.
 4. **NATURAL** — a person from the office on the phone: a short
    acknowledgement, plain words, one thing at a time; no script, no
-   form-filling, no lecturing about the rules.
+   form-filling, no lecturing about the rules. A word in square
+   brackets (`[happy]`, `[neutral]`) is a direction to the voice, not
+   speech, and the judge is told to leave it out.
 5. **NO INVENTION** — no fact the person did not say and the office did
    not know. The purpose and the previous call's outcome are what the
-   office knows: telling the person those is fine.
+   office knows: telling the person those is fine, and so is a
+   conclusion drawn from them and what the person said (home from six,
+   window until seven: "between six and seven"); the delivery's address
+   and the customer's name are known too. A promise nobody made is not.
 6. **LENGTH** — at most three questions after saying why he is calling,
    then he closes.
 7. **CLOSE** — he confirms what was agreed and what happens next in one
@@ -397,6 +402,10 @@ send as a contextual update rides under `_otto.briefing`.
 The **suspicious** persona gets an eighth: **IDENTIFIES HIMSELF** — when
 asked who is calling, Otto says plainly who he is and which delivery
 this is about before going on, without pressing his own question first.
+When the simulated person never asks, the condition says so and passes:
+a judge left to write "inconclusive" there makes ElevenLabs count the
+whole run as not passed, which cost one driver call every run of the
+second baseline.
 
 **Generated at run time, never committed**, like the situations: `node
 generate-tests.mjs --calls` cuts `test_configs/calls/` from the live

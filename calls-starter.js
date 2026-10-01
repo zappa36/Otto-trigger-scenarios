@@ -109,7 +109,7 @@ window.CALLS_SHEET = {
       title: 'Tell the driver — skip Fischer today',
       callee: 'driver',
       stop: 8,
-      purpose: 'Tell the driver that the stop at Kollwitzstraße 71 is off today\'s round and why, and that the fresh-food box goes back to the depot for tomorrow evening. Make sure the driver does not try the neighbour.',
+      purpose: 'Tell the driver that the stop at Kollwitzstraße 71 is off today\'s round and why, that the fresh-food box goes back to the depot for tomorrow evening, and that they mark the stop as not delivered in the app. Make sure the driver does not try the neighbour.',
       otto_says: 'Hi, Otto from the office here — a quick one about Kollwitzstraße 71, the Fischer box.',
       previous_call: 'Fischer at Kollwitzstraße 71 is away until tomorrow evening. The fresh-food box must not go to the neighbour Kern; redelivery tomorrow between 18:00 and 20:00.',
       they_say: 'Okay — so I skip 71 and the box comes back with me?',

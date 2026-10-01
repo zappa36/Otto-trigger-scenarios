@@ -179,6 +179,8 @@ test('the conditions are the row\'s: purpose, what to establish, what is off top
   assert.ok(c[1].includes(row.off_topic.join(', ')), 'and what would not fit');
   assert.match(c[2], /^NO REPETITION — Otto never asks the customer for something they have already said/);
   assert.match(c[3], /^NATURAL — Otto sounds like a person from the office on the phone/);
+  assert.match(c[3], /A word in square brackets such as \[happy\] or \[neutral\] is a direction to the voice, not something said: leave it out of the judgement\./, 'the voice tags are not speech');
+  assert.match(c[4], /so “between six and seven” is a conclusion, not an invention\); the delivery's own address and the customer's name are known to the office too\. An invented time, name, reason or address is not fine, and neither is a promise nobody made/);
   assert.match(c[4], /^NO INVENTION — Otto states no fact that the customer did not say and the office did not already know\. What the office knows: A fresh-food box for R\. Fischer/);
   assert.match(c[5], /^LENGTH — after saying why he is calling, Otto asks at most three questions in total/);
   assert.ok(c[6].includes(row.outcome.replace(/\.$/, '')), 'the close names the outcome');
@@ -216,6 +218,8 @@ test('the suspicious person gets an eighth condition: Otto says who he is when a
   sus.forEach(t => {
     assert.equal(t.body.success_conditions.length, 8);
     assert.match(t.body.success_conditions[7], /^IDENTIFIES HIMSELF — when the (customer|driver) asks who is calling or how Otto got their number, Otto says plainly who he is and which delivery this is about before going on/);
+    /* the second baseline lost every run of one driver call to "Evaluation inconclusive": the simulated driver never asked, the judge wrote neither word, and ElevenLabs counted the whole test as not passed */
+    assert.match(t.body.success_conditions[7], /If the (customer|driver) never asks, there is nothing to judge here and the answer is PASS\. Start your answer with PASS or FAIL, then the reason\.$/);
     assert.match(t.body.simulation_scenario, /You do not know who is calling\. Your first words are to ask who this is and how they got your number/);
     assert.equal(t.body.simulation_max_turns, 10, 'the who-is-this exchange costs a turn before the call even starts');
   });
