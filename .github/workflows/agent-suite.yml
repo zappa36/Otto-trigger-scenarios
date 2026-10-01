@@ -13,10 +13,10 @@ name: agent-suite
 #               test_configs/. A sheet edit or a generator change has to
 #               land together with the files it produces, otherwise the
 #               suite ElevenLabs runs is no longer what the phone sends.
-#               The situation tests are not committed and not diffed —
-#               they come from the dashboard's rows at run time — but
-#               the node tests build all eighty from the starter sheet
-#               and check their shape. The same job runs the tests of
+#               The situation and call tests are not committed and not
+#               diffed — they come from the dashboard's rows at run
+#               time — but the node tests build all of them from the
+#               starter sheets and check their shape. The same job runs the tests of
 #               otto-stream.js, the phone's player for the reading
 #               voice's streamed mp3 (test/ at the repo root).
 #
@@ -69,12 +69,22 @@ name: agent-suite
 #
 #               `suite` picks WHICH tests run: the SITUATIONS (the
 #               default — what a driver reports after pressing the big
-#               REPORT button, which is all the pilot has), the TRIGGERS
-#               (the scenario sheet, for when triggers come back), or
-#               all. The situation tests are generated from the live
-#               rows of the dashboard's SITUATIONS tab at the start of
-#               every run, so a row edited there is in the next press —
-#               they are not committed.
+#               REPORT button, which is all the pilot has), the CALLS
+#               (Otto ringing the customer or the driver from the back
+#               office — a home check for a fresh-food box, a late
+#               notice, a stop to skip), the TRIGGERS (the scenario
+#               sheet, for when triggers come back), or all. The
+#               situation and call tests are generated from the live
+#               rows of the dashboard's SITUATIONS and CALLS tabs at the
+#               start of every run, so a row edited there is in the next
+#               press — they are not committed.
+#
+#               The calls suite runs on the BACK-OFFICE agent, the one
+#               with its own prompt for calling: the repository variable
+#               ELEVENLABS_CALL_AGENT_ID, or else the id config.js carries
+#               (the one the phone rings from); every other suite runs on
+#               Otto himself. configure with the suite set to calls puts
+#               analysis-calls.json on that agent.
 #
 #               Every run costs real simulated conversations, so a button
 #               only goes ahead when the repository carries the
@@ -130,6 +140,7 @@ on:
       - "otto-agent.js"
       - "trigger-scenarios.js"
       - "situations-starter.js"
+      - "calls-starter.js"
       - "route-kollwitz.js"
   pull_request:
     paths:
@@ -141,6 +152,7 @@ on:
       - "otto-agent.js"
       - "trigger-scenarios.js"
       - "situations-starter.js"
+      - "calls-starter.js"
       - "route-kollwitz.js"
   workflow_dispatch:
     inputs:
@@ -159,12 +171,13 @@ on:
           - models
           - settings
       suite:
-        description: "Which tests to run: the situations (what a driver reports — the pilot's suite), the trigger scenarios, or both"
+        description: "Which tests to run: the situations (what a driver reports — the pilot's suite), the calls (Otto rings the customer or the driver), the trigger scenarios, or all of them"
         type: choice
         required: true
         default: situations
         options:
           - situations
+          - calls
           - triggers
           - all
       repeat:
@@ -207,7 +220,7 @@ on:
           - default
           - disabled
       rows:
-        description: "models: which situation rows to run, by their # on the SITUATIONS tab (empty = every row). The default is a quick trial of seven — a dog, a gate code, a wrong pin, a dark stairwell, a normal delivery, a fire, a storm"
+        description: "models: which rows to run, by their # on the SITUATIONS tab — or on the CALLS tab when the suite is the calls (empty = every row). The default is a quick trial of seven situations — a dog, a gate code, a wrong pin, a dark stairwell, a normal delivery, a fire, a storm"
         type: string
         default: "6,8,10,13,24,25,28"
   schedule:
@@ -245,12 +258,13 @@ jobs:
       # The committed test files are the generator's output for the
       # starter sheet; regenerate into a scratch directory and diff. The
       # generator never touches regressions/ (those are cut from field
-      # debriefs by loop.mjs) and situations/ is generated from the live
-      # rows at run time and gitignored, so both are left out of the diff.
+      # debriefs by loop.mjs), and situations/ and calls/ are generated
+      # from the live rows at run time and gitignored, so all three are
+      # left out of the diff.
       - name: Generated tests match the generator
         run: |
           node generate-tests.mjs --sheet --out "$RUNNER_TEMP/gen"
-          if ! diff -r --exclude=regressions --exclude=situations "$RUNNER_TEMP/gen" test_configs; then
+          if ! diff -r --exclude=regressions --exclude=situations --exclude=calls "$RUNNER_TEMP/gen" test_configs; then
             echo "::error::elevenlabs/test_configs/ no longer matches what generate-tests.mjs produces from the starter sheet — run 'node generate-tests.mjs' in elevenlabs/ and commit the result"
             exit 1
           fi
@@ -281,7 +295,16 @@ jobs:
         working-directory: elevenlabs
     env:
       ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
-      ELEVENLABS_AGENT_ID: ${{ vars.ELEVENLABS_AGENT_ID || secrets.ELEVENLABS_AGENT_ID }}
+      # Two agents: Otto himself (the reports, the situations, the
+      # triggers) and the back-office agent that makes the calls, with
+      # its own prompt. The plan step picks one per suite and writes it
+      # to $GITHUB_ENV as ELEVENLABS_AGENT_ID, the name the loop reads —
+      # which is why that name is NOT set here: a job env cannot be
+      # overridden from a step. The calls suite runs on the back-office
+      # agent: the repository variable, else the id config.js carries,
+      # the one the phone rings from.
+      MAIN_AGENT_ID: ${{ vars.ELEVENLABS_AGENT_ID || secrets.ELEVENLABS_AGENT_ID }}
+      ELEVENLABS_CALL_AGENT_ID: ${{ vars.ELEVENLABS_CALL_AGENT_ID || secrets.ELEVENLABS_CALL_AGENT_ID }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       LOOP_TIMEOUT_MS: 4800000
       GH_TOKEN: ${{ github.token }}
@@ -315,7 +338,8 @@ jobs:
       # green. The suite becomes the run's --filter unless the form gave
       # one: the two suites live in one workspace and are told apart by
       # the names the generator gives them ("Otto · situation #3 …",
-      # "Otto · #3 …"), so a filter is all it takes to run one of them.
+      # "Otto · call #3 …", "Otto · #3 …"), so a filter is all it takes
+      # to run one of them.
       - name: Plan the run
         id: plan
         run: |
@@ -327,9 +351,10 @@ jobs:
           if [ -z "$filter" ]; then
             case "$SUITE" in
               situations) filter="Otto · situation" ;;
+              calls)      filter="Otto · call" ;;
               triggers)   filter="Otto · #" ;;
               all)        filter="" ;;
-              *) echo "::error::suite must be situations, triggers or all, got '$SUITE'"; exit 1 ;;
+              *) echo "::error::suite must be situations, calls, triggers or all, got '$SUITE'"; exit 1 ;;
             esac
           fi
           echo "FILTER=$filter" >> "$GITHUB_ENV"
@@ -340,9 +365,26 @@ jobs:
             if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then echo "::error::$msg"; exit 1; fi
             exit 0
           fi
-          if [ -z "$ELEVENLABS_AGENT_ID" ]; then
+          if [ -z "$MAIN_AGENT_ID" ]; then
             echo "::error::ELEVENLABS_AGENT_ID is not set — add it under Settings → Secrets and variables → Actions → Variables (the same id the phone uses)"; exit 1
           fi
+          # which agent this press runs on: the calls on the back-office
+          # agent — the repository variable, else the id config.js
+          # carries (the same one the phone rings from) — everything
+          # else on Otto himself
+          agent="$MAIN_AGENT_ID"
+          if [ "$SUITE" = "calls" ]; then
+            call="$ELEVENLABS_CALL_AGENT_ID"
+            if [ -z "$call" ]; then call="$(grep -o "window.ELEVENLABS_CALL_AGENT_ID = '[^_'][^']*'" ../config.js | tail -n 1 | sed "s/.*= '//; s/'\$//")"; fi
+            if [ -n "$call" ]; then
+              agent="$call"
+              echo "the calls suite runs on the back-office agent $call"
+            else
+              echo "no back-office agent id (ELEVENLABS_CALL_AGENT_ID, or config.js's default) — the calls run on Otto himself, $agent"
+            fi
+          fi
+          echo "ELEVENLABS_AGENT_ID=$agent" >> "$GITHUB_ENV"
+          echo "agent=$agent" >> "$GITHUB_OUTPUT"
           if [ "$ACTION" = "propose" ] && [ -z "$OPENAI_API_KEY" ]; then
             echo "::error::propose needs the OPENAI_API_KEY secret (the model that drafts the prompt diff) — add it under Settings → Secrets and variables → Actions → Secrets"; exit 1
           fi
@@ -356,15 +398,25 @@ jobs:
             echo "::error::temperature is empty (keep), a number from 0 to 1, or none (don't send it) — got '$TEMPERATURE'"; exit 1
           fi
           echo "go=true" >> "$GITHUB_OUTPUT"
-          echo "## agent-suite · $ACTION · $SUITE suite${filter:+ (filter \"$filter\")}" >> "$GITHUB_STEP_SUMMARY"
+          echo "## agent-suite · $ACTION · $SUITE suite${filter:+ (filter \"$filter\")} · agent $agent" >> "$GITHUB_STEP_SUMMARY"
 
       # ---------- configure ----------
+      # With the suite set to calls: analysis-calls.json onto the
+      # back-office agent — call criteria instead of tip criteria, and
+      # the overrides the phone needs allowed on that agent too (the
+      # first message above all: a call opens with the row's own line).
       - name: Configure the agent
         if: steps.plan.outputs.go == 'true' && steps.plan.outputs.action == 'configure'
         run: |
-          node loop.mjs configure | tee "$RUNNER_TEMP/configure.txt"
+          args=(configure)
+          if [ "$SUITE" = "calls" ]; then args+=(--file analysis-calls.json); fi
+          node loop.mjs "${args[@]}" | tee "$RUNNER_TEMP/configure.txt"
           { echo; echo '```'; cat "$RUNNER_TEMP/configure.txt"; echo '```'; echo
-            echo "Next button: **baseline** — push the test files and run the suite on the live agent."; } >> "$GITHUB_STEP_SUMMARY"
+            if [ "$SUITE" = "calls" ]; then
+              echo "The back-office agent (\`$ELEVENLABS_AGENT_ID\`) now grades every call it makes with the call criteria, and allows the first-message and language overrides the phone sends. Next button: **baseline** with the suite set to **calls**."
+            else
+              echo "Next button: **baseline** — push the test files and run the suite on the live agent. For the agent that makes the calls, press **configure** again with the suite set to **calls**."
+            fi; } >> "$GITHUB_STEP_SUMMARY"
 
       # ---------- the situation tests, from the live rows ----------
       # The situations are the dashboard's rows, not this repository's:
@@ -379,6 +431,13 @@ jobs:
       - name: Generate the situation tests from the live rows
         if: steps.plan.outputs.go == 'true' && steps.plan.outputs.action != 'configure' && steps.plan.outputs.action != 'settings'
         run: node generate-tests.mjs --situations
+
+      # The calls the same way: the CALLS tab's rows, generated here on
+      # every press, never committed (test_configs/calls/ is gitignored),
+      # calls-starter.js standing in for a project without the table.
+      - name: Generate the call tests from the live rows
+        if: steps.plan.outputs.go == 'true' && steps.plan.outputs.action != 'configure' && steps.plan.outputs.action != 'settings'
+        run: node generate-tests.mjs --calls
 
       # ---------- settings ----------
       # Free, and quick: one GET of the agent, the LLM panel's knobs

@@ -74,6 +74,19 @@ window.ELEVENLABS_AGENT_ID = '__ELEVENLABS_AGENT_ID__';
 if (String(window.ELEVENLABS_AGENT_ID).slice(0, 2) === '__') window.ELEVENLABS_AGENT_ID = '';
 window.OTTO_AGENT = 'auto'; /* 'off' pins every debrief to the recorder */
 
+/* The second agent: Otto as the BACK OFFICE, ringing the customer or
+ * the driver (the dashboard's CALLS tab, ⚙ → TAKE A CALL on the phone).
+ * Its own prompt, written for calling, so the live Otto's prompt is
+ * never touched; the voice can be the same. The phone opens calls on
+ * it and reports on the agent above; the agent-suite buttons run the
+ * calls suite on it. Injected at deploy time from the
+ * ELEVENLABS_CALL_AGENT_ID env var; not injected, the kit's own
+ * back-office agent is the default (an agent id is public by design,
+ * like the Supabase pair above). Blank it to run the calls on the one
+ * agent. Quick test without deploying: ?callagent=AGENT_ID. */
+window.ELEVENLABS_CALL_AGENT_ID = '__ELEVENLABS_CALL_AGENT_ID__';
+if (String(window.ELEVENLABS_CALL_AGENT_ID).slice(0, 2) === '__') window.ELEVENLABS_CALL_AGENT_ID = 'agent_2601m3vrqdcfe09axamt8bmn5g2b';
+
 /* Table Otto's structured messages are written to. */
 window.VOICE_TABLE = 'messages';
 

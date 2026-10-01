@@ -38,6 +38,12 @@ export const loadSheet = (file = 'trigger-scenarios.js') => loadBrowserGlobal(fi
  * dashboard loads this file into that table. */
 export const loadSituationsSheet = (file = 'situations-starter.js') => loadBrowserGlobal(file, 'SITUATIONS_SHEET').situations;
 
+/* The ten starter calls — the office ringing the customer or the
+ * driver. The same shape the calls table carries, because the dashboard
+ * loads this file into that table (and the phone reads it as its
+ * fallback). */
+export const loadCallsSheet = (file = 'calls-starter.js') => loadBrowserGlobal(file, 'CALLS_SHEET').calls;
+
 export function loadRoute(file, id) {
   const routes = loadBrowserGlobal(file, 'DEMO_ROUTES');
   const route = id ? routes.find(r => r.id === id) : routes[0];
@@ -72,3 +78,7 @@ export const loadSupabase = (url, key) => rowsFrom('/rest/v1/scenarios?select=*&
  * four simulated conversations here. */
 export const loadSituationsSupabase = (url, key) =>
   rowsFrom('/rest/v1/situations?select=*&active=eq.true&order=num.asc.nullslast', url, key);
+
+/* the calls the dashboard's CALLS tab holds, the active ones in sheet order */
+export const loadCallsSupabase = (url, key) =>
+  rowsFrom('/rest/v1/calls?select=*&active=eq.true&order=num.asc.nullslast', url, key);

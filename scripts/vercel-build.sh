@@ -36,6 +36,9 @@ sub SUPABASE_ANON_KEY __SUPABASE_ANON_KEY__
 # the ElevenLabs AGENT id — public like the others (the API key it may
 # need lives in the elevenlabs-token function's secrets, never here)
 sub ELEVENLABS_AGENT_ID __ELEVENLABS_AGENT_ID__
+# the back-office agent that makes the calls — public like the other;
+# not set, config.js falls back to the kit's own
+sub ELEVENLABS_CALL_AGENT_ID __ELEVENLABS_CALL_AGENT_ID__
 # the dispatcher dashboard's analytics API — a proxy URL or a dev key only,
 # never a real analytics:read key (it reads a whole carrier)
 sub ANALYTICS_URL __ANALYTICS_URL__

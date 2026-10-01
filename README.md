@@ -483,9 +483,9 @@ press runs that stage and writes its table into the run's job summary:
 
 | Button | What runs | Then |
 |---|---|---|
-| **configure** | `analysis.json` onto the agent — the criteria, the data collection, the overrides | **baseline** |
+| **configure** | `analysis.json` onto the agent — the criteria, the data collection, the overrides; with the suite set to **calls**, `analysis-calls.json` onto the back-office agent that makes the calls | **baseline** |
 | **settings** | nothing runs: prints what the live Otto runs on right now — model, reasoning effort, temperature, backup — so a change made in the ElevenLabs panel can be checked for free | **baseline** to measure it |
-| **baseline** | `push-tests`, then the suite on the live agent (`repeat` runs per test); also every Monday 06:00 UTC | testers drive; grade their debriefs |
+| **baseline** | `push-tests`, then the suite on the live agent (`repeat` runs per test; the `suite` dropdown picks the situations, the calls, the triggers or all) — also every Monday 06:00 UTC | testers drive; grade their debriefs |
 | **field** | `pull` the last `days` of conversations with their grades, `score`, `cut` the regressions, register them | **propose** |
 | **propose** | the field again, `propose` the prompt diff, `branch` it onto the agent, the suite on that branch, `compare` against the latest baseline — **ACCEPT** or **REJECT**, and the branch id | **promote** on ACCEPT |
 | **promote** | merge that branch into the agent (paste the id into `branch_id`), then a fresh baseline | testers drive on the new prompt |
@@ -627,6 +627,125 @@ id), and the twenty situations
 run against it and come back as a table with ACCEPT or REJECT — no
 model, no OpenAI key, nothing written down.
 
+## The calls — Otto rings the customer, then the driver
+
+A situation starts with the driver talking. A **call** starts with
+Otto: the back office rings the **customer** — the consignee at a
+Kollwitzkiez stop — about a fresh-food box ("will somebody be home
+between five and seven?"), or the **driver** about a stop ("the
+customer is away until tomorrow — skip number 71 today"; "how late are
+you running, when do you reach Okafor?"). The person called says what
+they say: not home before six, leave it with the neighbour, twenty
+minutes behind, wrong number. What is tested is Otto's side of the
+call: does he say who he is and why he is calling, ask what the call
+has to establish and nothing off topic, invent nothing, keep it to
+three questions, and end by confirming what was agreed and what
+happens next — "nobody home before six, so the driver comes after six;
+I'll let him know".
+
+So the dashboard grows a **CALLS** tab, and each row is one call:
+
+| Field | What it is for |
+|---|---|
+| Otto rings | the customer (the consignee at the stop) or the driver |
+| the stop it is about | which Kollwitzkiez door — the address, the customer's name, the notes on file |
+| why Otto is calling | his brief, in a sentence or two; the rules go here too ("fresh food is handed over in person, never to a neighbour") |
+| Otto opens with | the first thing he says; empty = "Hello, this is Otto from the delivery office…" |
+| what the office learned on the call before | only when this call follows another; on the phone the real outcome of that call replaces it |
+| what the person says | once Otto has said why he is calling — "I'm still at work, not before six" |
+| what the person knows if asked | the facts behind it — revealed only when Otto asks, never volunteered |
+| the call has to establish | what a good call finds out; a question about anything else fails the test |
+| off topic here | the questions that prove Otto lost the thread |
+| the outcome Otto should confirm | what was agreed and what happens next, in one line |
+| then Otto calls | the call that follows this one on the phone, carrying what this one found |
+
+[`calls-starter.js`](calls-starter.js) ships ten of them — a home check
+that finds the customer at work until six, and the call that tells the
+driver; a home check where somebody is home and there is nothing to
+arrange; a customer away until tomorrow who offers the neighbour (fresh
+food cannot go there), and the call that takes the stop off the round;
+a driver running twenty minutes late, and the customer who can just
+about wait; a driver forty minutes late, the customer who cannot, and
+the call that moves the box to tomorrow morning; and a wrong number,
+where Otto must tell a stranger nothing — loadable in one tap,
+idempotent by title, editable in place. The suite and the phone read
+the *rows*, not the file.
+
+**Taking the call yourself.** On the phone, ⚙ → **TAKE A CALL FROM
+OTTO**: pick a call, pick *now*, *in 30 s* or *in 2 min*, and put the
+phone down. It rings — a real ring, the vibration motor too — with the
+screen of an incoming call: who is calling (Otto, back office), what
+about, and who you are answering as ("You answer as the customer, F.
+Brandt · Kollwitzstraße 48"). **Answer** opens the line: Otto speaks
+first, with the row's opening line, and you answer as the customer or
+the driver in your own words — "I'm not home before six", "can't you
+leave it with my neighbour?", "I'm twenty minutes behind". Otto gets
+the call's variables and briefing, exactly as the suite tests him. When
+the call ends — Otto's goodbye, or ← to hang up — it is saved like a
+report, against the stop's door when the Kollwitzkiez route is on the
+phone and against no pin otherwise, and the dashboard's CALLS tab shows
+it under the call, turn by turn (**YOUR CALLS**). **Decline** hangs up
+without talking.
+
+A call whose row names a next call rings again a few seconds later: the
+home check that found nobody home is followed by the call to the
+driver, and Otto's closing line from the first call is what he knows on
+the second ("Brandt is at work until half five, home from six; he wants
+the box handed over in person after six"). A declined home check tells
+the driver that the customer did not pick up. Every call card on the
+dashboard also carries **📞 Ring this call on the phone**
+(`index.html?call=3`), which opens the phone page ringing with that
+row. The card's 🇬🇧/🇮🇹 pick applies: an Italian call opens with the
+opener translated and the conversation in Italian, like a debrief.
+
+**The suite.** Each row becomes four simulated calls, one per voice:
+**cooperative**, **quiet**, **sidetracked** — and **suspicious**, who
+wants to know who is calling and how they got the number before saying
+anything. Seven things are judged, eight for the suspicious one:
+purpose (Otto says who he is and why he is calling, and checks he has
+the right person), relevance, no repetition, natural, no invention,
+length, and the close — what was agreed and what happens next, in one
+line; [`elevenlabs/README.md`](elevenlabs/README.md#the-call-suite)
+spells them out. Press **baseline** with the suite set to **calls**;
+the results land on each call's card and on the RUNS tab, in the calls'
+own words. The RUNS tab's pattern finder (what went wrong, what to
+change) reads a driver's report — the tip, the report read back — so
+for a calls run it points at the judge's notes by check instead, which
+say call by call which of the eight checks failed and why.
+
+**Two agents, one voice.** The calls go to a second ElevenLabs agent —
+the **back-office agent** — with its own prompt written for calling,
+so Otto's prompt is never touched and the baselines you have keep
+meaning what they mean. Duplicate Otto in ElevenLabs (same voice, same
+models), give it a prompt that says who it is and why it rang, asks
+what the call has to establish, confirms what was agreed and lets them
+go, and put its id where the first one lives: `ELEVENLABS_CALL_AGENT_ID`
+as a Vercel environment variable (the kit's own back-office agent is
+the default when it is not set; `?callagent=ID` on any page for a
+quick test). The phone then opens calls on it and reports on Otto, a
+call card on the dashboard reads its runs, and the buttons run the
+calls suite on it — the repository variable
+`ELEVENLABS_CALL_AGENT_ID`, or else the id `config.js` carries. Press
+**configure** once with the suite set to **calls**: it puts call
+criteria on that agent ([`analysis-calls.json`](elevenlabs/analysis-calls.json)),
+so ElevenLabs grades every real call it makes, and allows the
+first-message and language overrides the phone sends — without the
+first one, the agent would greet a person it rang with "how can I help
+you?". A **private** back-office agent needs the `elevenlabs-token`
+function to sign for it: its `ELEVENLABS_AGENT_ID` secret takes several
+ids, comma-separated; a public one needs nothing.
+
+The prompt itself can name the five call variables, which is what
+makes the suite measure what the field gets (the suite cannot send the
+briefing — the blind spot
+[above](#the-agent-loop-record--grade--replay--propose--version)):
+`{{call_to}}` (consignee or driver), `{{call_purpose}}`,
+`{{call_previous}}` (what the office learned on the call before),
+`{{call_title}}` and `{{call_num}}`. Leave `ELEVENLABS_CALL_AGENT_ID`
+blank and the calls run on Otto himself: the three layers — variables,
+briefing, first message — tell any prompt that Otto is the one calling,
+whom and why, but his debrief habits will show.
+
 ## Otto as your ElevenLabs agent
 
 A one-shot voice note cannot ask a follow-up, and a trigger scenario is
@@ -642,6 +761,7 @@ Set one environment variable and redeploy:
 | Variable | Where | What |
 |---|---|---|
 | `ELEVENLABS_AGENT_ID` | Vercel env vars | your agent's id — that is the whole setup for a **public** agent |
+| `ELEVENLABS_CALL_AGENT_ID` | Vercel env vars | the back-office agent that makes [the calls](#the-calls--otto-rings-the-customer-then-the-driver), with its own prompt; the kit's own when not set, blank to run the calls on the one agent |
 | `ELEVENLABS_API_KEY` | the `elevenlabs-token` function's secrets | only for a **private** agent; the key never reaches a phone |
 
 **The REPORT tap is not kept waiting for the signature.** A private
@@ -1403,21 +1523,22 @@ The composition happens entirely through the kits' public seams:
 
 | File | Purpose |
 |---|---|
-| `index.html` | Phone shell: Otto's screen (the Companion — Otto as the report button, the tally, the header), the map screen with its HUD, card and controls, the settings and reports sheets, the conversation screen (pins come from the dashboard) |
-| `app.js` | Destinations, messages, the card (incl. the Delivered tap on route stops), the report flow (pressing Otto), the two screens, the per-phone report tally, Otto wiring, the ⚙ settings sheet |
+| `index.html` | Phone shell: Otto's screen (the Companion — Otto as the report button, the tally, the header), the map screen with its HUD, card and controls, the settings and reports sheets, the conversation screen, the incoming-call screen (pins come from the dashboard) |
+| `app.js` | Destinations, messages, the card (incl. the Delivered tap on route stops), the report flow (pressing Otto), the two screens, the per-phone report tally, Otto wiring, the ⚙ settings sheet — and the calls Otto makes: TAKE A CALL on the sheet, the ring, Answer / Decline, the chain to the next call |
 | `darts.js/.css` | The dart game after a report: the card, the flick, the rings, one throw per stop, only while still, the depot's best today |
 | `otto-agent.js` | Otto as a live ElevenLabs agent conversation — the kit's mount seams over a WebSocket, with the scenario as its context |
 | `otto-stream.js` | The reading voice's player: an ElevenLabs mp3 played from its first chunk while the rest is still being made (Media Source Extensions), whole where the browser cannot stream mp3 — `test/` holds its node tests, run by `agent-suite.yml` |
 | `dashboard.html` | Desktop shell: scenario list, map, form / address / import sheets |
-| `dashboard.js` | Trigger scenarios and situations (their own tab): CRUD, describe→draft, tunable-value sliders, voice feedback → proposed versions, history, spec export, Excel paste-import, address pinning, compare + verdict — and loading the starter sheet / demo route |
+| `dashboard.js` | Trigger scenarios, situations and calls (each their own tab): CRUD, describe→draft, tunable-value sliders, voice feedback → proposed versions, history, spec export, Excel paste-import, address pinning, compare + verdict — and loading the starter sheets / demo route |
 | `situations-starter.js` | The starter situations: twenty things a driver reports after pressing REPORT — the driver's first words, what they know if asked, what a fitting follow-up covers, what is off topic, the tip to confirm; loadable in one tap into the dashboard's SITUATIONS tab |
+| `calls-starter.js` | The starter calls: ten calls Otto makes from the back office — a home check for a fresh-food box, the call that tells the driver, a late notice, a stop to skip, a wrong number — who is rung, why, what they say, what the call must establish, the outcome, and the call that follows; loadable in one tap into the dashboard's CALLS tab, and the phone's fallback list for ⚙ → TAKE A CALL |
 | `trigger-scenarios.js` | The starter sheet: ten finished "Otto triggers" rows — the deck's worked example, eight more situations, the clean-run control — loadable in one tap, idempotent by title |
 | `parcelvox-dashboard.html`, `parcelvox-dashboard/` | The ParcelVox dispatcher dashboard — map and pre-arrival notes wired to the same shared store (localStorage or Supabase), report counts and hotspots from the analytics API; the rest labelled sample data |
 | `mock-api/` | A mock of the Parcelvox Analytics API contract: the store's real rows reshaped into places, reports, guidance, tours and outreach, plus invented history; no dependencies, `node server.mjs` |
 | `elevenlabs/` | The agent loop — the tuning loop for Otto's ElevenLabs prompt; Node >= 20, no dependencies, `npm test`; its own [`README.md`](elevenlabs/README.md), `personas.json`, `lib/` (the `agentVars()` mirror, the API client, the Supabase reader), `test/` (an in-process mock of the three services). Guarded and driven by `.github/workflows/agent-suite.yml`: node tests + generator drift on every change, and every stage of the loop as a button in the Actions tab (the baseline on Mondays too) once the key secret exists |
 | `elevenlabs/loop.mjs` | `configure` · `push-tests` · `run` · `publish` · `pull` · `score` · `cut` · `propose` · `branch` · `compare` · `promote` — the REST API called directly, `--dry-run` prints every request and sends nothing; results, field pulls and proposals land in gitignored folders next to it |
-| `elevenlabs/generate-tests.mjs` | One ElevenLabs simulation test per sheet row and persona (`--sheet` the starter sheet, `--supabase` your rows), carrying the dynamic variables a phone would send, a simulated tester who knows what they found, and success conditions derived from the row; deterministic |
-| `elevenlabs/test_configs/` | The generated suite, committed (33 files: ten rows × three personas, plus Italian variants of row #1), one create-test request body each; `regressions/` holds the next-reply tests `cut` makes from debriefs graded bad; `tests.lock.json` next to it maps test names to ElevenLabs ids once pushed |
+| `elevenlabs/generate-tests.mjs` | One ElevenLabs simulation test per sheet row and persona (`--sheet` the starter sheet, `--supabase` your rows; `--situations` the situation suite, `--calls` the call suite — Otto ringing the customer or the driver, the person on the line simulated in four voices), carrying the dynamic variables a phone would send, a simulated tester who knows what they found, and success conditions derived from the row; deterministic |
+| `elevenlabs/test_configs/` | The generated suite, committed (33 files: ten rows × three personas, plus Italian variants of row #1), one create-test request body each; `regressions/` holds the next-reply tests `cut` makes from debriefs graded bad; `situations/` and `calls/` are cut from the live rows at run time and gitignored; `tests.lock.json` next to it maps test names to ElevenLabs ids once pushed |
 | `elevenlabs/analysis.json` | What `configure` puts on the agent: five evaluation criteria and four data-collection fields ElevenLabs runs on every real call, and the overrides the phone and the loop need enabled |
 | `route-schoeneberg.js` | The Schöneberg demo route: 100 stops in driving order, 87 real geocoded addresses, dispatch + driver notes on file at 40 of them |
 | `route-kollwitz.js` | The Kollwitzkiez walking route: 12 stops on foot around Kollwitzplatz, 11 real geocoded addresses, notes on file at 8 — the tour a tester walks so the dispatcher dashboard gets real tours |
@@ -1428,5 +1549,5 @@ The composition happens entirely through the kits' public seams:
 | `scripts/migrate_supabase.py` | Moves the rows to another Supabase project, ids intact (`schema.sql` does the tables) |
 | `voice-note.js/.css` | from voice-notes-kit + hands-free pause-to-send |
 | `geolocate.js`, `field-map.js/.css` | verbatim from field-map-kit |
-| `supabase/schema.sql` | `destinations` (incl. pre-arrival notes: consignee / floor / notes, and route / stop) + `messages` (incl. the agent conversation, its ElevenLabs `conversation_id` and the dashboard's `grade` of it) + `scenarios` (incl. params / versions / feedback) + `runs` + `visits` (the Delivered tap) + `dart_throws` (one row per dart thrown after a report) + `agent_runs` (one row per suite run the agent loop published), RLS |
+| `supabase/schema.sql` | `destinations` (incl. pre-arrival notes: consignee / floor / notes, and route / stop) + `messages` (incl. the agent conversation, its ElevenLabs `conversation_id` and the dashboard's `grade` of it) + `scenarios` (incl. params / versions / feedback) + `situations` + `calls` (the calls Otto makes: who is rung, why, what they say, the outcome, the call that follows) + `runs` + `visits` (the Delivered tap) + `dart_throws` (one row per dart thrown after a report) + `agent_runs` (one row per suite run the agent loop published) + `accepted_findings`, RLS |
 | `supabase/functions/` | `voice-note` (kit + trailing-"stop" strip + a text path for agent conversations) + `geocode` (verbatim) + `scenario-ai` (draft, revise & the 🇮🇹 question translation) + `elevenlabs-token` (signed URLs for a private agent) + `elevenlabs-tts` (the pre-arrival notes read in Otto's real voice, streamed as they are made) |

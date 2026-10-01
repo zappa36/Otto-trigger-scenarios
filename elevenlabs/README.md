@@ -38,7 +38,7 @@ optional (below) and only for keeping the agent's config in git.
 | Stage | What | Command |
 |---|---|---|
 | 1 · record | the conversation id lands on every agent debrief (`otto-agent.js`); the dashboard grades it; ElevenLabs grades every call with the criteria in `analysis.json` | `node loop.mjs configure` |
-| 2 · suite | one simulation test per row × persona — the situation rows, the scenario sheet, or both; the run published for the dashboard | `npm run generate:situations` → `node loop.mjs push-tests` → `node loop.mjs run --filter "Otto · situation"` → `publish` |
+| 2 · suite | one simulation test per row × persona — the situation rows, the call rows, the scenario sheet, or all three; the run published for the dashboard | `npm run generate:situations` (or `generate:calls`) → `node loop.mjs push-tests` → `node loop.mjs run --filter "Otto · situation"` (or `"Otto · call"`) → `publish` |
 | 3 · field | conversations + analysis + grades pulled and joined; a debrief graded bad becomes a next-reply regression test | `node loop.mjs pull` → `score` → `cut` |
 | 4 · improve | a minimal prompt diff, on a branch, compared, promoted by hand | `propose` → `branch` → `run --branch` → `compare` → `promote` |
 | 5 · models | the live prompt on another language model (or reasoning setting), on a branch, compared — and read in seconds and cents next to its pass rate | `model-branch --model …` → `run --branch … --rows …` → `compare` → `publish` |
@@ -66,13 +66,14 @@ publish    [--results FILE] [--run-url URL] [--verdict accept|reject] [--reason 
 ```
 
 `--filter` is how one suite is run on its own: the generator names the
-situation tests `Otto · situation #N …` and the trigger tests
-`Otto · #N …`, so `--filter "Otto · situation"` and `--filter "Otto · #"`
+situation tests `Otto · situation #N …`, the call tests
+`Otto · call #N …` and the trigger tests `Otto · #N …`, so `--filter
+"Otto · situation"`, `--filter "Otto · call"` and `--filter "Otto · #"`
 each pick one, and no filter runs everything in `tests.lock.json` that
-has a test file on disk (a situation row switched off on the dashboard
-has none, so it is left out). `--rows 6,8,10` narrows further to those
-situation rows, by their # on the SITUATIONS tab — the quick model
-trial runs seven of them.
+has a test file on disk (a situation or call row switched off on the
+dashboard has none, so it is left out). `--rows 6,8,10` narrows further
+to those situation or call rows, by their # on the SITUATIONS or CALLS
+tab — the quick model trial runs seven situations.
 
 **Every run measures itself.** ElevenLabs times every agent turn of a
 simulated call the way it times a real one and prices its tokens, so
@@ -134,6 +135,7 @@ this folder.
 |---|---|---|
 | `ELEVENLABS_API_KEY` | **secret** — the workspace key; every live command refuses to run without it | your shell / a CI secret. Never in browser code, never logged, never committed |
 | `ELEVENLABS_AGENT_ID` | the agent the phone opens (public by design — the same value `config.js` carries) | shell / CI |
+| `ELEVENLABS_CALL_AGENT_ID` | the back-office agent that makes the calls (config.js's second id): `pull` reads its conversations as well, and the buttons run the calls suite on it — the plan step writes it into `ELEVENLABS_AGENT_ID` for that press, falling back to the id config.js carries | optional |
 | `OPENAI_API_KEY` | **secret** — the proposer (the repo's existing provider; `scenario-ai` uses the same key) | shell / CI |
 | `LOOP_MODEL` | the proposer's model, default `gpt-4o` | optional |
 | `SUPABASE_URL` / `SUPABASE_ANON_KEY` | where the debriefs and grades are (`pull` reads them) and where a suite run is published for the dashboard (`publish` adds an `agent_runs` row); default: the kit's project, the same pair `scripts/tune_triggers.py` carries | optional |
@@ -175,7 +177,8 @@ node loop.mjs publish
 ```
 
 `npm run generate` (no suffix) generates the *trigger* suite into
-`test_configs/`, which is committed; the situation files are not.
+`test_configs/`, which is committed; the situation and call files are
+not.
 
 `compare` says **ACCEPT** when no situation — every driver type and
 repeat together, twelve calls or more — loses more than a quarter of
@@ -288,9 +291,10 @@ to `situations-starter.js` and says so in one line, so a button never
 comes back with nothing to run. `--sheet` forces the starter twenty,
 `--file JSON` reads rows from a file, `--situation N` does one row.
 
-Both suites live in one ElevenLabs workspace and are told apart by
-name — `Otto · situation #3 …` against `Otto · #3 …` — which is all the
-`suite` input on the buttons and `--filter` on `run` need.
+The three suites live in one ElevenLabs workspace and are told apart by
+name — `Otto · situation #3 …`, `Otto · call #3 …` and `Otto · #3 …` —
+which is all the `suite` input on the buttons and `--filter` on `run`
+need.
 
 **The driver and the judge are cast by name.** Every test file names
 the model that plays the simulated driver and the model that judges the
@@ -308,6 +312,121 @@ later report; `propose` reads the same table and hands it to the
 proposer as `designer_decisions`, behaviours it must not "fix" whatever
 a failing rationale says. No table yet (a `schema.sql` that predates
 it) is reported in one line and the proposer simply gets none.
+
+## The call suite
+
+The situations start with the driver talking. A **call** starts with
+Otto: the back office rings the **customer** (the consignee at a
+Kollwitzkiez stop) about a fresh-food box — will somebody be home
+between five and seven — or the **driver** about a stop: the customer
+is away, skip it; you are running late, when will you get there. The
+person called says what they say: not home before six, leave it with
+the neighbour, twenty minutes behind, wrong number. What the suite
+measures is Otto's side of the call: does he say who he is and why he
+is calling, ask what the call has to establish and nothing off topic,
+invent nothing, keep it to three questions, and end by confirming what
+was agreed and what happens next.
+
+**A call row** is one call. Ten ship in `calls-starter.js`; the
+dashboard's CALLS tab loads them into the `calls` table and that is
+where they are edited from then on. Each row carries:
+
+| Column | What |
+|---|---|
+| `num`, `title` | the row's number and a short name ("Home check — fresh food this evening") |
+| `callee` | who Otto rings: `consignee` (the customer at the stop) or `driver` |
+| `stop` | the Kollwitzkiez stop the call is about (`route-kollwitz.js`) — the address, the customer's name, the notes on file; empty lands on the stop with the row's number |
+| `purpose` | why Otto is calling, in a sentence or two — his brief, sent as `{{call_purpose}}`; the rules go here too ("fresh food is handed over in person") |
+| `otto_says` | the line the call opens with; empty = the app's own line for the person rung |
+| `previous_call` | what the office learned on the call before this one, when it follows one (sent as `{{call_previous}}`) |
+| `they_say` | what the person says once Otto has said why he is calling |
+| `they_know` | what the person can tell **if asked, and only then** |
+| `must_establish` | what the call has to establish, as a list |
+| `off_topic` | what would not fit here (this row's wrong questions) |
+| `outcome` | the one line Otto should end the call confirming — what was agreed and what happens next |
+| `next_call` | the `num` of the call that follows on the phone; the suite tests each row on its own |
+| `active` | false = kept on the tab, left out of the suite and off the phone's list |
+
+**Four personas** (`personas.json`): **cooperative**, **terse** and
+**sidetracked** as in the other suites, with a `style_calls` where the
+driver's wording would not fit a customer (a customer has no shift and
+no next stop), and **suspicious**, the call suite's own — the person
+does not know who is calling, asks who this is and how they got the
+number, and gives nothing away until Otto has said who he is and which
+delivery this is about. Eight turns each, ten for the suspicious one,
+whose first exchange is about the caller.
+
+The test carries the call's opener as the **first agent turn**
+(`chat_history`), exactly as the phone overrides the agent's first
+message with it: an outbound call cannot open with the platform's "how
+can I help you?" — Otto is the one calling. Its dynamic variables are
+the REPORT set (the stop, the language, `trigger_fired: "no"`) plus
+five of the call's own — `call_num`, `call_title`, `call_to`,
+`call_purpose`, `call_previous` — and nothing of what the person says
+or knows, which is the simulated side's. The briefing the phone would
+send as a contextual update rides under `_otto.briefing`.
+
+**Seven conditions**, in this order, each written to stand on its own:
+
+1. **PURPOSE** — within his first two turns Otto says who he is and
+   what the call is about, and (to a customer) checks he is speaking to
+   the right person. Opening like a helpline, or leaving the person to
+   guess why they were called, fails.
+2. **RELEVANCE** — his questions establish what the row's
+   `must_establish` names; a question from `off_topic`, or one that could
+   be asked on any call, fails.
+3. **NO REPETITION** — he never asks for what the person already said.
+4. **NATURAL** — a person from the office on the phone: a short
+   acknowledgement, plain words, one thing at a time; no script, no
+   form-filling, no lecturing about the rules.
+5. **NO INVENTION** — no fact the person did not say and the office did
+   not know. The purpose and the previous call's outcome are what the
+   office knows: telling the person those is fine.
+6. **LENGTH** — at most three questions after saying why he is calling,
+   then he closes.
+7. **CLOSE** — he confirms what was agreed and what happens next in one
+   line, consistent with what the person said (the row's `outcome` is
+   the yardstick, judged on what was said in that call), and lets them
+   go.
+
+The **suspicious** persona gets an eighth: **IDENTIFIES HIMSELF** — when
+asked who is calling, Otto says plainly who he is and which delivery
+this is about before going on, without pressing his own question first.
+
+**Generated at run time, never committed**, like the situations: `node
+generate-tests.mjs --calls` cuts `test_configs/calls/` from the live
+rows (the anon key by default), falls back to `calls-starter.js` when a
+project has no `calls` table yet or no active row, and says which it
+used. `--sheet` forces the starter ten, `--file JSON` reads rows from a
+file, `--call N` does one row. A row whose `next_call` names no row, or
+whose next row has no `previous_call`, is named in the output. The
+tests are named `Otto · call #3 …`, which is all the `suite` input on
+the buttons (`calls`) and `--filter` on `run` need; `--rows 1,2` on a
+calls run picks call rows by their number, and `compare` judges a calls
+run by call row.
+
+**The agent it runs on.** The calls are made by a second agent, the
+back-office one, with its own prompt written for calling, so Otto's is
+never touched: `ELEVENLABS_CALL_AGENT_ID` (config.js carries the kit's
+own as its default). The buttons run the calls suite on it; from a
+terminal, export it as `ELEVENLABS_AGENT_ID` for a calls run.
+`configure --file analysis-calls.json` puts the call criteria on it —
+said who he was and why he rang, confirmed what was agreed, at most
+three questions, no invention, one language, closed by letting them go
+— and the data collection ElevenLabs runs on every real call (the
+outcome, whether the right person answered, whether somebody is home),
+plus the overrides the phone sends, allowed. `pull` reads that agent's
+conversations too when the variable is set.
+
+**The chain is the phone's.** The suite tests each row on its own, with
+`previous_call` as its fixture. On the phone (⚙ → TAKE A CALL, or the
+dashboard's "ring this call on the phone" link) a call whose row names a
+`next_call` rings again once it is filed, and the outcome of the call
+just taken — Otto's closing line — replaces `previous_call`: the home
+check that found nobody home before six is followed by the call that
+tells the driver, in those words. The repository's
+[README](../README.md#the-calls--otto-rings-the-customer-then-the-driver)
+is the long form.
 
 ## Confidential prompt
 
@@ -355,25 +474,27 @@ button runs one stage on a GitHub runner and writes the table into the
 run's job summary (the run page, "Summary" at the top):
 
 The form has two dropdowns: **action** (which stage) and **suite**
-(which tests — *situations*, the default and the pilot's own; *triggers*,
-the scenario sheet; or *all*), and for **models** three more fields:
+(which tests — *situations*, the default and the pilot's own; *calls*,
+Otto ringing the customer or the driver; *triggers*, the scenario
+sheet; or *all*), and for **models** three more fields:
 **model** (the language model, spelled as ElevenLabs does),
 **reasoning** (the LLM panel's Reasoning Effort, in its words: default,
 minimal, low, medium, high — or keep, as the live Otto), **temperature**
 (the panel's slider, 0 to 1; none = don't send it; empty = keep),
 **backup** (the panel's Backup LLM configuration: default, disabled, or
-keep) and **rows** (which situation rows, by number; empty = every
-row). There is no filter box: GitHub allows ten fields, and the panel's
-knobs took the room; the suite dropdown picks the tests, `--filter`
-stays on the command line. Every action but *configure* regenerates
-the situation tests from the live rows before it pushes anything, so a
+keep) and **rows** (which situation rows, by number — or call rows,
+when the suite is the calls; empty = every row). There is no filter
+box: GitHub allows ten fields, and the panel's knobs took the room; the
+suite dropdown picks the tests, `--filter` stays on the command line.
+Every action but *configure* and *settings* regenerates the situation
+and the call tests from the live rows before it pushes anything, so a
 row edited on the dashboard is in the next press.
 
 | Button | Runs | Summary ends with |
 |---|---|---|
-| **configure** | `configure` | the next button |
+| **configure** | `configure` — with the suite set to **calls**, `configure --file analysis-calls.json` onto the back-office agent that makes the calls: call criteria, and the overrides allowed there too | the next button |
 | **settings** | `settings` — one GET of the agent, the LLM panel's knobs printed (model, reasoning effort, temperature, backup), nothing of the prompt; no suite, no cost | what the live Otto runs on right now |
-| **baseline** | `generate --situations` → `push-tests` → `run --label main` → `publish` (`repeat` from the form; Mondays 06:00 UTC too) | the suite's pass rates |
+| **baseline** | `generate --situations` → `generate --calls` → `push-tests` → `run --label main` → `publish` (`repeat` from the form; Mondays 06:00 UTC too) | the suite's pass rates |
 | **field** | `pull --days N` → `score` → `cut` → `push-tests` | what was pulled, scored and cut — and how fast Otto answered ([reply speed](#reply-speed)) |
 | **propose** | the field again → `propose --quiet` → `branch` → `run --branch … --label branch` → `compare` against the latest baseline → `publish` with the verdict | the branch run's table, **ACCEPT** or **REJECT** with the branch id, and the next button — *not* the proposal, the diff or the note |
 | **try** | `run --branch <branch from the form> --label branch` → `compare` against the latest baseline → `publish` with the verdict | the same, for a branch that already exists: a prompt edited by hand in the ElevenLabs dashboard, tried without a model and without `OPENAI_API_KEY`. The form takes the branch's **name** as typed in ElevenLabs or its `agtbrch_…` id; the agent's own id is refused by name |
@@ -641,10 +762,17 @@ twenty starter rows × four personas, the six conditions in their order
 (and the control row's three, and the vague persona's seventh), no
 `chat_history`, the exact dynamic-variable key set, determinism, and
 both sources — the live table and the fallback to the starter sheet when
-a project has no table or nothing active in it.
+a project has no table or nothing active in it. `test/calls.test.mjs`
+does the same for the call suite: the ten starter rows × four personas,
+the opener as the first agent turn, the exact variable set (the REPORT
+set plus the five `call_*`), the seven conditions in their order and
+the suspicious persona's eighth, the chain's `previous_call`,
+determinism, both sources — and that `app.js` carries the same five
+variables and the same default openers.
 `test/workflow.test.mjs` reads the live-suite job in
 `.github/workflows/agent-suite.yml` and checks the poll budget it hands
 the loop fits inside the job's own timeout, that every step which runs
-the suite publishes it, that the situation tests are generated before
-anything is pushed, that the `suite` input picks the filter, and that
-nothing the buttons write can carry the prompt, its diff or its note.
+the suite publishes it, that the situation and the call tests are
+generated before anything is pushed, that the `suite` input picks the
+filter, and that nothing the buttons write can carry the prompt, its
+diff or its note.

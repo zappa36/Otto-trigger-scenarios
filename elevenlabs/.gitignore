@@ -6,3 +6,5 @@ node_modules/
 agent_configs/
 # generated from the live situation rows on every run, never committed
 test_configs/situations/
+# the call tests are generated from the live call rows the same way
+test_configs/calls/

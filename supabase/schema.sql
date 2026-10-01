@@ -165,6 +165,51 @@ create table if not exists public.situations (
 -- the suite reads the active rows in sheet order
 create index if not exists situations_num_idx on public.situations (num);
 
+-- One row per CALL Otto makes. A situation (above) starts with the
+-- driver talking; a call starts with Otto: the back office rings the
+-- customer (the consignee at a Kollwitzkiez stop) or the driver with a
+-- purpose — a fresh-food box is on the round, will somebody be home;
+-- the driver is running late, does the new time still work; the
+-- customer is away, skip the stop — and the person called says what
+-- they say: not home before six, leave it with the neighbour, twenty
+-- minutes behind, wrong number. What is tested is Otto's side of it:
+-- does he say who he is and why he is calling, ask what the call has
+-- to establish and nothing off topic, invent nothing, keep it to three
+-- questions, and end by confirming what was agreed and what happens
+-- next. So a row carries who is called, why, the line Otto opens with,
+-- what the person says once Otto has got to the point, what they know
+-- if asked (and only then), what the call must establish, what would
+-- be off topic, and that one-line outcome. `next_call` names the row
+-- that follows it (the home check that finds nobody home → the call
+-- that tells the driver), and `previous_call` on that next row is what
+-- the office learned on the call before — the fixture the suite tests
+-- it with; on the phone the live outcome of the call just taken
+-- replaces it. The dashboard's CALLS tab edits these rows, the phone's
+-- ⚙ TAKE A CALL list reads them (and rings), and the suite is generated
+-- from them at run time (elevenlabs/generate-tests.mjs --calls, four
+-- personas per row) — calls-starter.js is only the first ten.
+create table if not exists public.calls (
+  id uuid primary key default gen_random_uuid(),
+  num integer,                      -- '#' column, for ordering, the test file name and the chain
+  title text not null,              -- what the call is, short ("Home check — fresh food this evening")
+  callee text not null default 'consignee' check (callee in ('consignee', 'driver')),  -- who Otto rings
+  stop integer,                     -- the Kollwitzkiez stop the call is about; null = the suite picks one
+  purpose text,                     -- why Otto is calling, in a sentence or two — his brief, sent as {{call_purpose}}
+  otto_says text,                   -- the line the call opens with (the first-message override); empty = the app's own line
+  previous_call text,               -- what the office learned on the call before this one, when it follows one
+  they_say text,                    -- what the person says once Otto has said why he is calling
+  they_know text,                   -- what the person can tell, if Otto asks — and only then
+  must_establish jsonb,             -- what the call has to establish: ["whether somebody will be home between 17:00 and 19:00", …]
+  off_topic jsonb,                  -- what would not fit here: ["parking", "the gate code"]
+  outcome text,                     -- the one line Otto should end the call confirming
+  next_call integer,                -- the # of the call that follows this one on the phone; null = none
+  active boolean not null default true,  -- false = kept, not run and not rung
+  created_at timestamptz not null default now()
+);
+
+-- the suite reads the active rows in sheet order; the phone follows next_call by number
+create index if not exists calls_num_idx on public.calls (num);
+
 -- Every tracked test run, fired or not — the dashboard's run log. A run
 -- where nothing happened used to leave no data at all, and those are
 -- exactly the runs debugging a trigger needs: which stage (pass / stop /
@@ -291,8 +336,9 @@ create table if not exists public.agent_runs (
   verdict text check (verdict in ('accept', 'reject')),  -- compare's word, on a branch run from propose; null otherwise
   verdict_reason text,              -- compare's reason line
   note text,                        -- unused, and always null: the prompt is confidential and this table is world-readable, so what a branch changed stays in ElevenLabs (the branch's own description)
-  tests jsonb not null,             -- per test: [{name,test_id,kind,scenario_num,scenario_title,situation_num,situation_title,persona,language,runs,passed,pass_rate,why,failure:{test_run_id,rationale,verdicts:[pass|fail|unknown]?,transcript:[{role,message,tools?:[name]}]}|null,success:{the same shape — the shortest passed run with words in it}|null,checks:{"<n>":{pass,fail}}|null,speed:{answer_s,gap_s,call_s,turns,source:metrics|timestamps}|null,cost:{per_call_usd,calls}|null}]
-  summary jsonb,                    -- {tests,tests_at_100,runs,passed,pass_rate,by_scenario:{"<num>":{…}},by_situation:{"<num>":{tests,runs,passed,pass_rate}},by_check?:{"<n>":{pass,fail}},settings?:{model,reasoning,thinking_budget,temperature,backup},speed?:{answer_s,answer_max_s,word_s,gap_s,call_s,turns,calls,source},cost?:{per_call_usd,total_usd,tokens_in,tokens_out,calls},models?:{otto:[…],driver:[…],judge:[…]}}
+  tests jsonb not null,             -- per test: [{name,test_id,kind,scenario_num,scenario_title,situation_num,situation_title,call_num,call_title,call_to,persona,language,runs,passed,pass_rate,why,failure:{test_run_id,rationale,verdicts:[pass|fail|unknown]?,transcript:[{role,message,tools?:[name]}]}|null,success:{the same shape — the shortest passed run with words in it}|null,checks:{"<n>":{pass,fail}}|null,speed:{answer_s,gap_s,call_s,turns,source:metrics|timestamps}|null,cost:{per_call_usd,calls}|null}]
+                                    -- kind is scenario | situation | call | regression; a call test carries call_num / call_title (the CALLS tab's row) and call_to (consignee | driver: who Otto rang)
+  summary jsonb,                    -- {tests,tests_at_100,runs,passed,pass_rate,by_scenario:{"<num>":{…}},by_situation:{"<num>":{tests,runs,passed,pass_rate}},by_call:{"<num>":{…}},by_check?:{"<n>":{pass,fail}},settings?:{model,reasoning,thinking_budget,temperature,backup},speed?:{answer_s,answer_max_s,word_s,gap_s,call_s,turns,calls,source},cost?:{per_call_usd,total_usd,tokens_in,tokens_out,calls},models?:{otto:[…],driver:[…],judge:[…]}}
                                     -- by_check is the judge's own PASS/FAIL per condition over every call, since the conditions asked for one. settings is the agent's LLM settings on the version that ran (never the prompt);
                                     -- speed is seconds until Otto's first whole sentence, the median over his turns (gap_s: whole seconds after the driver's turn when ElevenLabs sent no timings); cost is what the calls cost in model tokens, as ElevenLabs priced them;
                                     -- models is which models ElevenLabs says answered, played the driver and judged. The MODELS view of the dashboard's RUNS tab lines runs up by these.
@@ -323,6 +369,7 @@ alter table public.destinations enable row level security;
 alter table public.messages enable row level security;
 alter table public.scenarios enable row level security;
 alter table public.situations enable row level security;
+alter table public.calls enable row level security;
 alter table public.runs enable row level security;
 alter table public.visits enable row level security;
 alter table public.dart_throws enable row level security;
@@ -405,6 +452,24 @@ create policy "anyone updates situations" on public.situations
 
 drop policy if exists "anyone deletes situations" on public.situations;
 create policy "anyone deletes situations" on public.situations
+  for delete to anon, authenticated using (true);
+
+-- the calls sheet, edited on the dashboard and read by the phone and
+-- the suite, exactly like the situations
+drop policy if exists "anyone reads calls" on public.calls;
+create policy "anyone reads calls" on public.calls
+  for select to anon, authenticated using (true);
+
+drop policy if exists "anyone adds calls" on public.calls;
+create policy "anyone adds calls" on public.calls
+  for insert to anon, authenticated with check (true);
+
+drop policy if exists "anyone updates calls" on public.calls;
+create policy "anyone updates calls" on public.calls
+  for update to anon, authenticated using (true) with check (true);
+
+drop policy if exists "anyone deletes calls" on public.calls;
+create policy "anyone deletes calls" on public.calls
   for delete to anon, authenticated using (true);
 
 drop policy if exists "anyone reads runs" on public.runs;

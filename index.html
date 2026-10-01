@@ -856,6 +856,100 @@
     white-space: nowrap;
   }
   #otto { flex: 1; min-height: 0; }
+
+  /* ---------- an incoming call ----------
+     Over everything, like the Otto screen: Otto is ringing, and the
+     only two things to do are answer and decline. The card pulses
+     while it rings. */
+  #ring-screen {
+    position: absolute;
+    inset: 0;
+    z-index: 15;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: radial-gradient(130% 60% at 50% 0%, #12382b 0%, var(--bg) 55%, var(--bg-deep) 100%);
+  }
+  #ring-screen[hidden] { display: none; }
+  .ring-card {
+    width: min(360px, 100%);
+    text-align: center;
+    padding: 28px 22px 24px;
+    border-radius: 24px;
+    border: 1px solid rgba(70,211,154,.35);
+    background: rgba(9,17,26,.9);
+    box-shadow: 0 0 0 0 rgba(70,211,154,.35);
+    animation: ring-pulse 1.6s ease-out infinite;
+  }
+  @keyframes ring-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(70,211,154,.35); }
+    70%  { box-shadow: 0 0 0 22px rgba(70,211,154,0); }
+    100% { box-shadow: 0 0 0 0 rgba(70,211,154,0); }
+  }
+  .ring-from {
+    display: block;
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 10px;
+    letter-spacing: .16em;
+    color: #7ce0b8;
+  }
+  .ring-avatar { display: block; font-size: 44px; margin: 14px 0 6px; animation: ring-shake 1.6s ease-in-out infinite; }
+  @keyframes ring-shake {
+    0%, 60%, 100% { transform: rotate(0); }
+    65% { transform: rotate(-14deg); } 75% { transform: rotate(12deg); } 85% { transform: rotate(-8deg); }
+  }
+  #ring-title { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: .02em; }
+  #ring-sub { margin: 8px 0 0; font-size: 14px; color: #cfe9f2; }
+  #ring-as { margin: 10px 0 0; font-size: 13px; color: #ffd95e; }
+  #ring-prev { margin: 10px 0 0; font-size: 12px; color: #94a1b2; line-height: 1.45; }
+  #ring-prev[hidden] { display: none; }
+  .ring-btns { display: flex; gap: 14px; justify-content: center; margin-top: 24px; }
+  .ring-btns button {
+    flex: 1;
+    padding: 15px 10px;
+    border-radius: 18px;
+    border: 1px solid transparent;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .ring-btns button:active { transform: scale(.97); }
+  #ring-answer { background: linear-gradient(180deg, #46d39a, #1f9b69); color: #06130d; border-color: rgba(70,211,154,.6); }
+  #ring-decline { background: rgba(255,107,107,.12); color: #ff9b9b; border-color: rgba(255,107,107,.4); }
+  /* the countdown chip while Otto has not rung yet — over either
+     screen, in the banners' slot: under the map's HUD, over Otto's head
+     on his own screen (the call is armed from the ⚙ sheet there) */
+  #ring-wait {
+    position: absolute;
+    left: 50%; top: 100px;
+    transform: translateX(-50%);
+    z-index: 12;
+    max-width: calc(100% - 24px);
+    color: #7ce0b8; border-color: rgba(70,211,154,.5); background: rgba(70,211,154,.1); cursor: pointer;
+  }
+  #ring-wait[hidden] { display: none; }
+
+  /* the TAKE A CALL section of the ⚙ sheet: one button per call */
+  .st-calls { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(140,165,200,.14); }
+  .st-sub { margin: 6px 0 2px; font-size: 12px; color: #94a1b2; line-height: 1.45; }
+  #st-call-list { display: flex; flex-direction: column; gap: 7px; margin-top: 8px; }
+  .st-call {
+    width: 100%;
+    text-align: left;
+    padding: 10px 12px;
+    border-radius: 13px;
+    border: 1px solid rgba(70,211,154,.3);
+    background: rgba(70,211,154,.06);
+    color: #eef2f7;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .st-call:active { transform: scale(.985); }
+  .st-call b { display: block; font-size: 13.5px; }
+  .st-call small { display: block; margin-top: 2px; font-size: 11.5px; color: #94a1b2; line-height: 1.4; }
 </style>
 </head>
 <body>
@@ -874,6 +968,7 @@
     <span class="chip" id="route" hidden title="The delivery route's stops — tap to hide or show them on this phone">ROUTE</span>
     <span class="chip plain" id="build" title="Build version"></span>
   </div>
+  <span class="chip" id="ring-wait" hidden role="button" title="Otto will ring — tap to cancel"></span>
 
   <div id="trigger-banner" hidden>
     <div id="tb-body">
@@ -990,6 +1085,17 @@
         <button type="button" data-pace="slow">slow</button><button type="button" data-pace="normal">normal</button><button type="button" data-pace="fast">fast</button>
       </span>
     </label>
+    <div class="st-calls" id="st-calls">
+      <b class="st-title">📞 TAKE A CALL FROM OTTO</b>
+      <p class="st-sub">Otto rings you from the back office. You answer as the person called — the customer, or the driver — and say what you like: not home before six, running late, fine. The call is saved like a report; the dashboard's CALLS tab lists it under the call.</p>
+      <label class="st-row">
+        <span class="st-label">Ring me<small>now, or in a moment — put the phone down and wait for it</small></span>
+        <span class="st-seg" id="st-ring" role="group" aria-label="When Otto rings">
+          <button type="button" data-ring="0">now</button><button type="button" data-ring="30">in 30 s</button><button type="button" data-ring="120">in 2 min</button>
+        </span>
+      </label>
+      <div id="st-call-list"></div>
+    </div>
     <button id="st-practice" type="button" class="st-btn">🎯 Practice throw — not counted</button>
     <p class="st-foot">How to play: three times, Otto says "two", keeps a silent beat, then says "four" — and you say "stop". Side: on two for left, in the silence for the middle, on four for right. Height: two is the top, the silence the middle, four the bottom. Strength: the silence is just right; two falls short, four flies over. Say nothing and he takes four. Stop in the silence three times for a bullseye; a miss is nothing. Otto explains this himself the first three times.</p>
     <button id="st-rules" type="button" class="st-btn">🔊 Hear the rules</button>
@@ -1045,6 +1151,22 @@
     <div id="otto"></div>
   </section>
 
+  <!-- an incoming call from Otto: rings until answered or declined -->
+  <section id="ring-screen" hidden>
+    <div class="ring-card">
+      <span class="ring-from">INCOMING CALL</span>
+      <span class="ring-avatar" aria-hidden="true">📞</span>
+      <h2 id="ring-title">Otto · back office</h2>
+      <p id="ring-sub"></p>
+      <p id="ring-as"></p>
+      <p id="ring-prev" hidden></p>
+      <div class="ring-btns">
+        <button id="ring-decline" type="button">✕ Decline</button>
+        <button id="ring-answer" type="button">📞 Answer</button>
+      </div>
+    </div>
+  </section>
+
   <div id="darts" hidden></div>
 </div>
 
@@ -1057,6 +1179,10 @@
 <script src="otto-agent.js"></script>
 <script src="otto-stream.js"></script>
 <script src="darts.js"></script>
+<!-- the calls Otto makes: the stops they are about, and the starter rows
+     the phone falls back to when the backend has no calls table yet -->
+<script src="route-kollwitz.js"></script>
+<script src="calls-starter.js"></script>
 <script src="app.js"></script>
 
 </body>
