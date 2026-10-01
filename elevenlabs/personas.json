@@ -1,5 +1,5 @@
 {
-  "_comment": "The simulated TESTERS a row is run against, one test per persona. `style` is pasted into the persona's first-person brief; `max_turns` is the trigger suite's turn cap — the personas that need follow-ups get more room (the situation suite sets its own: eight turns, ten for the vague opener). `suites` says which suites a persona is cut for — omitted means both; \"vague\" and \"annoyed\" only make sense where the driver opens the conversation, which is the situation suite. Edit freely and re-run `npm run generate`; ids are part of the test names, so renaming one orphans its ElevenLabs test until the loop re-creates it.",
+  "_comment": "The simulated TESTERS a row is run against, one test per persona. `style` is pasted into the persona's first-person brief; `style_calls` replaces it in the CALL suite, where the persona is the customer or the driver Otto has rung rather than a driver reporting (a customer has no shift and no next stop); `max_turns` is the trigger suite's turn cap — the personas that need follow-ups get more room (the situation suite sets its own: eight turns, ten for the vague opener; the call suite eight, ten for the suspicious one). `suites` says which suites a persona is cut for — omitted means every suite; \"vague\" and \"annoyed\" only make sense where the driver opens the conversation, which is the situation suite, and \"suspicious\" only where Otto rings someone who does not know who is calling, which is the call suite. Edit freely and re-run `npm run generate`; ids are part of the test names, so renaming one orphans its ElevenLabs test until the loop re-creates it.",
   "personas": [
     {
       "id": "cooperative",
@@ -9,12 +9,14 @@
     {
       "id": "terse",
       "max_turns": 10,
-      "style": "You answer in three to six words at a time, never more, and you volunteer nothing — the useful detail (the place, the distance, the time) only comes out when Otto asks a follow-up that names it. Not rude, just busy and already thinking about the next stop"
+      "style": "You answer in three to six words at a time, never more, and you volunteer nothing — the useful detail (the place, the distance, the time) only comes out when Otto asks a follow-up that names it. Not rude, just busy and already thinking about the next stop",
+      "style_calls": "You answer in three to six words at a time, never more, and you volunteer nothing — the useful detail (from when you are home, what time still works, who else is there) only comes out when Otto asks a question that names it. Not rude, just busy with something else"
     },
     {
       "id": "sidetracked",
       "max_turns": 10,
-      "style": "You open your first answer with something unrelated — a joke about the weather, or a question about how long your shift still runs — and only then answer what was asked. After that you answer normally, in one or two sentences. If Otto engages with the aside instead of the delivery, you happily keep chatting about the aside"
+      "style": "You open your first answer with something unrelated — a joke about the weather, or a question about how long your shift still runs — and only then answer what was asked. After that you answer normally, in one or two sentences. If Otto engages with the aside instead of the delivery, you happily keep chatting about the aside",
+      "style_calls": "You open your first answer with something unrelated — a remark about the weather, or asking whether this is one of those sales calls — and only then answer what was asked. After that you answer normally, in one or two sentences. If Otto engages with the aside instead of the delivery, you happily keep chatting about the aside"
     },
     {
       "id": "vague",
@@ -31,6 +33,14 @@
       ],
       "max_turns": 8,
       "style": "You are annoyed: the stop went wrong, you are behind on your round, and talking to the app is the last thing you want to do. You are curt and a bit sharp — short answers, an irritated remark now and then (\"can we make this quick?\", \"I already told you that\"), and you ask to be let go. You still answer what Otto asks, in a few words, and you never volunteer the next detail. Fed up and busy, not abusive: no insults, no swearing beyond a mild word"
+    },
+    {
+      "id": "suspicious",
+      "suites": [
+        "calls"
+      ],
+      "max_turns": 10,
+      "style": "You do not know who is calling. Your first words are to ask who this is and how they got your number, and you give nothing away until the caller has said who they are and which delivery this is about. Once that is clear you answer normally, in one or two short sentences, a little guarded. If the caller never says who they are, you say you do not discuss deliveries with strangers and end the call"
     }
   ]
 }

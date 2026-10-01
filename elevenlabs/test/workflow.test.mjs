@@ -98,18 +98,24 @@ test('every step of the live suite that runs the suite publishes it for the dash
  * they are gitignored and generated at the start of every run. A path
  * that pushed tests without generating them first would run whatever
  * the last run happened to leave on the runner — or nothing at all. */
-test('every suite the buttons run generates the situation tests from the live rows first', () => {
+test('every suite the buttons run generates the situation and call tests from the live rows first', () => {
   const live = job(readFileSync(WORKFLOW, 'utf8'), 'live-suite');
   const all = steps(live);
   const gen = all.findIndex(s => /node generate-tests\.mjs --situations/.test(s.text));
   assert.ok(gen >= 0, 'no step generates the situation tests');
   assert.match(all[gen].text, /if: steps\.plan\.outputs\.go == 'true' && steps\.plan\.outputs\.action != 'configure' && steps\.plan\.outputs\.action != 'settings'/, 'the generate step skips only configure and settings, the two that run no suite');
+  /* the calls are the CALLS tab's rows, generated the same way, so a
+   * calls button never runs last week's files either */
+  const genCalls = all.findIndex(s => /node generate-tests\.mjs --calls/.test(s.text));
+  assert.ok(genCalls >= 0, 'no step generates the call tests');
+  assert.match(all[genCalls].text, /if: steps\.plan\.outputs\.go == 'true' && steps\.plan\.outputs\.action != 'configure' && steps\.plan\.outputs\.action != 'settings'/, 'the call generate step skips only configure and settings');
   const show = all.find(s => /node loop\.mjs settings/.test(s.text));
   assert.ok(show, 'no step shows the live settings');
   assert.match(show.text, /if: steps\.plan\.outputs\.go == 'true' && steps\.plan\.outputs\.action == 'settings'/);
   assert.match(readFileSync(WORKFLOW, 'utf8'), /^          - settings$/m, 'settings is not a choice of the action dropdown');
   const push = all.findIndex(s => /node loop\.mjs push-tests/.test(s.text));
   assert.ok(push > gen, 'push-tests runs before the situation tests are generated');
+  assert.ok(push > genCalls, 'push-tests runs before the call tests are generated');
   for (const action of ['baseline', 'field', 'propose', 'try', 'models']) {
     assert.ok(all[push].text.includes(`action == '${action}'`), `push-tests skips the ${action} button`);
   }
@@ -175,11 +181,17 @@ test('the suite input picks the filter, situations by default', () => {
   const input = yaml.match(/^      suite:\n([\s\S]*?)(?=^      \S)/m);
   assert.ok(input, 'no suite input on the form');
   assert.match(input[1], /^\s+default: situations$/m, 'the pilot runs the situations, so they are the default');
-  ['situations', 'triggers', 'all'].forEach(o => assert.match(input[1], new RegExp(`^\\s+- ${o}$`, 'm')));
+  ['situations', 'calls', 'triggers', 'all'].forEach(o => assert.match(input[1], new RegExp(`^\\s+- ${o}$`, 'm')));
   const live = job(yaml, 'live-suite');
   const plan = steps(live).find(s => /Plan the run/.test(s.name));
   assert.match(plan.text, /situations\) filter="Otto · situation"/);
+  assert.match(plan.text, /calls\)\s+filter="Otto · call"/);
   assert.match(plan.text, /triggers\)\s+filter="Otto · #"/);
+  /* the generator mirrors the phone and reads the sheets: a change to
+   * any of them has to run the unit job */
+  const paths = (yaml.match(/^on:\n([\s\S]*?)\n  workflow_dispatch:/m) || [])[1] || '';
+  assert.equal((paths.match(/^      - "calls-starter\.js"$/gm) || []).length, 2, 'calls-starter.js is in the push and pull_request paths');
+  assert.match(yaml, /--exclude=situations --exclude=calls/, 'the generated-tests diff leaves the call tests out, like the situations');
   assert.match(plan.text, /all\)\s+filter=""/);
   assert.match(plan.text, /echo "FILTER=\$filter" >> "\$GITHUB_ENV"/);
   /* the resolved filter is what the steps read — the job env must not

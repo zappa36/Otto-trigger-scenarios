@@ -251,6 +251,27 @@ const Backend = (() => {
     }),
     deleteSituation: id => rest('/rest/v1/situations?id=eq.' + encodeURIComponent(id), { method: 'DELETE' }),
 
+    /* ---------- calls (dashboard.js, app.js) ----------
+     * The third sheet: the calls Otto MAKES — the office ringing the
+     * customer about a fresh-food box (will somebody be home), or the
+     * driver about a stop (running late, skip it). One row is one call:
+     * who is rung, why, what they say, what the call must establish,
+     * the outcome. The dashboard's CALLS tab edits them; the phone
+     * reads them for its TAKE A CALL list and rings. Same shape of
+     * request as the situations. */
+    listCalls: () => rest('/rest/v1/calls?select=*&order=num.asc.nullslast,created_at.asc'),
+    insertCalls: rows => rest('/rest/v1/calls', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify(rows),
+    }),
+    updateCall: (id, patch) => rest('/rest/v1/calls?id=eq.' + encodeURIComponent(id), {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify(patch),
+    }),
+    deleteCall: id => rest('/rest/v1/calls?id=eq.' + encodeURIComponent(id), { method: 'DELETE' }),
+
     /* ---------- test-run log ----------
      * Every tracked run, fired or not (app.js saves, dashboard.js reads).
      * The runs where nothing happened are the ones debugging needs. */

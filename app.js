@@ -73,6 +73,25 @@ try { Object.assign(settings, JSON.parse(localStorage.getItem(LS_SETTINGS) || '{
 const saveSettings = () => { try { localStorage.setItem(LS_SETTINGS, JSON.stringify(settings)); } catch { /* private mode */ } };
 const playerName = () => String(settings.name || '').trim().slice(0, 24) || 'someone';
 
+/* ---------- the calls Otto makes ----------
+ * The third thing Otto does, after the debrief and the report: he
+ * RINGS someone. The back office calls the customer about a
+ * fresh-food box (will somebody be home), or the driver about a stop
+ * (running late, skip it), and the person called says what they say.
+ * The rows are the dashboard's CALLS tab (calls-starter.js to begin
+ * with); on this phone the designer takes the call — ⚙ → TAKE A CALL
+ * rings, Answer opens the agent with the call's opener, variables and
+ * briefing, exactly as the suite tests it — and plays the customer or
+ * the driver. `calling` is the call on the open screen, kept standing
+ * through the save like `reporting`; `ringing` is the call waiting to
+ * be picked up (or counting down to it). A row that names a next_call
+ * rings again when this one ends, carrying what Otto learned. */
+let calls = [];
+let callsFrom = '';   // where the list came from, for the self-test
+let calling = null;   // { row, d, previous } while a call is on the screen (and until it is filed)
+let ringing = null;   // { row, previous, at, timer } while the phone rings or counts down to it
+const LS_CALLS = 'od_calls';
+
 /* Trigger scenarios (defined on dashboard.html) — read-only here. A
  * destination that belongs to a scenario carries the test steps on its
  * card, and Otto opens the debrief with the scenario's own question. */
@@ -105,6 +124,10 @@ const scenarioNumPrefix = d => {
  * spoken or stitched into a briefing needs one, or two sentences read
  * as one confused one */
 const sentence = s => { const t = String(s || '').trim(); return /[.!?…]$/.test(t) ? t : t + '.'; };
+/* "F. Brandt" → "Brandt": a consignee on file is an initial and a
+ * surname, and an initial read aloud ("F dot Brandt") is not how anyone
+ * opens a call. A business name ("Café Kolmar") is left whole. */
+const surnameOf = c => String(c || '').trim().replace(/^(?:[A-ZÀ-Þ]\.\s*)+/, '').trim() || String(c || '').trim();
 
 /* ---------- debrief language (🇬🇧 EN / 🇮🇹 IT) ----------
  * Picked on the scenario card before a run, sticky per phone. It steers
@@ -137,6 +160,11 @@ const LANG_TEXT = {
     deliveryTo: f => `Delivery goes to ${f}.`,
     fromDispatch: 'From dispatch: ',
     driverSaid: 'A driver reported: ',
+    /* a call Otto makes, when the row has no opening line of its own:
+     * the office rings the customer, or the driver (callOpenerLine) —
+     * mirrored in elevenlabs/lib/scenario-vars.mjs, one line each */
+    callConsignee: d => `Hello, this is Otto from the delivery office. I'm calling about a delivery ${d && d.consignee ? 'for ' + surnameOf(d.consignee) : 'to ' + ((d && d.title) || 'your address')} — am I speaking with the right person?`,
+    callDriver: 'Hi, this is Otto from the office — got a moment?',
   },
   it: {
     ask: 'Cosa hai trovato?',
@@ -151,6 +179,8 @@ const LANG_TEXT = {
     deliveryTo: f => `La consegna va ${f}.`,
     fromDispatch: 'Dalla centrale: ',
     driverSaid: 'Un autista ha segnalato: ',
+    callConsignee: d => `Buongiorno, sono Otto dell'ufficio consegne. Chiamo per una consegna ${d && d.consignee ? 'per ' + surnameOf(d.consignee) : 'a ' + ((d && d.title) || 'questo indirizzo')} — parlo con la persona giusta?`,
+    callDriver: 'Ciao, sono Otto dell\'ufficio — hai un momento?',
   },
 };
 const speechLangOf = () => (testLang === 'it' ? 'it-IT' : 'en-US');
@@ -1382,6 +1412,9 @@ const map = FieldMap.mount({
  * configured words — but the recorded fallback has no words of its own,
  * so it still asks plainly, in the card's language. */
 const ottoGreeting = () => {
+  /* a call opens with Otto's line — he is the one who rang; the
+   * recorded fallback speaks the same line and records the answer */
+  if (calling) return callOpenerLine();
   if (reporting) return LANG_TEXT[testLang].ask;
   const s = scenarioOf(current);
   /* the sheet's "Otto says" column IS the debrief opener — in the
@@ -1406,6 +1439,7 @@ const voiceOpts = () => {
     el: '#otto',
     assistant: 'Otto',
     context: () => {
+      if (calling) return callContext();
       if (!current) return reporting ? 'a driver report, no stop nearby' : 'this spot';
       const base = current.title + (current.addr ? ' — ' + current.addr : '');
       /* a report is about the address, even at a pin that happens to
@@ -1416,7 +1450,7 @@ const voiceOpts = () => {
     greeting: ottoGreeting,
     /* the REPORT flow, scripted: the driver says what they found, Otto
      * asks one fitting follow-up and confirms the tip in a line */
-    demo: reporting ? [
+    demo: calling ? callDemo() : reporting ? [
       { q: LANG_TEXT.en.ask, a: "The gate is locked and it wants a code — there's nothing on the label." },
       { q: 'Did you get in in the end?', a: 'A resident let me in after five minutes, and the parcel went to the recipient.' },
     ] : sc && sc.otto_says ? [
@@ -1427,7 +1461,9 @@ const voiceOpts = () => {
       { q: 'Got it. Can you still get through somehow?', a: "Yes — there's a side door on the left, maybe 20 metres on." },
       { q: 'Anything else worth noting?', a: "The scaffolding looks like it'll be up for weeks." },
     ],
-    demoFinal: reporting
+    demoFinal: calling
+      ? 'Understood — the office passes it on. Thanks, goodbye!'
+      : reporting
       ? 'Got it — the tip is on file for the next driver. Safe onwards.'
       : sc
         ? 'Saved — the dashboard now compares this with what the scenario expected.'
@@ -1439,6 +1475,31 @@ const voiceOpts = () => {
        * demo replies stay silent: nothing was actually heard, and the
        * agent already said its piece in its own voice (res.spoken). */
       if (!res.demo && !res.spoken && res.reply) speakThen(String(res.reply), () => {});
+      /* a call: filed against the stop it was about when that stop is
+       * on this phone, against no pin otherwise — then the screen
+       * closes by itself, and the next call in the chain rings with
+       * what Otto learned on this one */
+      if (calling) {
+        const row = calling.row;
+        const d = current;
+        recordMessage(d && d.id ? d.id : NO_STOP, {
+          ...res.row,
+          ...(res.demo ? debriefExtra() : {}),
+          destination_id: d && d.id ? d.id : null,
+          demo: !!res.demo,
+          created_at: (res.row && res.row.created_at) || new Date().toISOString(),
+        });
+        persistLocal();
+        map.refresh();
+        const turns = Array.isArray(res.conversation) && res.conversation.length ? res.conversation
+          : [{ from: 'me', text: String(res.transcript || '') }, ...(res.reply ? [{ from: 'ai', text: String(res.reply) }] : [])];
+        const outcome = callOutcome(turns, row);
+        setTimeout(() => {
+          if (calling && calling.row === row && !el('otto-screen').hidden) closeOtto();
+          ringNext(row, outcome);
+        }, 1800);
+        return;
+      }
       const d = current; // null when a report was filed on the road
       if (!d && !reporting) return;
       recordMessage(d ? d.id : NO_STOP, {
@@ -1521,6 +1582,15 @@ function agentVars() {
     walk_m: tr && tr.shape === 'parkwalk' ? Math.round(tr.walkM) : '',
     activity_state: ActivityRec.active ? ActivityRec.state : '',
     activity_summary: ActivityRec.active ? (ActivityRec.summary(tr ? tr.startedAt : Date.now() - 15 * 60e3) || '') : '',
+    /* a call Otto is making (calls-starter.js, the dashboard's CALLS
+     * tab): which call, who was rung, why, and what the office learned
+     * on the call before it — empty on a report and on a trigger
+     * debrief, so none of them goes up there (initPayload drops them) */
+    call_num: calling && calling.row.num != null && calling.row.num !== '' ? Number(calling.row.num) : '',
+    call_title: calling ? String(calling.row.title || '') : '',
+    call_to: calling ? calleeOf(calling.row) : '',
+    call_purpose: calling ? String(calling.row.purpose || '') : '',
+    call_previous: calling ? String(calling.previous || '') : '',
   };
   const pos = LiveGeo.position;
   if (pos && d) v.distance_to_pin_m = Math.round(distM(pos, d));
@@ -1555,6 +1625,7 @@ function reportBriefing(v) {
 function agentBriefing() {
   const v = agentVars();
   if (reporting) return reportBriefing(v);
+  if (calling) return callBriefing(v);
   const lines = [];
   lines.push(`You are Otto, debriefing a field tester who has just acted out a trigger scenario at ${v.destination_title || 'a destination'}${v.destination_address ? ` (${v.destination_address})` : ''}.`);
   if (v.scenario_title) lines.push(`Scenario${v.scenario_num !== '' ? ' #' + v.scenario_num : ''}: ${sentence(v.scenario_title + ' (v' + v.scenario_version + ')')}`);
@@ -1617,11 +1688,13 @@ function mountOtto(recorderOnly) {
  * screen it belongs to. */
 let voice = VoiceNote.mount(voiceOpts());
 
-function openOtto(d, asReport) {
+function openOtto(d, asReport, call) {
   if (typeof Darts !== 'undefined') Darts.dismiss(); // a dart card still up yields the screen
   /* whose debrief this is, for as long as it lasts — every caller but
-   * openReport opens the destination's own */
+   * openReport opens the destination's own; openCall hands over the
+   * call Otto is making, which stands until the row is filed */
   reporting = !!asReport;
+  calling = call || null;
   current = d || null; // a REPORT made on the road has no pin
   /* a pre-arrival reading must not talk over the debrief — the keyless
    * path cancels it itself (speakThen), the agent path would not */
@@ -1635,9 +1708,11 @@ function openOtto(d, asReport) {
    * language this conversation was opened in — and a report says which
    * door it will be filed against, or that it will be filed against none */
   el('otto-dest').textContent = (testLang === 'it' ? '🇮🇹 ' : '🇬🇧 ')
-    + (reporting ? 'REPORT · ' : '')
-    + (d ? (d.stop != null ? 'Stop ' + d.stop + ' · ' : '') + scenarioNumPrefix(d) + d.title
-         : 'no stop nearby');
+    + (calling
+      ? '📞 CALL' + (calling.row.num != null && calling.row.num !== '' ? ' #' + calling.row.num : '') + ' · ' + (d ? d.title : String(calling.row.title || ''))
+      : (reporting ? 'REPORT · ' : '')
+        + (d ? (d.stop != null ? 'Stop ' + d.stop + ' · ' : '') + scenarioNumPrefix(d) + d.title
+          : 'no stop nearby'));
   el('otto-screen').hidden = false;
   renderReport(); // the button stands down while Otto has the screen
   /* a manual "Report to Otto" tap never went through startTracking —
@@ -1661,11 +1736,303 @@ function closeOtto() {
   } catch { /* optional */ }
   el('otto-screen').hidden = true;
   /* back where the debrief came from: the card that opened it, or — for
-   * a REPORT — the map, which is where the button lives. `reporting` is
-   * left standing: the agent files what was said AFTER this returns. */
-  if (current && !reporting) openCard(current); // the card, now with the new message
+   * a REPORT or a call — the map. `reporting` and `calling` are left
+   * standing: the agent files what was said AFTER this returns. */
+  if (current && !reporting && !calling) openCard(current); // the card, now with the new message
   renderReport();
   if (reporting) offerDartThrow(); // the report was the chore; this is the reward
+}
+
+/* ---------- the calls Otto makes ----------
+ * The rows come from the dashboard's CALLS tab (the calls table), the
+ * same way the scenarios do; keyless, from the dashboard's localStorage
+ * in this browser; and when neither has a row, from calls-starter.js,
+ * so the ⚙ sheet never lists nothing. Only the active rows are rung. */
+const escCall = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const calleeOf = row => (String((row && row.callee) || '').toLowerCase() === 'driver' ? 'driver' : 'consignee');
+const calleeWord = row => (calleeOf(row) === 'driver' ? 'the driver' : 'the customer');
+const callKey = row => String(row.id || ('n' + row.num));
+/* the next call in the chain, by number: an active row other than this one */
+const nextCallOf = row => {
+  const n = row && row.next_call != null && row.next_call !== '' ? +row.next_call : null;
+  return n != null ? calls.find(c => c !== row && c.num != null && +c.num === n && c.active !== false) || null : null;
+};
+
+async function loadCalls() {
+  let rows = null;
+  if (Backend.enabled) {
+    try {
+      rows = (await Backend.listCalls()) || [];
+      callsFrom = 'the dashboard';
+    } catch (e) {
+      console.warn('no calls table yet — re-run schema.sql to add it; the starter calls stand in:', e.message || e);
+      rows = null;
+    }
+  } else {
+    try { rows = JSON.parse(localStorage.getItem(LS_CALLS) || '[]'); } catch { rows = []; }
+    callsFrom = 'the dashboard, in this browser';
+  }
+  let active = (rows || []).filter(c => c && c.active !== false && String(c.title || '').trim());
+  if (!active.length && window.CALLS_SHEET && Array.isArray(window.CALLS_SHEET.calls)) {
+    active = window.CALLS_SHEET.calls.map(c => ({ ...c }));
+    callsFrom = 'the starter sheet';
+  }
+  calls = active.slice().sort((a, b) => ((a.num == null ? 1e9 : +a.num) - (b.num == null ? 1e9 : +b.num)));
+}
+
+/* The stop a call is about, as the destination Otto is told about:
+ * the loaded destination for that Kollwitzkiez stop when the route is
+ * on this phone (the call is then filed against the door, like a
+ * report), else the stop straight from route-kollwitz.js — a stand-in
+ * with no id, filed against no pin. A row without a stop lands on the
+ * stop with its number, exactly as the suite's generator picks one. */
+function callStop(row) {
+  const route = (window.DEMO_ROUTES || []).find(r => r.id === 'kollwitz-01') || null;
+  const stops = route ? route.stops : [];
+  const want = row && row.stop != null && row.stop !== '' ? +row.stop : null;
+  let st = want != null ? stops.find(s => s.stop === want) : null;
+  if (!st && stops.length) {
+    const n = row && row.num != null && row.num !== '' ? +row.num : NaN;
+    const i = Number.isFinite(n) && n > 0 ? n - 1 : 0;
+    st = stops[((i % stops.length) + stops.length) % stops.length];
+  }
+  if (!st) return null;
+  const loaded = destinations.find(d => d.route === 'kollwitz-01' && d.stop === st.stop);
+  if (loaded) return loaded;
+  return { id: null, title: st.title, addr: st.addr, lat: st.lat, lng: st.lng, consignee: st.consignee || '', floor: st.floor || '', notes: st.notes || [], route: route.id, stop: st.stop };
+}
+
+/* "call #1 · Home check — fresh food this evening · F. Brandt, Kollwitzstraße 48 · you answered as the customer" —
+ * the dashboard reads the number at the front and the role at the end */
+function callContext() {
+  const row = calling.row, d = current;
+  const where = d ? `${d.consignee ? d.consignee + ', ' : ''}${d.title}` : 'no stop';
+  return `call #${row.num != null && row.num !== '' ? row.num : 0} · ${String(row.title || '').trim()} · ${where} · you answered as ${calleeWord(row)}`;
+}
+
+/* The line the call opens with — the agent's first message, overridden
+ * the way a trigger debrief's "Otto says" is: the row's own opener
+ * (Italian from the cache when 🇮🇹 is picked and the translation
+ * landed), the app's own line for the person rung otherwise. An
+ * outbound call cannot open with the platform's "how can I help you?"
+ * — Otto is the one calling. Mirrored in lib/scenario-vars.mjs. */
+function callOpenerLine() {
+  const row = calling.row;
+  const says = stripQuotes(row.otto_says);
+  if (says) return inItalian(says) || says;
+  const t = LANG_TEXT[testLang];
+  return calleeOf(row) === 'driver' ? t.callDriver : t.callConsignee(current);
+}
+
+/* the contextual update for a call (callBriefing in lib/scenario-vars.mjs,
+ * word for word): an agent whose prompt names none of the call_*
+ * variables is still told that it rang, whom, and why */
+function callBriefing(v) {
+  const lines = [];
+  const floor = String(v.destination_floor || '').trim();
+  const where = v.destination_title
+    ? `${v.destination_title}${v.destination_address ? ' (' + v.destination_address + ')' : ''}${floor ? ', ' + (/^\d+$/.test(floor) ? 'floor ' + floor : floor) : ''}`
+    : 'a delivery address';
+  const who = v.call_to === 'driver'
+    ? 'the driver on this round'
+    : `the customer${v.destination_consignee ? ', ' + v.destination_consignee : ''}`;
+  lines.push(`You are Otto, calling from the delivery office. You have rung ${who} about the delivery at ${where}. This is an outbound call: you called them, so say who you are and why you are calling before anything else.`);
+  if (v.call_title) lines.push(`The call${v.call_num !== '' && v.call_num != null ? ' #' + v.call_num : ''}: ${sentence(v.call_title)}`);
+  if (v.call_purpose) lines.push(`Why you are calling: ${sentence(v.call_purpose)}`);
+  if (v.call_previous) lines.push(`What the office learned before this call: ${sentence(v.call_previous)}`);
+  if (v.destination_notes) lines.push(sentence(`Notes on file for this address: ${v.destination_notes}`));
+  lines.push('Ask what you need to know, keep it to two or three short questions, confirm what was agreed in one line and say what happens next, then let them go.');
+  if (testLang === 'it') lines.push('This call is in Italian: conduct the whole call in Italian — every question and reply.');
+  return lines.join(' ');
+}
+
+/* the keyless demo of a call: Otto's opener, a scripted answer, his summary */
+function callDemo() {
+  const opener = callOpenerLine();
+  return calleeOf(calling.row) === 'driver'
+    ? [
+      { q: opener, a: "Go on — I'm about twenty minutes behind, traffic on Prenzlauer Allee." },
+      { q: 'Got it. So you reach that stop around ten to six — I\'ll warn the customer. Anything else I should tell them?', a: 'No, that\'s it.' },
+    ]
+    : [
+      { q: opener, a: "Oh — I'm still at work. I won't be home before six." },
+      { q: 'Understood. From six, then — does a delivery after six work for you today?', a: 'Yes, any time after six is fine.' },
+    ];
+}
+
+/* What the office learned on this call, for the next one in the chain:
+ * Otto's closing line — his summary, when he did his job — and, when
+ * the person had the last word (a correction), that too. */
+function callOutcome(turns, row) {
+  const who = calleeWord(row);
+  const Who = who.charAt(0).toUpperCase() + who.slice(1);
+  const ai = turns.filter(t => t && t.from === 'ai' && String(t.text || '').trim());
+  const me = turns.filter(t => t && t.from === 'me' && String(t.text || '').trim());
+  let out = ai.length ? String(ai[ai.length - 1].text) : '';
+  const last = turns.length ? turns[turns.length - 1] : null;
+  if (last && last.from === 'me' && String(last.text || '').trim() && ai.length) out += ` ${Who} then said: “${String(last.text).trim()}”`;
+  if (!out.trim()) out = me.length ? `${Who} said: “${me.map(t => t.text).join(' ')}”` : `${Who} said nothing that was understood.`;
+  return out.replace(/\s+/g, ' ').trim().slice(0, 700);
+}
+
+/* ---- the ⚙ sheet's list ---- */
+function renderCallList() {
+  const box = el('st-call-list');
+  if (!box) return;
+  if (!calls.length) {
+    box.innerHTML = '<p class="st-foot">No calls on file. Load the starter calls on the dashboard\'s CALLS tab, or write your own there, then ↻.</p>';
+    return;
+  }
+  box.innerHTML = calls.map(c => {
+    const d = callStop(c);
+    const who = calleeOf(c) === 'driver' ? 'you answer as the driver' : `you answer as the customer${d && d.consignee ? ', ' + d.consignee : ''}`;
+    const next = nextCallOf(c);
+    return `<button type="button" class="st-call" data-call="${escCall(callKey(c))}">
+      <b>${c.num != null && c.num !== '' ? '#' + escCall(c.num) + ' ' : ''}${escCall(c.title)}</b>
+      <small>${escCall(d ? d.title : 'no stop')} · ${escCall(who)}${next ? ' · then Otto rings ' + escCall(calleeWord(next)) : ''}</small>
+    </button>`;
+  }).join('');
+}
+
+/* ---- the ring ----
+ * A phone's ring: two tones, two seconds on, two off, and the vibration
+ * motor where there is one. The audio context is made inside the tap
+ * that arms the call, so a ring minutes later still sounds. */
+let ringCtx = null, ringNodes = [], ringTimer = null;
+function ringContext() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    if (!ringCtx) ringCtx = new AC();
+    if (ringCtx.state === 'suspended') ringCtx.resume().catch(() => {});
+    return ringCtx;
+  } catch { return null; }
+}
+function startRing() {
+  const ctx = ringContext();
+  const burst = () => {
+    if (!ringing) return;
+    try { if (navigator.vibrate) navigator.vibrate([450, 250, 450]); } catch { /* optional */ }
+    if (!ctx) return;
+    try {
+      const g = ctx.createGain();
+      g.connect(ctx.destination);
+      const t = ctx.currentTime;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.22, t + 0.05);
+      g.gain.setValueAtTime(0.22, t + 1.85);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 2);
+      [440, 480].forEach(hz => {
+        const o = ctx.createOscillator();
+        o.frequency.value = hz;
+        o.connect(g);
+        o.start(t);
+        o.stop(t + 2);
+        ringNodes.push(o);
+      });
+    } catch { /* no sound — the screen still shows */ }
+  };
+  burst();
+  clearInterval(ringTimer);
+  ringTimer = setInterval(burst, 4000);
+}
+function stopRing() {
+  clearInterval(ringTimer);
+  ringTimer = null;
+  ringNodes.forEach(n => { try { n.stop(); } catch { /* already done */ } });
+  ringNodes = [];
+  try { if (navigator.vibrate) navigator.vibrate(0); } catch { /* optional */ }
+}
+
+/* arm a call: ring now, or count down to it on the HUD chip */
+function armCall(row, delaySec, previous) {
+  cancelRing();
+  const sec = Math.max(0, Math.round(+delaySec || 0));
+  ringing = { row, previous: String(previous || '').trim(), at: Date.now() + sec * 1000, timer: null };
+  ringContext(); // born in the tap, when there is one
+  if (!sec) { showRing(); return; }
+  const chip = el('ring-wait');
+  const tick = () => {
+    if (!ringing) return;
+    const left = Math.max(0, Math.round((ringing.at - Date.now()) / 1000));
+    if (left <= 0) { showRing(); return; }
+    if (chip) { chip.textContent = `📞 OTTO RINGS IN ${left} S · TAP TO CANCEL`; chip.hidden = false; }
+    ringing.timer = setTimeout(tick, 1000);
+  };
+  tick();
+}
+function cancelRing() {
+  if (ringing && ringing.timer) clearTimeout(ringing.timer);
+  ringing = null;
+  stopRing();
+  if (el('ring-wait')) el('ring-wait').hidden = true;
+  if (el('ring-screen')) el('ring-screen').hidden = true;
+}
+function showRing() {
+  if (!ringing) return;
+  const { row, previous } = ringing;
+  if (ringing.timer) { clearTimeout(ringing.timer); ringing.timer = null; }
+  if (el('ring-wait')) el('ring-wait').hidden = true;
+  const d = callStop(row);
+  el('ring-sub').textContent = (row.num != null && row.num !== '' ? '#' + row.num + ' · ' : '') + String(row.title || '');
+  el('ring-as').textContent = calleeOf(row) === 'driver'
+    ? `You answer as the driver${d ? ' · about ' + d.title : ''}`
+    : `You answer as the customer${d && d.consignee ? ', ' + d.consignee : ''}${d ? ' · ' + d.title : ''}`;
+  const prev = previous || String(row.previous_call || '').trim();
+  el('ring-prev').textContent = prev ? 'Otto knows from the call before: ' + prev : '';
+  el('ring-prev').hidden = !prev;
+  if (typeof Darts !== 'undefined') Darts.dismiss();
+  el('card').hidden = true;
+  if (el('settings')) el('settings').hidden = true;
+  el('ring-screen').hidden = false;
+  startRing();
+}
+function answerCall() {
+  if (!ringing) return;
+  const { row, previous } = ringing;
+  if (ringing.timer) clearTimeout(ringing.timer);
+  ringing = null;
+  stopRing();
+  el('ring-screen').hidden = true;
+  openCall(row, previous);
+}
+function declineCall() {
+  if (!ringing) return;
+  const { row } = ringing;
+  cancelRing();
+  /* a declined home check still tells the driver something */
+  const at = new Date();
+  const hhmm = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+  const who = calleeWord(row);
+  ringNext(row, `${who.charAt(0).toUpperCase() + who.slice(1)} did not pick up when the office rang at ${hhmm}.`);
+}
+/* the call itself: the agent (or the recorded fallback) with the call's
+ * opener, variables and briefing — openOtto in call mode */
+function openCall(row, previous) {
+  const d = callStop(row);
+  if (testLang === 'it' && row.otto_says) translateIt(stripQuotes(row.otto_says));
+  openOtto(d, false, { row, d, previous: String(previous || '').trim() || String(row.previous_call || '').trim() });
+}
+/* the next call in the chain rings a moment after this one is filed,
+ * with what Otto learned — the home check that found nobody home is
+ * followed by the call that tells the driver */
+function ringNext(row, outcome) {
+  const next = nextCallOf(row);
+  if (!next) return;
+  armCall(next, 6, outcome);
+}
+/* ?call=N on the URL — the dashboard's "ring this call on the phone"
+ * link — rings that row once the rows are loaded; no gesture yet, so
+ * the ring may be silent until Answer is tapped */
+let rangFromUrl = false;
+function ringFromUrl() {
+  if (rangFromUrl) return;
+  rangFromUrl = true;
+  const want = new URLSearchParams(location.search).get('call');
+  if (!want) return;
+  const row = calls.find(c => c.num != null && String(c.num) === String(want).trim());
+  if (row) armCall(row, 0, '');
+  else console.warn(`?call=${want}: no active call row with that number`);
 }
 
 /* ---------- the REPORT button ----------
@@ -1926,6 +2293,9 @@ el('build').onclick = async () => {
     ? 'the agent opens in his OWN words (no first-message override)'
     : 'the recorded debrief asks "' + LANG_TEXT[testLang].ask + '"')
     + ' · filed against the stop within ' + REPORT_RADIUS + ' m, else the open card, else no stop');
+  /* the calls Otto makes: how many the ⚙ sheet lists, and from where */
+  out.push('calls: ' + calls.length + ' on the TAKE A CALL list' + (callsFrom ? ' (from ' + callsFrom + ')' : '')
+    + ' · Otto rings as the back office with the call\'s opener as his first line');
   /* the card's 🇬🇧/🇮🇹 pick — an Italian debrief that comes out English
    * usually means the agent declined the language override */
   out.push('debrief language: ' + (testLang === 'it'
@@ -2002,6 +2372,10 @@ for (const [id, fn] of [['card-deliver', () => markVisit('delivered')], ['card-f
   if (node) node.onclick = fn;
 }
 el('otto-back').onclick = closeOtto;
+/* the incoming call — guarded like the sheet: an older index.html has no ring screen */
+if (el('ring-answer')) el('ring-answer').onclick = answerCall;
+if (el('ring-decline')) el('ring-decline').onclick = declineCall;
+if (el('ring-wait')) el('ring-wait').onclick = cancelRing;
 /* the ⚙ sheet — guarded like the blocks above: an index.html from
  * before the sheet has none of these, and app.js must still boot */
 if (el('settings-chip') && el('settings')) {
@@ -2012,6 +2386,8 @@ if (el('settings-chip') && el('settings')) {
     el('st-darts').checked = settings.darts !== false;
     if (el('st-voice')) el('st-voice').checked = settings.voice !== false;
     renderPace();
+    renderRing();
+    renderCallList();
     el('card').hidden = true; // same slot
     sheet.hidden = false;
   };
@@ -2028,6 +2404,28 @@ if (el('settings-chip') && el('settings')) {
     el('st-pace').querySelectorAll('button').forEach(b => {
       b.onclick = () => { settings.pace = b.dataset.pace; saveSettings(); renderPace(); };
     });
+  }
+  /* TAKE A CALL: when Otto rings (sticky, like the pace), and the list
+   * of calls — a tap closes the sheet and arms the call */
+  function renderRing() {
+    if (!el('st-ring')) return;
+    const want = String(settings.ring || 0);
+    el('st-ring').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.ring === want));
+  }
+  if (el('st-ring')) {
+    el('st-ring').querySelectorAll('button').forEach(b => {
+      b.onclick = () => { settings.ring = +b.dataset.ring || 0; saveSettings(); renderRing(); };
+    });
+  }
+  if (el('st-call-list')) {
+    el('st-call-list').onclick = e => {
+      const b = e.target.closest('[data-call]');
+      if (!b) return;
+      const row = calls.find(c => callKey(c) === b.dataset.call);
+      if (!row) return;
+      el('settings').hidden = true;
+      armCall(row, settings.ring || 0, '');
+    };
   }
   /* see the game before a report earns a throw — nothing is saved */
   /* the rules in Otto's voice, without a throw */
@@ -2189,12 +2587,18 @@ async function boot() {
   renderRouteChip();
   renderEmpty();
   map.refresh();
+  /* the calls Otto makes — the ⚙ sheet's list, and a call the URL asks for */
+  await loadCalls();
+  renderCallList();
+  ringFromUrl();
 }
 
 /* Local demo mode: the dashboard in another tab writes the same
  * localStorage — pick up its new scenarios and pins as they land. */
 if (!Backend.enabled) {
   window.addEventListener('storage', e => {
+    /* the dashboard's CALLS tab, edited in another tab of this browser */
+    if (e.key === LS_CALLS) { loadCalls().then(renderCallList); return; }
     if (e.key && ![LS_DEST, LS_SCEN].includes(e.key)) return;
     try { destinations = JSON.parse(localStorage.getItem(LS_DEST) || '[]'); } catch { return; }
     try { scenarios = JSON.parse(localStorage.getItem(LS_SCEN) || '[]'); } catch { /* keep old */ }

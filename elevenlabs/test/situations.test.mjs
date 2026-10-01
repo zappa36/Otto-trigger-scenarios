@@ -204,7 +204,7 @@ test('the flags of the two suites do not cross, and the situation suite is Engli
   assert.match(fails(['--situations', '--lang', 'it']), /the situation suite is English only/);
   assert.match(fails(['--situations', '--scenario', '2']), /--scenario picks a trigger row; with --situations use --situation N/);
   assert.match(fails(['--situation', '2']), /--situation picks a situation row; without --situations use --scenario N/);
-  assert.match(fails(['--file', 'rows.json']), /--file is the situation suite's/);
+  assert.match(fails(['--file', 'rows.json']), /--file is the situation and call suites'/);
 });
 
 test('--situations reads the situations table, and falls back to the sheet when there is none', async () => {

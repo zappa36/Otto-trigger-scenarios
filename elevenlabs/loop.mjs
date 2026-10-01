@@ -7,7 +7,8 @@
  * things instead: a suite of ElevenLabs simulation tests cut from the
  * sheets (generate-tests.mjs — a simulated driver per row and persona,
  * the SAME dynamic variables a phone sends; the SITUATION rows are the
- * pilot's suite, the trigger scenarios the one for when triggers come
+ * pilot's suite, the CALL rows the office ringing the customer or the
+ * driver, the trigger scenarios the one for when triggers come
  * back), and the real conversations the agent had in the field, joined
  * to the grade the designer gave each one on the dashboard. Both are
  * scored, a model is asked for the smallest prompt edit the evidence
@@ -732,12 +733,12 @@ export function aggregate(inv, { idToName = {}, meta = {} } = {}) {
 
 /* the _otto block of every test file, by test name — so a results row
  * knows which row it came from, and which sheet, without another
- * lookup. A test belongs to one of the two suites: a trigger scenario
- * carries scenario_num, a situation carries situation_num, and a
- * regression cut from a real debrief carries whichever the join could
- * place. All four fields ride along either way, so a reader (the
- * dashboard, agentRunRow) never has to guess which sheet a run is
- * about. */
+ * lookup. A test belongs to one of the three suites: a trigger scenario
+ * carries scenario_num, a situation carries situation_num, a call
+ * carries call_num (and call_to: who was rung), and a regression cut
+ * from a real debrief carries whichever the join could place. All the
+ * fields ride along either way, so a reader (the dashboard,
+ * agentRunRow) never has to guess which sheet a run is about. */
 function metaByName(ctx) {
   const meta = {};
   const num = x => (x == null || x === '' ? null : x);
@@ -746,6 +747,7 @@ function metaByName(ctx) {
     meta[body.name] = {
       scenario_num: num(o.scenario_num), scenario_title: o.scenario_title || '',
       situation_num: num(o.situation_num), situation_title: o.situation_title || '',
+      call_num: num(o.call_num), call_title: o.call_title || '', call_to: o.call_to || '',
       persona: o.persona || '', kind: o.kind || '', language: o.language || '',
       /* who played the driver and who judged — the test file pins both
        * (SIMULATION_MODELS in generate-tests.mjs), and a run from next
@@ -799,8 +801,10 @@ async function run(ctx, flags) {
   if (rows.length) {
     if (rows.some(x => !/^\d+$/.test(x))) throw new UsageError(`--rows takes situation numbers, comma-separated (6,8,10), not "${flags.rows}"`);
     const want = new Set(rows.map(Number));
-    entries = entries.filter(([name]) => { const m = /situation #(\d+)\b/.exec(name); return m && want.has(Number(m[1])); });
-    if (!entries.length) { log(`no test in tests.lock.json is for situation row(s) ${rows.join(', ')} — the numbers are the # on the SITUATIONS tab`); return 1; }
+    /* a situation or a call row, by the # on its tab — which of the
+     * two is what --filter (the suite) decided */
+    entries = entries.filter(([name]) => { const m = /(?:situation|call) #(\d+)\b/.exec(name); return m && want.has(Number(m[1])); });
+    if (!entries.length) { log(`no test in tests.lock.json is for situation or call row(s) ${rows.join(', ')} — the numbers are the # on the SITUATIONS or CALLS tab`); return 1; }
     log(`rows ${rows.join(', ')}: ${entries.length} test(s)`);
   }
   const { api, agentId } = needEleven(ctx);
@@ -1018,11 +1022,11 @@ async function pull(ctx, flags) {
 /* ---------- score ---------- */
 
 /* the row a score line is about, short enough for a column: "#3" is
- * trigger scenario 3, "s#3" situation 3 — the two sheets number from
- * one each, so a shared key would add them up */
+ * trigger scenario 3, "s#3" situation 3, "c#3" call 3 — the sheets
+ * number from one each, so a shared key would add them up */
 const scenarioKey = (num, title, kind) => {
-  const mark = kind === 'situation' ? 's#' : '#';
-  return num != null && num !== '' ? `${mark}${num}` : (title ? String(title).slice(0, 40) : `(no ${kind === 'situation' ? 'situation' : 'scenario'})`);
+  const mark = kind === 'situation' ? 's#' : kind === 'call' ? 'c#' : '#';
+  return num != null && num !== '' ? `${mark}${num}` : (title ? String(title).slice(0, 40) : `(no ${kind === 'situation' || kind === 'call' ? kind : 'scenario'})`);
 };
 
 export function scoreData(results, field) {
@@ -1041,10 +1045,12 @@ export function scoreData(results, field) {
     r.reasons.set(key, e);
   };
   for (const t of (results && results.tests) || []) {
-    /* a situation test belongs to the situation sheet, and a field
-     * conversation to whichever scenario the join placed it under */
+    /* a situation test belongs to the situation sheet, a call test to
+     * the calls, and a field conversation to whichever scenario the
+     * join placed it under */
     const sit = t.kind === 'situation' || t.situation_num != null;
-    const r = sit ? row(t.situation_num, t.situation_title, 'situation') : row(t.scenario_num, t.scenario_title);
+    const call = !sit && (t.kind === 'call' || t.call_num != null);
+    const r = sit ? row(t.situation_num, t.situation_title, 'situation') : call ? row(t.call_num, t.call_title, 'call') : row(t.scenario_num, t.scenario_title);
     r.tests++; r.runs += t.runs || 0; r.passed += t.passed || 0;
     for (const why of t.rationales || []) bump(r, reasonKey(why), why);
   }
@@ -1581,8 +1587,9 @@ export function compareResults(base, branch, margin = 0.25) {
   base = { ...base, tests: (base.tests || []).filter(t => inBranch.has(nameOf(t))) };
   branch = { ...branch, tests: (branch.tests || []).filter(t => inBase.has(nameOf(t))) };
   const rowOf = t => (num(t.situation_num) != null ? `situation #${t.situation_num}${t.situation_title ? ' ' + t.situation_title : ''}`
-    : num(t.scenario_num) != null ? `scenario #${t.scenario_num}${t.scenario_title ? ' ' + t.scenario_title : ''}`
-      : String(t.name || t.test_id || '?'));
+    : num(t.call_num) != null ? `call #${t.call_num}${t.call_title ? ' ' + t.call_title : ''}`
+      : num(t.scenario_num) != null ? `scenario #${t.scenario_num}${t.scenario_title ? ' ' + t.scenario_title : ''}`
+        : String(t.name || t.test_id || '?'));
   const tally = tests => {
     const m = new Map();
     for (const t of tests || []) {
@@ -1620,11 +1627,12 @@ export function compareResults(base, branch, margin = 0.25) {
   const totalDown = totalB < totalA - 1e-9;
   const drops = rows.filter(r => r.dropped), improved = rows.filter(r => r.improved);
   const wasFailing = rows.filter(r => r.base != null && r.base < 1 - 1e-9);
-  const unit = rows.length && rows.every(r => /^situation #/.test(r.name)) ? 'situation' : 'row';
+  const unit = rows.length && rows.every(r => /^situation #/.test(r.name)) ? 'situation'
+    : rows.length && rows.every(r => /^call #/.test(r.name)) ? 'call' : 'row';
   const pts = Math.round(margin * 100);
   const totals = A.runs ? `${B.passed} of ${B.runs} calls against ${A.passed} of ${A.runs}` : `${Math.round(totalB * 100)}% against ${Math.round(totalA * 100)}%`;
   const accept = !drops.length && !totalDown && improved.length > 0;
-  const reason = drops.length ? `${drops.length} ${unit}(s) dropped by more than ${pts} points (${drops.map(r => `${r.name.replace(/^(situation|scenario) /, '')}: −${r.lost} call${r.lost === 1 ? '' : 's'}`).slice(0, 4).join(', ')}${drops.length > 4 ? ', …' : ''})`
+  const reason = drops.length ? `${drops.length} ${unit}(s) dropped by more than ${pts} points (${drops.map(r => `${r.name.replace(/^(situation|scenario|call) /, '')}: −${r.lost} call${r.lost === 1 ? '' : 's'}`).slice(0, 4).join(', ')}${drops.length > 4 ? ', …' : ''})`
     : totalDown ? `the branch passed fewer calls overall: ${totals}`
       : !wasFailing.length ? 'nothing was failing on the base run, so there is nothing for the branch to improve'
         : !improved.length ? `no ${unit} improved (${totals})`
@@ -1644,7 +1652,7 @@ async function compare(ctx, flags) {
   if (leftOut.branch.length) log(`  ${leftOut.branch.length} test(s) only on the branch left out of the verdict${personasOf(leftOut.branch).length ? ` — the ${personasOf(leftOut.branch).join(', ')} driver(s), not in the baseline; the next baseline will have them` : ''}`);
   if (leftOut.base.length) log(`  ${leftOut.base.length} test(s) only in the baseline left out of the verdict`);
   log(table(rows, [
-    { key: 'name', label: 'situation / row (every driver type and repeat together)', width: 52 },
+    { key: 'name', label: 'situation / call / row (every driver type and repeat together)', width: 52 },
     { get: r => pct(r.base), label: 'base', width: 5, right: true },
     { get: r => pct(r.branch), label: 'branch', width: 6, right: true },
     { key: 'calls', label: 'calls', width: 7, right: true },
@@ -1731,15 +1739,20 @@ export function agentRunRow(results, { runUrl = null, verdict = null, reason = n
     return {
       name,
       test_id: text(t.test_id),
-      /* a results file from before `kind` rode along: the regressions
-       * and the situations are the tests named that way */
-      kind: ['regression', 'scenario', 'situation'].includes(t.kind) ? t.kind
+      /* a results file from before `kind` rode along: the regressions,
+       * the situations and the calls are the tests named that way */
+      kind: ['regression', 'scenario', 'situation', 'call'].includes(t.kind) ? t.kind
         : /^Otto · regression · /.test(name) ? 'regression'
-          : /^Otto · situation /.test(name) ? 'situation' : 'scenario',
+          : /^Otto · situation /.test(name) ? 'situation'
+            : /^Otto · call /.test(name) ? 'call' : 'scenario',
       scenario_num: numOf(t.scenario_num),
       scenario_title: text(t.scenario_title),
       situation_num: numOf(t.situation_num),
       situation_title: text(t.situation_title),
+      /* a call test: the row on the CALLS tab, and who Otto rang */
+      call_num: numOf(t.call_num),
+      call_title: text(t.call_title),
+      call_to: t.call_to === 'driver' || t.call_to === 'consignee' ? t.call_to : null,
       persona: text(t.persona),
       language: t.language === 'it' || t.language === 'en' ? t.language : null,
       runs, passed, pass_rate: rate(passed, runs),
@@ -1780,6 +1793,8 @@ export function agentRunRow(results, { runUrl = null, verdict = null, reason = n
   for (const t of tests) if (t.scenario_num != null) perScenario.set(t.scenario_num, [...(perScenario.get(t.scenario_num) || []), t]);
   const perSituation = new Map();
   for (const t of tests) if (t.situation_num != null) perSituation.set(t.situation_num, [...(perSituation.get(t.situation_num) || []), t]);
+  const perCall = new Map();
+  for (const t of tests) if (t.call_num != null) perCall.set(t.call_num, [...(perCall.get(t.call_num) || []), t]);
   const all = tally(tests);
   const byNum = m => Object.fromEntries([...m.entries()].sort((a, b) => a[0] - b[0]).map(([num, list]) => [String(num), tally(list)]));
   return {
@@ -1807,6 +1822,7 @@ export function agentRunRow(results, { runUrl = null, verdict = null, reason = n
       runs: all.runs, passed: all.passed, pass_rate: all.pass_rate,
       by_scenario: byNum(perScenario),
       by_situation: byNum(perSituation),
+      by_call: byNum(perCall),
       ...(Object.keys(byCheck).length ? { by_check: byCheck } : {}),
       /* the model trial's three numbers, on every run from here on:
        * which model Otto was set to (settings), how fast he answered
@@ -1875,6 +1891,7 @@ async function publish(ctx, flags) {
   const rows = [
     `${Object.keys(row.summary.by_scenario).length} scenario(s)`,
     `${Object.keys(row.summary.by_situation).length} situation(s)`,
+    `${Object.keys(row.summary.by_call).length} call(s)`,
   ].join(', ');
   log(`published agent_runs ${id} (${rows}, ${row.label || 'no label'}${row.run_url ? ', ' + row.run_url : ''}) — dashboard.html shows it per row`);
   return 0;
@@ -1909,7 +1926,7 @@ const USAGE = `usage: node loop.mjs <command> [--dry-run] [--dir DIR] [flags]
   push-tests [--filter TEXT] [--no-mock-tools]
                                   test_configs/**.json -> ElevenLabs tests, by name; writes tests.lock.json;
                                   the agent's tools are mocked for the suite (a client tool has no phone to answer it)
-  run        [--branch ID|NAME] [--repeat N=3] [--filter TEXT] [--rows 6,8,10] [--label TEXT]   (a branch by its agtbrch_ id or its ElevenLabs name; --rows: only those situation rows)
+  run        [--branch ID|NAME] [--repeat N=3] [--filter TEXT] [--rows 6,8,10] [--label TEXT]   (a branch by its agtbrch_ id or its ElevenLabs name; --rows: only those situation or call rows)
   pull       [--since ISO | --days N=14] [--no-stamp]
   score      [--results FILE] [--field FILE]
   cut        [--field FILE]
@@ -1918,7 +1935,7 @@ const USAGE = `usage: node loop.mjs <command> [--dry-run] [--dir DIR] [flags]
   model-branch --model NAME [--reasoning keep|default|minimal|low|medium|high] [--temperature 0..1|none] [--backup keep|default|disabled] [--name TEXT] [--out FILE]
                                   a branch from the live version with only the LLM panel's knobs changed (the model, its
                                   reasoning effort, the temperature, the backup LLM), in ElevenLabs' words
-  compare    --base FILE --branch FILE [--margin 0.25]   (by situation: a drop is more than a quarter of its calls lost)
+  compare    --base FILE --branch FILE [--margin 0.25]   (by situation or call row: a drop is more than a quarter of its calls lost)
   promote    --branch ID|NAME [--target BRANCH_ID] [--force] [--quiet]
   publish    [--results FILE] [--run-url URL] [--verdict accept|reject] [--reason TEXT]
 

@@ -13,10 +13,10 @@ name: agent-suite
 #               test_configs/. A sheet edit or a generator change has to
 #               land together with the files it produces, otherwise the
 #               suite ElevenLabs runs is no longer what the phone sends.
-#               The situation tests are not committed and not diffed —
-#               they come from the dashboard's rows at run time — but
-#               the node tests build all eighty from the starter sheet
-#               and check their shape. The same job runs the tests of
+#               The situation and call tests are not committed and not
+#               diffed — they come from the dashboard's rows at run
+#               time — but the node tests build all of them from the
+#               starter sheets and check their shape. The same job runs the tests of
 #               otto-stream.js, the phone's player for the reading
 #               voice's streamed mp3 (test/ at the repo root).
 #
@@ -69,12 +69,15 @@ name: agent-suite
 #
 #               `suite` picks WHICH tests run: the SITUATIONS (the
 #               default — what a driver reports after pressing the big
-#               REPORT button, which is all the pilot has), the TRIGGERS
-#               (the scenario sheet, for when triggers come back), or
-#               all. The situation tests are generated from the live
-#               rows of the dashboard's SITUATIONS tab at the start of
-#               every run, so a row edited there is in the next press —
-#               they are not committed.
+#               REPORT button, which is all the pilot has), the CALLS
+#               (Otto ringing the customer or the driver from the back
+#               office — a home check for a fresh-food box, a late
+#               notice, a stop to skip), the TRIGGERS (the scenario
+#               sheet, for when triggers come back), or all. The
+#               situation and call tests are generated from the live
+#               rows of the dashboard's SITUATIONS and CALLS tabs at the
+#               start of every run, so a row edited there is in the next
+#               press — they are not committed.
 #
 #               Every run costs real simulated conversations, so a button
 #               only goes ahead when the repository carries the
@@ -130,6 +133,7 @@ on:
       - "otto-agent.js"
       - "trigger-scenarios.js"
       - "situations-starter.js"
+      - "calls-starter.js"
       - "route-kollwitz.js"
   pull_request:
     paths:
@@ -141,6 +145,7 @@ on:
       - "otto-agent.js"
       - "trigger-scenarios.js"
       - "situations-starter.js"
+      - "calls-starter.js"
       - "route-kollwitz.js"
   workflow_dispatch:
     inputs:
@@ -159,12 +164,13 @@ on:
           - models
           - settings
       suite:
-        description: "Which tests to run: the situations (what a driver reports — the pilot's suite), the trigger scenarios, or both"
+        description: "Which tests to run: the situations (what a driver reports — the pilot's suite), the calls (Otto rings the customer or the driver), the trigger scenarios, or all of them"
         type: choice
         required: true
         default: situations
         options:
           - situations
+          - calls
           - triggers
           - all
       repeat:
@@ -207,7 +213,7 @@ on:
           - default
           - disabled
       rows:
-        description: "models: which situation rows to run, by their # on the SITUATIONS tab (empty = every row). The default is a quick trial of seven — a dog, a gate code, a wrong pin, a dark stairwell, a normal delivery, a fire, a storm"
+        description: "models: which rows to run, by their # on the SITUATIONS tab — or on the CALLS tab when the suite is the calls (empty = every row). The default is a quick trial of seven situations — a dog, a gate code, a wrong pin, a dark stairwell, a normal delivery, a fire, a storm"
         type: string
         default: "6,8,10,13,24,25,28"
   schedule:
@@ -245,12 +251,13 @@ jobs:
       # The committed test files are the generator's output for the
       # starter sheet; regenerate into a scratch directory and diff. The
       # generator never touches regressions/ (those are cut from field
-      # debriefs by loop.mjs) and situations/ is generated from the live
-      # rows at run time and gitignored, so both are left out of the diff.
+      # debriefs by loop.mjs), and situations/ and calls/ are generated
+      # from the live rows at run time and gitignored, so all three are
+      # left out of the diff.
       - name: Generated tests match the generator
         run: |
           node generate-tests.mjs --sheet --out "$RUNNER_TEMP/gen"
-          if ! diff -r --exclude=regressions --exclude=situations "$RUNNER_TEMP/gen" test_configs; then
+          if ! diff -r --exclude=regressions --exclude=situations --exclude=calls "$RUNNER_TEMP/gen" test_configs; then
             echo "::error::elevenlabs/test_configs/ no longer matches what generate-tests.mjs produces from the starter sheet — run 'node generate-tests.mjs' in elevenlabs/ and commit the result"
             exit 1
           fi
@@ -315,7 +322,8 @@ jobs:
       # green. The suite becomes the run's --filter unless the form gave
       # one: the two suites live in one workspace and are told apart by
       # the names the generator gives them ("Otto · situation #3 …",
-      # "Otto · #3 …"), so a filter is all it takes to run one of them.
+      # "Otto · call #3 …", "Otto · #3 …"), so a filter is all it takes
+      # to run one of them.
       - name: Plan the run
         id: plan
         run: |
@@ -327,9 +335,10 @@ jobs:
           if [ -z "$filter" ]; then
             case "$SUITE" in
               situations) filter="Otto · situation" ;;
+              calls)      filter="Otto · call" ;;
               triggers)   filter="Otto · #" ;;
               all)        filter="" ;;
-              *) echo "::error::suite must be situations, triggers or all, got '$SUITE'"; exit 1 ;;
+              *) echo "::error::suite must be situations, calls, triggers or all, got '$SUITE'"; exit 1 ;;
             esac
           fi
           echo "FILTER=$filter" >> "$GITHUB_ENV"
@@ -379,6 +388,13 @@ jobs:
       - name: Generate the situation tests from the live rows
         if: steps.plan.outputs.go == 'true' && steps.plan.outputs.action != 'configure' && steps.plan.outputs.action != 'settings'
         run: node generate-tests.mjs --situations
+
+      # The calls the same way: the CALLS tab's rows, generated here on
+      # every press, never committed (test_configs/calls/ is gitignored),
+      # calls-starter.js standing in for a project without the table.
+      - name: Generate the call tests from the live rows
+        if: steps.plan.outputs.go == 'true' && steps.plan.outputs.action != 'configure' && steps.plan.outputs.action != 'settings'
+        run: node generate-tests.mjs --calls
 
       # ---------- settings ----------
       # Free, and quick: one GET of the agent, the LLM panel's knobs
