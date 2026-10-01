@@ -4,12 +4,13 @@ One loop: **pin a real address on a live map → walk over → tell Otto what
 you found.** Otto transcribes and structures the voice message, files it
 against the destination, and the pin flips to reported.
 
-For the **first pilot** there is no trigger at all: the phone's main
-element is one big **REPORT** button. The driver presses it after a
-stop, says what they found — the road was closed, a dog at the door,
-the bell does nothing — and Otto asks up to three questions that fit
-*that* report and confirms the tip in one line. What makes or breaks
-that is the agent's prompt, so it gets a suite of its own: [the
+For the **first pilot** there is no trigger at all: the phone's home
+screen is **Otto himself**, and pressing him is the report. The driver
+presses Otto after a stop, says what they found — the road was closed,
+a dog at the door, the bell does nothing — and Otto asks up to three
+questions that fit *that* report and confirms the tip in one line.
+What makes or breaks that is the agent's prompt, so it gets a suite of
+its own: [the
 situations](#the-situations--what-a-driver-reports-and-what-otto-asks-back).
 
 On top of that loop sits a second surface,
@@ -511,7 +512,7 @@ whatever the rates, and a step fails only when the loop itself does.
 
 A trigger scenario asks *when* Otto should speak. A **situation** asks
 what he should say once the driver has spoken. In the pilot the driver
-presses **REPORT** on the phone and reports in their own words, and the
+presses **Otto** on the phone and reports in their own words, and the
 whole of Otto's usefulness is whether the follow-up fits: "the road is
 closed" wants *how long, is there a way round*; "there was a big dog at
 the door" wants *was anyone with it, where can the next driver leave the
@@ -817,9 +818,9 @@ works whether or not the agent's prompt was written for this app:
    as the conversation opens, so an agent whose prompt names none of
    those variables still knows which test just fired.
 3. **The first message** — the sheet's "Otto says" column, verbatim,
-   on a *trigger* debrief. A **REPORT** press sends no first message at
-   all: the driver pressed a button, not a trigger, so Otto opens in
-   his own words, out of your prompt. Either way nothing else is
+   on a *trigger* debrief. A press on **Otto** (a report) sends no first
+   message at all: the driver pressed Otto, not a trigger, so he opens
+   in his own words, out of your prompt. Either way nothing else is
    overridden — your prompt, voice, tools and knowledge base are left
    exactly as you built them (plus the language when the card's 🇮🇹 is
    picked). The override needs "first message" enabled under the
@@ -1083,8 +1084,8 @@ door, the way a courier works through parcels at a single bell. The
 same link that loaded the route removes it again — all stops, their
 notes and their debriefs at once.
 
-One phone is also two demos: with a route loaded, the phone's HUD
-grows a **ROUTE chip** ("ROUTE · 100 STOPS" / "ROUTE OFF") that hides
+One phone is also two demos: with a route loaded, the phone's map
+screen grows a **ROUTE chip** ("ROUTE · 100 STOPS" / "ROUTE OFF") that hides
 or shows the route's stops **on this device only** — pins, approach
 readings and taps alike, while scenario pins stay put. Flip it off
 for a clean trigger-scenario test, back on for the route demo; the
@@ -1168,12 +1169,12 @@ The rules around it:
   the card waits, up to forty seconds, for STILL. If the driver never
   stops, there is no card — and the throw is not spent, so the next
   report at that stop still gets it.
-- **Off in one tap.** The ⚙ chip opens the phone's settings: the
-  driver's **first name** (on the scoreboard; "someone" until typed),
-  the game's **switch** (on by default), the **voice switch** (on:
-  three stops; off: the flick), **how fast Otto counts** (slow,
-  normal, fast), and a **practice throw** that is not counted, so
-  anyone can see the game without filing a report.
+- **Off in one tap.** The ⚙ in the header of Otto's screen opens the
+  phone's settings: the driver's **first name** (on the scoreboard;
+  "someone" until typed), the game's **switch** (on by default), the
+  **voice switch** (on: three stops; off: the flick), **how fast Otto
+  counts** (slow, normal, fast), and a **practice throw** that is not
+  counted, so anyone can see the game without filing a report.
 
 Every counted throw is one row in the `dart_throws` table — the stop,
 the visit, the player, the score, where the dart landed — with the same
@@ -1290,13 +1291,37 @@ keeps a seam open for the real one:
 
 ## On your phone
 
-The main element is the big **REPORT** button at the bottom of the map.
-A press opens Otto for the nearest stop within 150 m of a fresh fix —
-the open card's stop when there is no fresh fix, and no stop at all when
-neither applies, which is a valid report ("on the road"). Otto opens in
-his own words, the driver says what they found, and the debrief is filed
-against that stop the way any other is. The test-tracking path from a
-scenario card is untouched for anyone still acting out triggers.
+The home screen is Otto's own — the design calls it **Companion**: a
+header, Otto in the middle, one line that says what to do, and a tally
+at the bottom.
+
+- **Otto is the report button.** A press opens him for the nearest stop
+  within 150 m of a fresh fix, and for no stop at all when there is
+  none, which is a valid report ("on the road"). Otto opens in his own
+  words, the driver says what they found, and the debrief is filed
+  against that stop the way any other is. He wears his own blue (the
+  voice widget's), not the coral of the design, so the face a driver
+  presses is the face that answers on the next screen.
+- **The tally** under him — "3 reports filed · tap for details" —
+  counts the debriefs *this phone* filed and lists them on a tap: when,
+  Otto's category and title, the stop. Per phone, like the settings;
+  the dashboard still holds everyone's.
+- **The header**, left to right: **←** to the tests dashboard, the
+  **map**, the **flag** (🇬🇧/🇮🇹 — the debrief language, tap to
+  switch; the scenario card's picker is the same setting), and **⚙**
+  settings.
+- **The map** is the tester's screen: the pins, the GPS and backend
+  chips, ↻ reload, activity recognition, the ROUTE switch, the build
+  chip, the cards with their test tracking and "Report to Otto" — all
+  exactly as before, one tap behind the map icon; **← OTTO** in its HUD
+  comes back. Anything that opens a card lands on the map, because the
+  card is the map's; coming home closes it, so a press on Otto is never
+  filed against a card the driver cannot see.
+
+The test-tracking path from a scenario card is untouched for anyone
+still acting out triggers; a fired trigger opens Otto over either
+screen, and the pre-arrival readings and the verdict bar show over
+either too.
 
 GPS and the microphone both require **https** (or localhost). There is
 no build step, so any static host serves the repo as-is.
@@ -1498,8 +1523,8 @@ The composition happens entirely through the kits' public seams:
 
 | File | Purpose |
 |---|---|
-| `index.html` | Phone shell: the REPORT button, map, HUD, card, Otto screen (pins come from the dashboard) |
-| `app.js` | Destinations, messages, the card (incl. the Delivered tap on route stops), the REPORT flow, Otto wiring, the ⚙ settings sheet — and the calls Otto makes: TAKE A CALL on the sheet, the ring, Answer / Decline, the chain to the next call |
+| `index.html` | Phone shell: Otto's screen (the Companion — Otto as the report button, the tally, the header), the map screen with its HUD, card and controls, the settings and reports sheets, the conversation screen, the incoming-call screen (pins come from the dashboard) |
+| `app.js` | Destinations, messages, the card (incl. the Delivered tap on route stops), the report flow (pressing Otto), the two screens, the per-phone report tally, Otto wiring, the ⚙ settings sheet — and the calls Otto makes: TAKE A CALL on the sheet, the ring, Answer / Decline, the chain to the next call |
 | `darts.js/.css` | The dart game after a report: the card, the flick, the rings, one throw per stop, only while still, the depot's best today |
 | `otto-agent.js` | Otto as a live ElevenLabs agent conversation — the kit's mount seams over a WebSocket, with the scenario as its context |
 | `otto-stream.js` | The reading voice's player: an ElevenLabs mp3 played from its first chunk while the rest is still being made (Media Source Extensions), whole where the browser cannot stream mp3 — `test/` holds its node tests, run by `agent-suite.yml` |

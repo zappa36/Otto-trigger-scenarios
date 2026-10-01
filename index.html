@@ -3,13 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Destination debrief</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='%23ff6b6b'/%3E%3C/svg%3E">
+<title>Companion</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='%237c8cff'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="field-map.css">
 <link rel="stylesheet" href="voice-note.css">
 <link rel="stylesheet" href="darts.css">
 <style>
-  :root { color-scheme: dark; }
+  :root {
+    color-scheme: dark;
+    /* the Companion screen's palette: the navy of the design, white
+       for what matters, one muted tone for the quiet lines. Otto wears
+       his own blue (the voice widget's, voice-note.css) on top of it. */
+    --bg: #0f1e38;
+    --bg-deep: #0b1628;
+    --ink: #ffffff;
+    --dim: #8b96ab;
+  }
   * { box-sizing: border-box; }
   body {
     margin: 0;
@@ -17,7 +26,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #05080e;
+    background: #060d1a;
     font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
     color: #eef2f7;
   }
@@ -30,19 +39,22 @@
     height: 100dvh;
     max-height: 852px;
     overflow: hidden;
-    background: #0e1b17;
+    background: var(--bg);
   }
   @media (min-width: 460px) and (min-height: 700px) {
     .phone { border-radius: 42px; box-shadow: 0 40px 90px rgba(0,0,0,.6), 0 0 0 1px rgba(140,165,200,.14); }
   }
 
   /* inset:0, and the kit's recenter button sits under the zoom pair (which
-     starts at 161px) so the three controls read as one column. Both were
-     ~50px lower until the REPORT button claimed the bottom of the screen;
-     they now start above its top edge (~87px) instead of beside it. */
-  #map { position: absolute; inset: 0; --fm-ctl-right: 14px; --fm-ctl-bottom: 110px; }
+     starts at 71px) so the three controls read as one column, back at the
+     bottom right: the map has its whole screen again now that a report
+     starts on Otto's own screen rather than on a button over the map. */
+  #map { position: absolute; inset: 0; --fm-ctl-right: 14px; --fm-ctl-bottom: 20px; }
 
-  /* ---------- HUD ---------- */
+  /* ---------- HUD (the map screen) ----------
+     the tester's instruments over the map: where the phone is, the
+     map backend, reload, activity recognition, the route switch, the
+     build. The ← chip leads back to Otto's screen. */
   .hud {
     position: absolute;
     left: 0; right: 0; top: 0;
@@ -107,7 +119,7 @@
   #trigger-banner {
     position: absolute;
     left: 12px; right: 12px; top: 100px;
-    z-index: 12;
+    z-index: 13;
     display: flex;
     align-items: center;
     gap: 11px;
@@ -148,11 +160,12 @@
   /* the notes banner — Otto is reading the destination's notes aloud;
      this is the visual record of what was said. Same slot as the
      trigger banner (a fired trigger hides it — the question outranks
-     the briefing). */
+     the briefing). On Otto's screen it sits over his head, like the
+     words are his; on the map, under the HUD. */
   #notes-banner {
     position: absolute;
     left: 12px; right: 12px; top: 100px;
-    z-index: 11;
+    z-index: 12;
     display: flex;
     align-items: center;
     gap: 11px;
@@ -191,7 +204,7 @@
   #verdict-banner {
     position: absolute;
     left: 12px; right: 12px; top: 100px;
-    z-index: 12;
+    z-index: 13;
     padding: 12px 14px;
     border-radius: 14px;
     border: 1px solid rgba(95,224,176,.5);
@@ -235,7 +248,7 @@
   /* ---------- map zoom controls (live Google map only) ---------- */
   #map-zoom {
     position: absolute;
-    right: 14px; bottom: 161px;
+    right: 14px; bottom: 71px;
     z-index: 8;
     display: flex;
     flex-direction: column;
@@ -255,18 +268,16 @@
   }
 
   /* ---------- destination card ----------
-     bottom clears the REPORT button rather than covering it: the button
-     is the one thing on this screen that must never be hidden, and a
-     card that sat on top of it would hide it exactly when a driver has
-     something to report. */
+     a sheet at the bottom of the map screen; the map's controls sit
+     under it while it is open, as they always did */
   #card {
     position: absolute;
-    left: 12px; right: 12px; bottom: 97px;
-    z-index: 12;
-    /* lifted that far, a long card on a short phone would run off the
-       top of the screen, where it used to be merely clipped — bounded
-       and scrollable instead, so its head stays reachable */
-    max-height: calc(100dvh - 190px);
+    left: 12px; right: 12px; bottom: 16px;
+    z-index: 13;
+    /* a long card on a short phone would run off the top of the screen,
+       where it used to be merely clipped — bounded and scrollable
+       instead, so its head stays reachable under the HUD */
+    max-height: calc(100% - 120px);
     overflow-y: auto;
     padding: 15px 16px;
     border-radius: 18px;
@@ -477,14 +488,16 @@
   .card-link { background: none; border: none; padding: 0; font-size: 11.5px; color: #8b97a8; cursor: pointer; }
 
   /* ---------- settings (this phone) ----------
-     the same slot as the destination card: the first name for the dart
-     scoreboard, the game's own switch, and a practice throw */
-  #settings {
+     a sheet over Otto's screen, behind the ⚙ in its header: the first
+     name for the dart scoreboard, the game's own switch, and a
+     practice throw. The reports sheet — the tally's details — shares
+     the slot and the look. */
+  #settings, #reports {
     position: absolute;
-    left: 12px; right: 12px; bottom: 97px;
-    z-index: 12;
+    left: 12px; right: 12px; bottom: 16px;
+    z-index: 13;
     /* the sheet has grown: bounded and scrollable on a short phone, like the card */
-    max-height: calc(100dvh - 190px);
+    max-height: calc(100% - 100px);
     overflow-y: auto;
     padding: 15px 16px;
     border-radius: 18px;
@@ -492,7 +505,7 @@
     border: 1px solid rgba(140,165,200,.2);
     backdrop-filter: blur(8px);
   }
-  #settings[hidden] { display: none; }
+  #settings[hidden], #reports[hidden] { display: none; }
   .st-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
   .st-title {
     font-family: ui-monospace, 'SF Mono', Menlo, monospace;
@@ -501,7 +514,7 @@
     font-weight: 400;
     color: #7fd6ea;
   }
-  #st-close {
+  #st-close, #reports-close {
     width: 30px; height: 30px;
     border-radius: 50%;
     border: 1px solid rgba(140,165,200,.3);
@@ -606,44 +619,212 @@
   #hint b { display: block; font-size: 15px; margin-bottom: 5px; }
   #hint span { font-size: 12.5px; color: #94a1b2; }
 
-  /* ---------- the REPORT button ----------
-     The pilot runs without triggers: the driver presses this and tells
-     Otto what they found, so it IS the app on the map screen — the
-     largest thing on it, thumb-height at the bottom, always there. It
-     sits above the card (z-index) and the card sits above it (bottom),
-     so neither ever hides the other; only the Otto screen (z-index 14)
-     covers it, which is where the tap leads anyway. */
-  #report {
+  /* ---------- Otto's screen — the Companion, home ----------
+     What the design calls Companion: a header, Otto in the middle, one
+     line that says what to do, and the tally of reports at the bottom.
+     Otto IS the report button — pressing him is what the big REPORT
+     button over the map used to be. The map, with every tester
+     instrument on it, is one tap away behind the map icon; the sheets
+     (settings, reports) sit over this screen, and the conversation
+     screen (z 14) covers it while Otto is on the line. */
+  #home {
     position: absolute;
-    left: 50%; bottom: 20px;
-    transform: translateX(-50%);
-    z-index: 13;
-    width: min(320px, calc(100% - 44px));
+    inset: 0;
+    z-index: 11;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+  }
+  #home[hidden] { display: none; }
+  .top {
+    flex: none;
     display: flex;
     align-items: center;
+    gap: 2px;
+    padding: calc(10px + env(safe-area-inset-top, 0px)) 10px 6px;
+  }
+  .top h1 {
+    flex: 1;
+    min-width: 0;
+    margin: 0 0 0 12px;
+    font-size: 27px;
+    font-weight: 400;
+    line-height: 1.2;
+    letter-spacing: .01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* the header's taps: an icon each, no chrome, a 44px target */
+  .icon-btn {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
     justify-content: center;
-    gap: 14px;
-    padding: 14px 20px;
-    border-radius: 22px;
-    border: 1px solid rgba(154,168,255,.7);
-    background: linear-gradient(180deg, #6f81ff, #3d4ecd);
-    box-shadow: 0 16px 34px rgba(16,24,80,.5), 0 0 0 6px rgba(124,140,255,.12);
-    color: #fff;
+    width: 44px; height: 44px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--ink);
+    font: inherit;
+    font-size: 22px;
+    line-height: 1;
+    text-decoration: none;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
   }
-  #report[hidden] { display: none; }
-  #report:active { transform: translateX(-50%) scale(.97); }
-  #report svg { flex: none; }
-  .rp-labels { text-align: left; }
-  .rp-labels b {
-    display: block;
-    font-size: 21px;
-    font-weight: 700;
-    letter-spacing: .17em;
-    line-height: 1.15;
+  .icon-btn:active { background: rgba(255,255,255,.1); }
+  .icon-btn svg { width: 26px; height: 26px; display: block; fill: currentColor; }
+  .home-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0 16px;
+    overflow: hidden;
   }
-  .rp-labels small { display: block; font-size: 11.5px; color: rgba(255,255,255,.82); }
+
+  /* Otto himself — the voice widget's blob (voice-note.css), grown to
+     fill a hand: the same off-round shape, the same slow morph, float
+     and blink, in Otto's own blue rather than the coral of the design,
+     so the face a driver presses is the face that answers on the next
+     screen. The whole thing is one button. */
+  #report {
+    position: relative;
+    flex: none;
+    width: 250px; height: 232px;
+    margin-top: clamp(16px, 6vh, 56px);
+    padding: 0;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  .otto-blob {
+    position: absolute;
+    inset: 0;
+    border-radius: 42% 58% 56% 44% / 48% 42% 58% 52%;
+    background: linear-gradient(140deg, #aab6ff, #7c8cff 38%, #3cc0e0 80%, #0498ba);
+    box-shadow: 0 28px 64px rgba(68,88,216,.42), inset 0 10px 28px rgba(255,255,255,.32);
+    animation: otto-morph 8s ease-in-out infinite, otto-float 5.2s ease-in-out infinite;
+    transition: transform .12s ease;
+  }
+  .otto-sheen {
+    position: absolute;
+    inset: 14px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 36% 28%, rgba(255,255,255,.5), transparent 56%);
+    opacity: .75;
+    animation: otto-morph 8s ease-in-out infinite reverse, otto-float 5.2s ease-in-out infinite;
+    transition: transform .12s ease;
+    pointer-events: none;
+  }
+  .otto-face {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: otto-float 5.2s ease-in-out infinite;
+    transition: transform .12s ease;
+    pointer-events: none;
+  }
+  .otto-eyes { display: flex; align-items: center; gap: 22px; }
+  .otto-eye {
+    position: relative;
+    display: block;
+    width: 28px; height: 38px;
+    border-radius: 50%;
+    background: #fff;
+    animation: otto-blink 3.6s ease-in-out infinite;
+    transform-origin: center;
+  }
+  .otto-eye i {
+    position: absolute;
+    left: 6px; top: 8px;
+    width: 11px; height: 11px;
+    border-radius: 50%;
+    background: var(--bg);
+  }
+  /* the press, felt: the whole face dips under the thumb */
+  #report:active .otto-blob, #report:active .otto-sheen, #report:active .otto-face { transform: scale(.95); }
+
+  #home-hint {
+    margin: auto 0;
+    padding: 12px 0;
+    text-align: center;
+    font-size: 22px;
+    line-height: 1.35;
+    color: var(--dim);
+    text-wrap: pretty;
+  }
+
+  /* the tally: how many reports this phone has filed; a tap lists them */
+  .tally {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    margin: 0 0 calc(24px + env(safe-area-inset-bottom, 0px));
+    padding: 8px 28px 10px;
+    border: none;
+    border-radius: 24px;
+    background: transparent;
+    color: var(--ink);
+    font: inherit;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .tally:active { background: rgba(255,255,255,.06); }
+  .tally b { font-size: 92px; font-weight: 700; line-height: 1; letter-spacing: -.02em; }
+  .tally span { font-size: 19px; color: var(--dim); }
+
+  @keyframes otto-blink { 0%, 92%, 100% { transform: scaleY(1) } 96% { transform: scaleY(.1) } }
+  @keyframes otto-float { 0%, 100% { translate: 0 0 } 50% { translate: 0 -7px } }
+  @keyframes otto-morph {
+    0%, 100% { border-radius: 42% 58% 56% 44% / 48% 42% 58% 52% }
+    33% { border-radius: 56% 44% 42% 58% / 56% 58% 42% 44% }
+    66% { border-radius: 46% 54% 62% 38% / 42% 56% 44% 58% }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .otto-blob, .otto-sheen, .otto-face, .otto-eye { animation: none !important; }
+  }
+  /* a narrow phone: the header's five taps and the title still fit on one line */
+  @media (max-width: 380px) {
+    .icon-btn { width: 40px; height: 40px; }
+    .top h1 { font-size: 23px; margin-left: 8px; }
+  }
+  /* a short phone: Otto and the number give way before the words do */
+  @media (max-height: 640px) {
+    #report { width: 200px; height: 186px; margin-top: 8px; }
+    .otto-sheen { inset: 10px; }
+    .otto-eyes { gap: 16px; }
+    .otto-eye { width: 22px; height: 30px; }
+    .otto-eye i { left: 5px; top: 6px; width: 9px; height: 9px; }
+    .tally b { font-size: 68px; }
+    .tally span { font-size: 16px; }
+  }
+
+  /* ---------- the reports sheet ----------
+     the tally's details: one row per report this phone filed, newest
+     first — when, Otto's category, the title he gave it, the stop */
+  #reports-list { margin-top: 4px; }
+  .rp-row { padding: 10px 0; border-top: 1px solid rgba(140,165,200,.14); }
+  .rp-when {
+    display: block;
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 9.5px;
+    letter-spacing: .12em;
+    color: #7fd6ea;
+    margin-bottom: 3px;
+  }
+  .rp-text { display: block; font-size: 14px; line-height: 1.4; }
+  .rp-stop { display: block; margin-top: 2px; font-size: 11.5px; color: #94a1b2; }
+  #reports-empty[hidden] { display: none; }
 
   /* ---------- Otto screen ---------- */
   #otto-screen {
@@ -652,7 +833,7 @@
     z-index: 14;
     display: flex;
     flex-direction: column;
-    background: radial-gradient(130% 60% at 50% 0%, #101a2c 0%, #0a121d 55%, #070c14 100%);
+    background: radial-gradient(130% 60% at 50% 0%, #17294a 0%, var(--bg) 55%, var(--bg-deep) 100%);
   }
   #otto-screen[hidden] { display: none; }
   .otto-top {
@@ -661,17 +842,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    padding: 18px 16px 6px;
-  }
-  #otto-back {
-    flex: none;
-    width: 36px; height: 36px;
-    border-radius: 50%;
-    border: 1px solid rgba(140,165,200,.25);
-    background: rgba(255,255,255,.05);
-    color: #aeb9c8;
-    font-size: 17px;
-    cursor: pointer;
+    padding: calc(10px + env(safe-area-inset-top, 0px)) 16px 6px 10px;
   }
   #otto-dest {
     flex: 1;
@@ -698,7 +869,7 @@
     align-items: center;
     justify-content: center;
     padding: 24px;
-    background: radial-gradient(130% 60% at 50% 0%, #0f2a1f 0%, #0a121d 55%, #070c14 100%);
+    background: radial-gradient(130% 60% at 50% 0%, #12382b 0%, var(--bg) 55%, var(--bg-deep) 100%);
   }
   #ring-screen[hidden] { display: none; }
   .ring-card {
@@ -748,8 +919,17 @@
   .ring-btns button:active { transform: scale(.97); }
   #ring-answer { background: linear-gradient(180deg, #46d39a, #1f9b69); color: #06130d; border-color: rgba(70,211,154,.6); }
   #ring-decline { background: rgba(255,107,107,.12); color: #ff9b9b; border-color: rgba(255,107,107,.4); }
-  /* the countdown chip in the HUD while Otto has not rung yet */
-  #ring-wait { color: #7ce0b8; border-color: rgba(70,211,154,.5); background: rgba(70,211,154,.1); cursor: pointer; }
+  /* the countdown chip while Otto has not rung yet — over either
+     screen, in the banners' slot: under the map's HUD, over Otto's head
+     on his own screen (the call is armed from the ⚙ sheet there) */
+  #ring-wait {
+    position: absolute;
+    left: 50%; top: 100px;
+    transform: translateX(-50%);
+    z-index: 12;
+    max-width: calc(100% - 24px);
+    color: #7ce0b8; border-color: rgba(70,211,154,.5); background: rgba(70,211,154,.1); cursor: pointer;
+  }
   #ring-wait[hidden] { display: none; }
 
   /* the TAKE A CALL section of the ⚙ sheet: one button per call */
@@ -778,18 +958,17 @@
   <div id="map"></div>
 
   <div class="hud">
+    <span class="chip" id="map-back" title="Back to Otto" role="button">← OTTO</span>
     <span class="chip" id="gps">LOCATION OFF · TAP TO LOCATE</span>
-    <a class="chip plain" id="dash-link" href="dashboard.html" title="Trigger-scenarios dashboard">TESTS</a>
     <span class="chip" id="reload" title="Reload scenarios and pins from the dashboard" role="button">↻</span>
-    <span class="chip" id="settings-chip" title="Settings — your name and the dart game" role="button">⚙</span>
     <span class="chip plain" id="backend">GRID</span>
   </div>
   <div class="hud2">
     <span class="chip off" id="ar" title="Activity recognition — tap to start/stop">AR OFF · TAP TO TRACK</span>
     <span class="chip" id="route" hidden title="The delivery route's stops — tap to hide or show them on this phone">ROUTE</span>
     <span class="chip plain" id="build" title="Build version"></span>
-    <span class="chip" id="ring-wait" hidden role="button" title="Otto will ring — tap to cancel"></span>
   </div>
+  <span class="chip" id="ring-wait" hidden role="button" title="Otto will ring — tap to cancel"></span>
 
   <div id="trigger-banner" hidden>
     <div id="tb-body">
@@ -823,7 +1002,7 @@
 
   <div id="hint" hidden>
     <b>No test scenarios yet</b>
-    <span>Scenarios are defined on the dashboard (<b style="display:inline;color:#94a1b2;">TESTS</b> above) — their pins land here for you to act out.</span>
+    <span>Scenarios are defined on the dashboard (the <b style="display:inline;color:#94a1b2;">←</b> on Otto's screen leads there) — their pins land here for you to act out.</span>
   </div>
 
   <div id="map-zoom" hidden>
@@ -922,17 +1101,51 @@
     <button id="st-rules" type="button" class="st-btn">🔊 Hear the rules</button>
   </div>
 
-  <button id="report" type="button" aria-label="Report — tell Otto what you found">
-    <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Z"/><path d="M19 11a1 1 0 1 0-2 0 5 5 0 0 1-10 0 1 1 0 1 0-2 0 7 7 0 0 0 6 6.93V21a1 1 0 1 0 2 0v-3.07A7 7 0 0 0 19 11Z"/></svg>
-    <span class="rp-labels">
-      <b>REPORT</b>
-      <small>tell Otto what you found</small>
-    </span>
-  </button>
+  <!-- Otto's screen: home. Otto is the report button; the header's four
+       taps are the tests dashboard (←), the map, the debrief language
+       and the settings; the tally at the bottom opens the reports sheet. -->
+  <section id="home">
+    <header class="top">
+      <a id="home-back" class="icon-btn" href="dashboard.html" title="The tests dashboard" aria-label="Back to the tests dashboard">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+      </a>
+      <h1>Companion</h1>
+      <button id="open-map" class="icon-btn" type="button" title="The map — pins, GPS, test tracking" aria-label="Map">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM10 5.47l4 1.4v11.66l-4-1.4V5.47zm-5 .99l3-1.01v11.7l-3 1.16V6.46zm14 11.08l-3 1.01V6.86l3-1.16v11.84z"/></svg>
+      </button>
+      <button id="lang-flag" class="icon-btn" type="button" title="Debrief language — tap to switch" aria-label="Debrief language">🇬🇧</button>
+      <button id="settings-chip" class="icon-btn" type="button" title="Settings — your name and the dart game" aria-label="Settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.43 12.98c.04-.32.07-.64.07-.98 0-.34-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.09-.16-.26-.25-.44-.25-.06 0-.12.01-.17.03l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.06-.02-.12-.03-.18-.03-.17 0-.34.09-.43.25l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98 0 .33.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.09.16.26.25.44.25.06 0 .12-.01.17-.03l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.06.02.12.03.18.03.17 0 .34-.09.43-.25l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zm-1.98-1.71c.04.31.05.52.05.73 0 .21-.02.43-.05.73l-.14 1.13.89.7 1.08.84-.7 1.21-1.27-.51-1.04-.42-.9.68c-.43.32-.84.56-1.25.73l-1.06.43-.16 1.13-.2 1.35h-1.4l-.19-1.35-.16-1.13-1.06-.43c-.43-.18-.83-.41-1.23-.71l-.91-.7-1.06.43-1.27.51-.7-1.21 1.08-.84.89-.7-.14-1.13c-.03-.31-.05-.54-.05-.74s.02-.43.05-.73l.14-1.13-.89-.7-1.08-.84.7-1.21 1.27.51 1.04.42.9-.68c.43-.32.84-.56 1.25-.73l1.06-.43.16-1.13.2-1.35h1.39l.19 1.35.16 1.13 1.06.43c.43.18.83.41 1.23.71l.91.7 1.06-.43 1.27-.51.7 1.21-1.07.85-.89.7.14 1.13zM12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm0 6c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>
+      </button>
+    </header>
+    <div class="home-body">
+      <button id="report" type="button" aria-label="Report — tell Otto what you found">
+        <span class="otto-blob"></span>
+        <span class="otto-sheen"></span>
+        <span class="otto-face"><span class="otto-eyes"><span class="otto-eye"><i></i></span><span class="otto-eye"><i></i></span></span></span>
+      </button>
+      <p id="home-hint">Press Otto to report something…</p>
+      <button id="reports-tally" class="tally" type="button" title="The reports filed from this phone — tap for the list">
+        <b id="reports-count">0</b>
+        <span id="reports-label">reports filed · tap for details</span>
+      </button>
+    </div>
+  </section>
+
+  <div id="reports" hidden>
+    <div class="st-head">
+      <b class="st-title">REPORTS FILED · THIS PHONE</b>
+      <button id="reports-close" type="button" aria-label="Close">×</button>
+    </div>
+    <div id="reports-list"></div>
+    <p id="reports-empty" class="st-foot" hidden>No reports yet. Press Otto and say what you found — it lands here.</p>
+  </div>
 
   <section id="otto-screen" hidden>
     <div class="otto-top">
-      <button id="otto-back" type="button" aria-label="Back to the map">←</button>
+      <button id="otto-back" class="icon-btn" type="button" aria-label="Back">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+      </button>
       <span id="otto-dest"></span>
     </div>
     <div id="otto"></div>
