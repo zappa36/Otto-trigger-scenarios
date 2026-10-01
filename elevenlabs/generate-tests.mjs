@@ -631,7 +631,7 @@ function callScenario({ row, d, persona }) {
  * an outbound call that does not say who is calling and why is the
  * whole failure — and the close last, because what was agreed is
  * what the office acts on. */
-function callConditions({ row, d, persona }) {
+function callConditions({ row, d, persona, notes = '' }) {
   const callee = callOf(row).callee;
   const who = calleeWord(row);
   const name = d.consignee ? surnameOf(d.consignee) : 'the customer';
@@ -644,7 +644,7 @@ function callConditions({ row, d, persona }) {
   c.push(`RELEVANCE — Otto's questions establish what this call is for: ${must.join('; ')}. A question about something else (for example ${offTopic.join(', ')}), or a generic question that could be asked on any call (“anything else?”, “how are things?”), fails.`);
   c.push(`NO REPETITION — Otto never asks ${who} for something they have already said in this conversation; every question adds something they have not given yet. Asking again for a detail that was already in their own words — reworded, or as a check — fails.`);
   c.push(`NATURAL — Otto sounds like a person from the office on the phone: a short, natural acknowledgement of what ${who} just said before the next question, plain spoken language, one thing at a time, polite without being stiff. Reading from a script, form-filling phrasing (“please confirm the following”), lecturing ${who} about the rules, or reading the whole call back in the middle of the conversation fails. A word in square brackets such as [happy] or [neutral] is a direction to the voice, not something said: leave it out of the judgement.`);
-  c.push(`NO INVENTION — Otto states no fact that ${who} did not say and the office did not already know. What the office knows: ${purpose}${previous ? ` What the office learned before this call: ${noStop(previous)}.` : ''} Telling ${who} something from that is fine, and so is what follows from it and what ${who} said (the customer is home from six and the window ends at seven, so “between six and seven” is a conclusion, not an invention); the delivery's own address and the customer's name are known to the office too. An invented time, name, reason or address is not fine, and neither is a promise nobody made — a guaranteed minute, a priority, something the driver will do that is in no brief. Asking about something is fine; asserting it is not.`);
+  c.push(`NO INVENTION — Otto states no fact that ${who} did not say and the office did not already know. What the office knows: ${purpose}${previous ? ` What the office learned before this call: ${noStop(previous)}.` : ''}${notes ? ` Notes on file for this address, which the office knows too: ${noStop(notes)}.` : ''} Telling ${who} something from that is fine, and so is what follows from it and what ${who} said (the customer is home from six and the window ends at seven, so “between six and seven” is a conclusion, not an invention); the delivery's own address and the customer's name are known to the office too. An invented time, name, reason or address is not fine, and neither is a promise nobody made — a guaranteed minute, a priority, something the driver will do that is in no brief. Asking about something is fine; asserting it is not.`);
   const nothingAgreed = endsWithNothingAgreed(row);
   c.push(nothingAgreed
     ? `LENGTH — once ${who} has answered, Otto asks at most one more question, then ends the call. Two or more further questions fails.`
@@ -683,7 +683,8 @@ export function buildCallTest({ row: raw, persona, stops, index = 0 }) {
     simulation_scenario: callScenario({ row, d, persona }),
     simulation_max_turns: callTurns(persona),
     ...SIMULATION_MODELS,
-    success_conditions: callConditions({ row, d, persona }),
+    /* the notes on file go to the judge as well as to the agent (destination_notes): a note read out is not an invention */
+    success_conditions: callConditions({ row, d, persona, notes: v.destination_notes }),
     _otto: {
       kind: 'call',
       call_num: num,
