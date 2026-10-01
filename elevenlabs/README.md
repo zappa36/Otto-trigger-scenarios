@@ -347,6 +347,14 @@ where they are edited from then on. Each row carries:
 | `next_call` | the `num` of the call that follows on the phone; the suite tests each row on its own |
 | `active` | false = kept on the tab, left out of the suite and off the phone's list |
 
+The texts may leave the stop's words to the stop: `{address}`
+(`Kollwitzstraße 71`), `{customer}` (`Fischer`), `{name}` (`R.
+Fischer`), `{floor}` and `{stop}` are filled from the row's `stop`
+before anything reads them — `fillCallRow` in `lib/scenario-vars.mjs`,
+mirrored in app.js and dashboard.js — so a row moved to another door
+keeps reading right. `{{address}}` works too. The title stays as
+written: it is the label the dashboard matches a run's results by.
+
 **Four personas** (`personas.json`): **cooperative**, **terse** and
 **sidetracked** as in the other suites, with a `style_calls` where the
 driver's wording would not fit a customer (a customer has no shift and

@@ -10,7 +10,9 @@
  *                  (agentGreeting here), agentVars, agentBriefing —
  *                  and, for a call Otto makes (calls-starter.js), the
  *                  opener a call opens with (callOpener), the call as
- *                  agentVars sees it (callOf) and its briefing (callBriefing)
+ *                  agentVars sees it (callOf), its briefing (callBriefing)
+ *                  and the words a row leaves to its stop (fillCall,
+ *                  fillCallRow — dashboard.js carries those too)
  *   otto-agent.js  initPayload's dynamic-variable filter
  *                  (initDynamicVariables here)
  *
@@ -109,6 +111,41 @@ export const LANG_TEXT = {
  * anyone opens a call. A business name ("Café Kolmar") is left whole. */
 export const surnameOf = c => String(c || '').trim().replace(/^(?:[A-ZÀ-Þ]\.\s*)+/, '').trim() || String(c || '').trim();
 
+/* The words a call row may leave to its stop. A row names a stop
+ * (calls-starter.js, the dashboard's CALLS tab), and the stop has the
+ * address, the customer and the floor — so the row's texts say
+ * {address}, {customer}, {name}, {floor} or {stop} and the stop fills
+ * them in, on the phone and in the suite alike: a row moved to another
+ * door keeps reading right. {{address}} works too, for anyone who
+ * writes placeholders the ElevenLabs way. A word the stop has nothing
+ * for stays as written. The call's name is left alone — it is a label,
+ * and the dashboard matches a run's results to the row by it.
+ * Mirrored word for word in lib/scenario-vars.mjs, app.js and dashboard.js. */
+export const CALL_PLACEHOLDER = /\{\{?\s*([a-z][a-z0-9_]*)\s*\}?\}/gi;
+export const CALL_FILLS = {
+  address: d => String((d && d.title) || ''),                              // Kollwitzstraße 71
+  full_address: d => String((d && d.addr) || (d && d.title) || ''),        // Kollwitzstraße 71, 10435 Berlin
+  customer: d => (d && d.consignee ? surnameOf(d.consignee) : ''),          // Fischer
+  name: d => String((d && d.consignee) || ''),                              // R. Fischer
+  floor: d => String((d && d.floor) || ''),                                 // 5
+  stop: d => (d && d.stop != null && d.stop !== '' ? String(d.stop) : ''),  // 8
+};
+export const fillCall = (text, d) => String(text == null ? '' : text).replace(CALL_PLACEHOLDER, (m, k) => {
+  const f = CALL_FILLS[String(k).toLowerCase()];
+  const v = f ? f(d) : '';
+  return v || m;
+});
+export const CALL_TEXT_FIELDS = ['purpose', 'otto_says', 'previous_call', 'they_say', 'they_know', 'must_establish', 'off_topic', 'outcome'];
+export const fillCallRow = (row, d) => {
+  if (!row) return row;
+  const out = { ...row };
+  CALL_TEXT_FIELDS.forEach(k => {
+    if (Array.isArray(out[k])) out[k] = out[k].map(x => (typeof x === 'string' ? fillCall(x, d) : x));
+    else if (typeof out[k] === 'string' && out[k]) out[k] = fillCall(out[k], d);
+  });
+  return out;
+};
+
 /* voiceOpts().greeting in app.js — the line the phone hands the agent
  * as its first message: the row's "Otto says" question when the row has
  * one, the app's greeting for the destination otherwise. A generated
@@ -188,7 +225,7 @@ export function callOf(row, previous = null) {
  * otherwise. An outbound call cannot open with the platform's "how can
  * I help you?" — Otto is the one calling. */
 export function callOpener(row, d, { lang = 'en', saysIt = {} } = {}) {
-  const says = stripQuotes(row && row.otto_says);
+  const says = stripQuotes(fillCall(row && row.otto_says, d)); // a row's own line may say {address} or {customer}
   if (says) return (lang === 'it' && saysIt[says]) || says;
   const t = LANG_TEXT[lang === 'it' ? 'it' : 'en'];
   return callOf(row).callee === 'driver' ? t.callDriver : t.callConsignee(d);
