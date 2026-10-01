@@ -518,8 +518,13 @@ const agentTime = r => new Date(agentRanAt(r) || 0).getTime() || 0;
  *   prev    the baseline before it — what the trend is measured against
  *   branch  a proposed prompt's run on an agent branch, newer than that
  *           baseline: the candidate the designer is asked to promote */
-function agentSuite() {
-  const agentId = String(window.ELEVENLABS_AGENT_ID || '').trim() || String((agentRuns[0] && agentRuns[0].agent_id) || '');
+function agentSuite(kind) {
+  /* a call row's suite ran on the back-office agent, when there is one
+   * (config.js's ELEVENLABS_CALL_AGENT_ID); every other row's on Otto */
+  const configured = kind === 'call'
+    ? String(window.ELEVENLABS_CALL_AGENT_ID || window.ELEVENLABS_AGENT_ID || '').trim()
+    : String(window.ELEVENLABS_AGENT_ID || '').trim();
+  const agentId = configured || String((agentRuns[0] && agentRuns[0].agent_id) || '');
   const mine = agentRuns.filter(r => r && String(r.agent_id || '') === agentId);
   const mains = mine.filter(r => r.label === 'main');
   const main = mains[0] || null;
@@ -862,8 +867,9 @@ function renderStats() {
   if (schemaMsg) { el('stats').textContent = schemaMsg; return; }
   /* the line counts what the list is showing: on the SITUATIONS tab the
    * scenarios' pins and debriefs are not the subject, the situations and
-   * how many of them the suite has results for are */
-  const suite = agentSuite();
+   * how many of them the suite has results for are — and on the CALLS
+   * tab the suite is the back-office agent's */
+  const suite = agentSuite(callsTabOn() ? 'call' : undefined);
   const parts = [];
   if (runsTabOn()) {
     parts.push(`${agentRuns.length} suite run${agentRuns.length === 1 ? '' : 's'} on file`);
@@ -1293,7 +1299,7 @@ function renderAgentBlock(row, kind) {
    * must not be explained two different ways on two surfaces */
   const state = suiteStateNote(call ? 'call' : situ);
   if (state) return box(head() + note(state));
-  const { agentId, main, prev, branch } = agentSuite();
+  const { agentId, main, prev, branch } = agentSuite(kind);
   if (!main && !branch) {
     return box(head() + note(`The runs on file are for another agent than this dashboard is configured for (${esc(agentId)}) — a baseline on this agent lands here.`));
   }

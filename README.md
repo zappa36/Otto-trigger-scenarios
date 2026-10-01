@@ -482,7 +482,7 @@ press runs that stage and writes its table into the run's job summary:
 
 | Button | What runs | Then |
 |---|---|---|
-| **configure** | `analysis.json` onto the agent — the criteria, the data collection, the overrides | **baseline** |
+| **configure** | `analysis.json` onto the agent — the criteria, the data collection, the overrides; with the suite set to **calls**, `analysis-calls.json` onto the back-office agent that makes the calls | **baseline** |
 | **settings** | nothing runs: prints what the live Otto runs on right now — model, reasoning effort, temperature, backup — so a change made in the ElevenLabs panel can be checked for free | **baseline** to measure it |
 | **baseline** | `push-tests`, then the suite on the live agent (`repeat` runs per test; the `suite` dropdown picks the situations, the calls, the triggers or all) — also every Monday 06:00 UTC | testers drive; grade their debriefs |
 | **field** | `pull` the last `days` of conversations with their grades, `score`, `cut` the regressions, register them | **propose** |
@@ -712,21 +712,38 @@ change) reads a driver's report — the tip, the report read back — so
 for a calls run it points at the judge's notes by check instead, which
 say call by call which of the eight checks failed and why.
 
-**What the agent's prompt needs.** Nothing, to run: the three layers —
-the variables, the briefing, the first message — tell any prompt that
-Otto is the one calling, whom, and why. But a prompt that names the
-five call variables tests the way it performs in the field, because
-the suite cannot send the briefing (the blind spot
+**Two agents, one voice.** The calls go to a second ElevenLabs agent —
+the **back-office agent** — with its own prompt written for calling,
+so Otto's prompt is never touched and the baselines you have keep
+meaning what they mean. Duplicate Otto in ElevenLabs (same voice, same
+models), give it a prompt that says who it is and why it rang, asks
+what the call has to establish, confirms what was agreed and lets them
+go, and put its id where the first one lives: `ELEVENLABS_CALL_AGENT_ID`
+as a Vercel environment variable (the kit's own back-office agent is
+the default when it is not set; `?callagent=ID` on any page for a
+quick test). The phone then opens calls on it and reports on Otto, a
+call card on the dashboard reads its runs, and the buttons run the
+calls suite on it — the repository variable
+`ELEVENLABS_CALL_AGENT_ID`, or else the id `config.js` carries. Press
+**configure** once with the suite set to **calls**: it puts call
+criteria on that agent ([`analysis-calls.json`](elevenlabs/analysis-calls.json)),
+so ElevenLabs grades every real call it makes, and allows the
+first-message and language overrides the phone sends — without the
+first one, the agent would greet a person it rang with "how can I help
+you?". A **private** back-office agent needs the `elevenlabs-token`
+function to sign for it: its `ELEVENLABS_AGENT_ID` secret takes several
+ids, comma-separated; a public one needs nothing.
+
+The prompt itself can name the five call variables, which is what
+makes the suite measure what the field gets (the suite cannot send the
+briefing — the blind spot
 [above](#the-agent-loop-record--grade--replay--propose--version)):
 `{{call_to}}` (consignee or driver), `{{call_purpose}}`,
 `{{call_previous}}` (what the office learned on the call before),
-`{{call_title}}` and `{{call_num}}`. One sentence of the kind "when
-call_purpose is set, you rang them: say who you are and why, ask what
-you need to know, confirm what was agreed and let them go" is the
-whole change — made in ElevenLabs, where the prompt stays. The
-*first message* override has to stay allowed on the agent (it is, for
-the trigger debriefs); without it Otto would greet a person he rang
-with "how can I help you?".
+`{{call_title}}` and `{{call_num}}`. Leave `ELEVENLABS_CALL_AGENT_ID`
+blank and the calls run on Otto himself: the three layers — variables,
+briefing, first message — tell any prompt that Otto is the one calling,
+whom and why, but his debrief habits will show.
 
 ## Otto as your ElevenLabs agent
 
@@ -743,6 +760,7 @@ Set one environment variable and redeploy:
 | Variable | Where | What |
 |---|---|---|
 | `ELEVENLABS_AGENT_ID` | Vercel env vars | your agent's id — that is the whole setup for a **public** agent |
+| `ELEVENLABS_CALL_AGENT_ID` | Vercel env vars | the back-office agent that makes [the calls](#the-calls--otto-rings-the-customer-then-the-driver), with its own prompt; the kit's own when not set, blank to run the calls on the one agent |
 | `ELEVENLABS_API_KEY` | the `elevenlabs-token` function's secrets | only for a **private** agent; the key never reaches a phone |
 
 **The REPORT tap is not kept waiting for the signature.** A private

@@ -539,6 +539,22 @@ test('publish posts the results file as one agent_runs row — the contract dash
   assert.equal(sent('POST', /agent_runs$/)[0].body[0].ran_at, '2026-09-01T06:00:00.000Z');
 });
 
+test('pull reads the back-office agent\'s conversations too, when there is one', async () => {
+  const dir = workdir();
+  mock.requests.length = 0;
+  const r = await loop(['pull', '--no-stamp'], dir, { ELEVENLABS_CALL_AGENT_ID: 'agent_calls1' });
+  assert.equal(r.code, 0, r.out);
+  const asked = sent('GET', /\/v1\/convai\/conversations$/).map(x => x.query.agent_id);
+  assert.ok(asked.includes(ENV().ELEVENLABS_AGENT_ID), 'Otto\'s conversations are listed');
+  assert.ok(asked.includes('agent_calls1'), 'and the back-office agent\'s');
+  assert.match(r.out, /pull — two agents: Otto \(agent_test1\) and the back-office agent that makes the calls \(agent_calls1\)/);
+  /* the same id twice is one agent, listed once */
+  mock.requests.length = 0;
+  await loop(['pull', '--no-stamp'], dir, { ELEVENLABS_CALL_AGENT_ID: ENV().ELEVENLABS_AGENT_ID });
+  assert.deepEqual([...new Set(sent('GET', /\/v1\/convai\/conversations$/).map(x => x.query.agent_id))], [ENV().ELEVENLABS_AGENT_ID]);
+  rmSync(dir, { recursive: true, force: true });
+});
+
 test('pull joins conversations to their dashboard grades by conversation_id and stamps the agent version', async () => {
   const dir = shared.dir;
   const r = await loop(['pull', '--days', '30000'], dir);
@@ -857,6 +873,24 @@ test('configure merges analysis.json over the agent\'s own settings and enables 
   assert.deepEqual(mock.state.agent.platform_settings.testing, { attached_tests: [{ test_id: 'test_pre8' }] }, 'attached tests survived a replacing PATCH');
   assert.deepEqual(mock.state.agent.platform_settings.auth, theirs.auth, 'auth survived a replacing PATCH');
   assert.match(r.out, /other platform settings go back as they are: auth, call_limits, privacy, widget, testing, queueing_config/);
+
+  /* --file: the back-office agent's twin, call criteria instead of tip
+   * criteria, the same overrides — and the PATCH says which file it was */
+  mock.requests.length = 0;
+  const calls = await loop(['configure', '--file', path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'analysis-calls.json')], dir);
+  assert.equal(calls.code, 0, calls.out);
+  const creq = sent('PATCH', /\/v1\/convai\/agents\/agent_test1$/)[0];
+  const cps = creq.body.platform_settings;
+  assert.ok(cps.evaluation.criteria.some(c => c.id === 'otto_call_purpose'), 'the call criteria went up');
+  assert.ok(cps.evaluation.criteria.some(c => c.id === 'their_crit'), 'theirs kept');
+  assert.equal(cps.data_collection.call_outcome.type, 'string');
+  assert.deepEqual(cps.data_collection.somebody_home.enum, ['yes', 'no', 'later', 'not_asked']);
+  assert.deepEqual(cps.overrides.conversation_config_override, { agent: { first_message: true, language: true }, conversation: { text_only: true } });
+  assert.match(creq.body.version_description, /analysis-calls\.json/);
+  assert.match(calls.out, /agent\.first_message\s+enabled in this PATCH/);
+  const gone = await loop(['configure', '--file', 'nowhere.json'], dir);
+  assert.equal(gone.code, 1);
+  assert.match(gone.out, /nowhere\.json is not there/);
 
   rmSync(path.join(dir, 'analysis.json'));
   mock.requests.length = 0;

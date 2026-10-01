@@ -132,28 +132,39 @@ const OttoAgent = (() => {
    * URL_FRESH_MS is taken as it is and a tap that finds none waits for a
    * fresh one, as it always did. Each URL serves one conversation. */
   const URL_FRESH_MS = 10 * 60e3;
-  const signed = { url: '', at: 0, promise: null };
+  /* one slot, and it knows which agent it was signed for: there are two
+   * agents now (Otto, and the back-office one that makes the calls), and
+   * a URL signed for one must never open a line to the other */
+  const signed = { url: '', at: 0, id: '', promise: null, promiseFor: '' };
   function fetchSignedUrl(id) {
-    if (signed.promise) return signed.promise;
+    if (signed.promise) {
+      if (signed.promiseFor === id) return signed.promise;
+      /* a fetch for the other agent is in flight: after it, this one */
+      return signed.promise.then(() => fetchSignedUrl(id));
+    }
+    signed.promiseFor = id;
     signed.promise = Promise.resolve()
       .then(() => (Backend.enabled && Backend.agentToken ? Backend.agentToken(id) : null))
       .then(d => {
         const url = d && d.signed_url ? String(d.signed_url) : '';
-        if (url) { signed.url = url; signed.at = Date.now(); }
+        if (url) { signed.url = url; signed.at = Date.now(); signed.id = id; }
         return url;
       })
       .catch(e => {
         console.warn('OttoAgent: no signed URL (' + (e.message || e) + ') — connecting as a public agent');
         return '';
       })
-      .finally(() => { signed.promise = null; });
+      .finally(() => { signed.promise = null; signed.promiseFor = ''; });
     return signed.promise;
   }
-  const freshUrl = () => (signed.url && Date.now() - signed.at < URL_FRESH_MS ? signed.url : '');
-  /* cheap to call often: nothing happens while a fresh URL is in hand */
-  function prefetchUrl() {
-    if (!available() || !Backend.enabled || !Backend.agentToken) return;
-    if (!freshUrl()) fetchSignedUrl(agentId());
+  const freshUrl = id => (signed.url && signed.id === id && Date.now() - signed.at < URL_FRESH_MS ? signed.url : '');
+  /* cheap to call often: nothing happens while a fresh URL is in hand.
+   * The agent to sign for: Otto's by default, the back-office agent when
+   * a call is coming (app.js passes its id as it arms the ring). */
+  function prefetchUrl(id) {
+    id = String(id || '').trim() || agentId();
+    if (!available(id) || !Backend.enabled || !Backend.agentToken) return;
+    if (!freshUrl(id)) fetchSignedUrl(id);
   }
 
   /* ---------- audio plumbing ----------
@@ -263,10 +274,11 @@ const OttoAgent = (() => {
     } catch { return null; }
   }
 
-  function available() {
+  /* for Otto's own agent, or for another id (the back-office agent) */
+  function available(id) {
     if (String(window.OTTO_AGENT || '').toLowerCase() === 'off') return false;
     if (new URLSearchParams(location.search).get('noagent')) return false;
-    return !!agentId() && window.isSecureContext && typeof WebSocket !== 'undefined' &&
+    return !!(String(id || '').trim() || agentId()) && window.isSecureContext && typeof WebSocket !== 'undefined' &&
       !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) &&
       !!(window.AudioContext || window.webkitAudioContext);
   }
@@ -292,6 +304,10 @@ const OttoAgent = (() => {
       /* ISO code ('it') to run THIS conversation in — '' / 'en' sends no
        * override and the agent stays in its own default language */
       language: () => '',
+      /* which agent takes THIS conversation: Otto's own id unless the
+       * host names another — the back-office agent, for a call — and
+       * what the chip says once the line is open */
+      agent: null, chip: 'ELEVENLABS',
       extra: () => ({}), onSaved: null, onError: null, onFallback: null,
       ...(options || {}),
     };
@@ -320,6 +336,9 @@ const OttoAgent = (() => {
 
     const contextLabel = () => {
       try { return String(opt.context() || '').trim(); } catch { return ''; }
+    };
+    const mountAgentId = () => {
+      try { return String((opt.agent && opt.agent()) || '').trim() || agentId(); } catch { return agentId(); }
     };
 
     /* ---------- rendering ---------- */
@@ -481,7 +500,7 @@ const OttoAgent = (() => {
        * public agent connects with the id alone, so a missing function is
        * not an error: try, and fall through. The URL fetched ahead of the
        * tap (prefetchUrl) is taken when it is fresh — and taken once. */
-      const ready = freshUrl();
+      const ready = freshUrl(id);
       if (ready) { signed.url = ''; state.viaCache = true; return ready; }
       state.viaCache = false;
       const url = await fetchSignedUrl(id);
@@ -540,7 +559,7 @@ const OttoAgent = (() => {
        * one; on the sticky activation of an earlier tap otherwise). */
       outputCtx();
       startMic().catch(e => fail('microphone: ' + (e.message || e)));
-      socketUrl(agentId()).then(url => {
+      socketUrl(mountAgentId()).then(url => {
         if (state.dead) return;
         let ws;
         try { ws = new WebSocket(url); } catch (e) { return fail(e.message || 'socket refused'); }
@@ -562,7 +581,7 @@ const OttoAgent = (() => {
           if (brief) ws.send(JSON.stringify({ type: 'contextual_update', text: brief.slice(0, 2000) }));
           state.lastVoice = Date.now();
           render(null, 'listening');
-          chip('ELEVENLABS');
+          chip(String(opt.chip || 'ELEVENLABS'));
         };
 
         ws.onmessage = ev => {

@@ -234,15 +234,20 @@ const OVERRIDE_PATHS = [
   ['conversation', 'text_only', 'a text client talking to the agent without audio cost (a manual check from a terminal; the suite itself needs no override)'],
 ];
 
-async function configure(ctx) {
+async function configure(ctx, flags = {}) {
   const { log } = ctx;
-  if (!existsSync(ctx.p.analysis)) {
-    log(`analysis.json is not there (${ctx.p.analysis}) — it carries the evaluation criteria and data collection ElevenLabs should run on every call. The generator work package ships it; nothing was sent.`);
+  /* --file: another PATCH body of the same shape — analysis-calls.json
+   * for the back-office agent that makes the calls, whose criteria are
+   * about a call, not a driver's tip */
+  const file = flags.file ? path.resolve(ctx.dir, String(flags.file)) : ctx.p.analysis;
+  const label = path.basename(file);
+  if (!existsSync(file)) {
+    log(`${label} is not there (${file}) — it carries the evaluation criteria and data collection ElevenLabs should run on every call. The generator work package ships it; nothing was sent.`);
     return 1;
   }
-  const spec = readJson(ctx.p.analysis);
+  const spec = readJson(file);
   const ps = (spec && spec.platform_settings) || {};
-  if (!ps.evaluation && !ps.data_collection && !ps.overrides) throw new UsageError('analysis.json has no platform_settings.evaluation / data_collection / overrides to send');
+  if (!ps.evaluation && !ps.data_collection && !ps.overrides) throw new UsageError(`${label} has no platform_settings.evaluation / data_collection / overrides to send`);
   const { api, agentId } = needEleven(ctx);
   const current = await api.getAgent(agentId);
   const existing = (current && current.platform_settings) || {};
@@ -259,11 +264,11 @@ async function configure(ctx) {
   for (const [group, field, why] of OVERRIDE_PATHS) {
     const wanted = !!(cco[group] && cco[group][field]);
     const already = !!(have[group] && have[group][field]);
-    log(`  ${(group + '.' + field).padEnd(24)} ${wanted ? 'enabled in this PATCH' : already ? 'already enabled' : 'NOT in analysis.json — enable it by hand'}  (${why})`);
+    log(`  ${(group + '.' + field).padEnd(24)} ${wanted ? 'enabled in this PATCH' : already ? 'already enabled' : `NOT in ${label} — enable it by hand`}  (${why})`);
   }
   const res = await api.patchAgent(agentId, {
     platform_settings: merged,
-    version_description: 'loop configure: evaluation criteria, data collection, overrides (analysis.json)',
+    version_description: `loop configure: evaluation criteria, data collection, overrides (${label})`,
   });
   if (!res) return 0;
   /* read back: an agent already on analysis_items (the docs' newer
@@ -969,8 +974,16 @@ async function pull(ctx, flags) {
   if (Number.isNaN(since.getTime())) throw new UsageError('--since needs an ISO date (2026-09-01 or 2026-09-01T00:00:00Z)');
   const { api, agentId } = needEleven(ctx);
   const db = needDb(ctx);
+  /* the back-office agent's conversations too, when there is one: a
+   * call the designer took on the phone is a conversation on that
+   * agent, saved by the phone with its conversation id like a debrief */
+  const callAgent = String(ctx.env.ELEVENLABS_CALL_AGENT_ID || '').trim();
+  const agents = callAgent && callAgent !== agentId ? [agentId, callAgent] : [agentId];
+  if (agents.length > 1) log(`pull — two agents: Otto (${agentId}) and the back-office agent that makes the calls (${callAgent})`);
   const items = [];
-  for await (const c of api.listConversations({ agent_id: agentId, call_start_after_unix: Math.floor(since.getTime() / 1000) })) items.push(c);
+  for (const id of agents) {
+    for await (const c of api.listConversations({ agent_id: id, call_start_after_unix: Math.floor(since.getTime() / 1000) })) items.push(c);
+  }
   const convs = [];
   for (const item of items) {
     const d = await api.getConversation(item.conversation_id);
@@ -1921,7 +1934,8 @@ export function parseArgs(argv) {
 
 const USAGE = `usage: node loop.mjs <command> [--dry-run] [--dir DIR] [flags]
 
-  configure                       evaluation criteria + data collection + overrides (analysis.json) onto the agent
+  configure  [--file FILE]        evaluation criteria + data collection + overrides (analysis.json) onto the agent;
+                                  --file analysis-calls.json for the back-office agent that makes the calls
   settings                        what the live Otto runs on right now: model, reasoning effort, temperature, backup (no prompt)
   push-tests [--filter TEXT] [--no-mock-tools]
                                   test_configs/**.json -> ElevenLabs tests, by name; writes tests.lock.json;
@@ -1943,6 +1957,7 @@ const USAGE = `usage: node loop.mjs <command> [--dry-run] [--dir DIR] [flags]
         published (the buttons pass it). Counts, ids, pass rates and the simulated transcripts still print.
 
 env: ELEVENLABS_API_KEY (secret) ELEVENLABS_AGENT_ID OPENAI_API_KEY (secret) LOOP_MODEL=gpt-4o
+     ELEVENLABS_CALL_AGENT_ID (the back-office agent that makes the calls: pull reads its conversations too; the buttons run the calls suite on it)
      SUPABASE_URL / SUPABASE_ANON_KEY (default: the kit's project; pull reads it, publish writes it) LOOP_DIR (same as --dir)
      LOOP_POLL_MS=5000 (how often run polls the invocation) LOOP_TIMEOUT_MS=1200000 (when run gives up on it: 20 min)`;
 

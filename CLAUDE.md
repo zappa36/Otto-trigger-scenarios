@@ -26,7 +26,9 @@ Otto's system prompt lives only in ElevenLabs. Never print it, diff it or
 quote it — not in a job summary, a log, an artifact, a commit, a README,
 the shared database or a chat reply. `agent_configs/` is gitignored and
 stays so. The ElevenLabs API key lives only in the GitHub secret
-`ELEVENLABS_API_KEY`; the agent id is public.
+`ELEVENLABS_API_KEY`; the agent ids are public — Otto's, and the
+back-office agent's that makes the calls (`ELEVENLABS_CALL_AGENT_ID` in
+`config.js`), which has its own prompt so Otto's is never touched.
 
 ## How the designer works
 

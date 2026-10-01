@@ -155,6 +155,29 @@ test('the models button cuts a branch with the model and runs the suite on the r
   assert.match(live, /MODEL: \$\{\{ inputs\.model \}\}\n\s+REASONING: \$\{\{ inputs\.reasoning \|\| 'keep' \}\}\n\s+TEMPERATURE: \$\{\{ inputs\.temperature \}\}\n\s+BACKUP: \$\{\{ inputs\.backup \|\| 'keep' \}\}\n\s+ROWS: \$\{\{ inputs\.rows \}\}/, 'the five inputs reach the job env');
 });
 
+/* Two agents: the calls run on the back-office agent, everything else
+ * on Otto. The loop reads ELEVENLABS_AGENT_ID, so the plan step writes
+ * that name to $GITHUB_ENV — and the job env must not set it, or the
+ * step's value would be ignored. */
+test('the calls suite runs on the back-office agent, picked in the plan step', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8');
+  const live = job(yaml, 'live-suite');
+  const env = jobEnv(live);
+  assert.match(env, /^\s+MAIN_AGENT_ID: \$\{\{ vars\.ELEVENLABS_AGENT_ID \|\| secrets\.ELEVENLABS_AGENT_ID \}\}$/m, 'Otto\'s id reaches the job env under another name');
+  assert.match(env, /^\s+ELEVENLABS_CALL_AGENT_ID: \$\{\{ vars\.ELEVENLABS_CALL_AGENT_ID \|\| secrets\.ELEVENLABS_CALL_AGENT_ID \}\}$/m, 'the back-office agent\'s id reaches the job env, for pull');
+  assert.doesNotMatch(env, /^\s+ELEVENLABS_AGENT_ID:/m, 'a job-level ELEVENLABS_AGENT_ID would shadow the one the plan step picks');
+  const plan = steps(live).find(s => /Plan the run/.test(s.name));
+  assert.match(plan.text, /if \[ -z "\$MAIN_AGENT_ID" \]; then/, 'the missing-id check reads the renamed variable');
+  assert.match(plan.text, /if \[ "\$SUITE" = "calls" \]; then\n\s+call="\$ELEVENLABS_CALL_AGENT_ID"/, 'the calls suite takes the back-office agent');
+  assert.match(plan.text, /grep -o "window\.ELEVENLABS_CALL_AGENT_ID = '\[\^_'\]\[\^'\]\*'" \.\.\/config\.js/, 'and falls back to the id config.js carries, never the placeholder');
+  assert.match(plan.text, /echo "ELEVENLABS_AGENT_ID=\$agent" >> "\$GITHUB_ENV"/);
+  /* configure with the calls suite puts the call criteria on that agent */
+  const conf = steps(live).find(s => /node loop\.mjs "\$\{args\[@\]\}" \| tee "\$RUNNER_TEMP\/configure\.txt"/.test(s.text));
+  assert.ok(conf, 'no configure step with a suite-dependent file');
+  assert.match(conf.text, /if \[ "\$SUITE" = "calls" \]; then args\+=\(--file analysis-calls\.json\); fi/);
+  assert.match(conf.text, /if: steps\.plan\.outputs\.go == 'true' && steps\.plan\.outputs\.action == 'configure'/);
+});
+
 /* The prompt is confidential and every one of these surfaces is public
  * the moment it is written. */
 test('nothing the buttons write can carry the prompt, its diff or its note', () => {

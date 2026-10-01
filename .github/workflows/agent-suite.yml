@@ -79,6 +79,13 @@ name: agent-suite
 #               start of every run, so a row edited there is in the next
 #               press — they are not committed.
 #
+#               The calls suite runs on the BACK-OFFICE agent, the one
+#               with its own prompt for calling: the repository variable
+#               ELEVENLABS_CALL_AGENT_ID, or else the id config.js carries
+#               (the one the phone rings from); every other suite runs on
+#               Otto himself. configure with the suite set to calls puts
+#               analysis-calls.json on that agent.
+#
 #               Every run costs real simulated conversations, so a button
 #               only goes ahead when the repository carries the
 #               ELEVENLABS_API_KEY secret (plus the public
@@ -288,7 +295,16 @@ jobs:
         working-directory: elevenlabs
     env:
       ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
-      ELEVENLABS_AGENT_ID: ${{ vars.ELEVENLABS_AGENT_ID || secrets.ELEVENLABS_AGENT_ID }}
+      # Two agents: Otto himself (the reports, the situations, the
+      # triggers) and the back-office agent that makes the calls, with
+      # its own prompt. The plan step picks one per suite and writes it
+      # to $GITHUB_ENV as ELEVENLABS_AGENT_ID, the name the loop reads —
+      # which is why that name is NOT set here: a job env cannot be
+      # overridden from a step. The calls suite runs on the back-office
+      # agent: the repository variable, else the id config.js carries,
+      # the one the phone rings from.
+      MAIN_AGENT_ID: ${{ vars.ELEVENLABS_AGENT_ID || secrets.ELEVENLABS_AGENT_ID }}
+      ELEVENLABS_CALL_AGENT_ID: ${{ vars.ELEVENLABS_CALL_AGENT_ID || secrets.ELEVENLABS_CALL_AGENT_ID }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       LOOP_TIMEOUT_MS: 4800000
       GH_TOKEN: ${{ github.token }}
@@ -349,9 +365,26 @@ jobs:
             if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then echo "::error::$msg"; exit 1; fi
             exit 0
           fi
-          if [ -z "$ELEVENLABS_AGENT_ID" ]; then
+          if [ -z "$MAIN_AGENT_ID" ]; then
             echo "::error::ELEVENLABS_AGENT_ID is not set — add it under Settings → Secrets and variables → Actions → Variables (the same id the phone uses)"; exit 1
           fi
+          # which agent this press runs on: the calls on the back-office
+          # agent — the repository variable, else the id config.js
+          # carries (the same one the phone rings from) — everything
+          # else on Otto himself
+          agent="$MAIN_AGENT_ID"
+          if [ "$SUITE" = "calls" ]; then
+            call="$ELEVENLABS_CALL_AGENT_ID"
+            if [ -z "$call" ]; then call="$(grep -o "window.ELEVENLABS_CALL_AGENT_ID = '[^_'][^']*'" ../config.js | tail -n 1 | sed "s/.*= '//; s/'\$//")"; fi
+            if [ -n "$call" ]; then
+              agent="$call"
+              echo "the calls suite runs on the back-office agent $call"
+            else
+              echo "no back-office agent id (ELEVENLABS_CALL_AGENT_ID, or config.js's default) — the calls run on Otto himself, $agent"
+            fi
+          fi
+          echo "ELEVENLABS_AGENT_ID=$agent" >> "$GITHUB_ENV"
+          echo "agent=$agent" >> "$GITHUB_OUTPUT"
           if [ "$ACTION" = "propose" ] && [ -z "$OPENAI_API_KEY" ]; then
             echo "::error::propose needs the OPENAI_API_KEY secret (the model that drafts the prompt diff) — add it under Settings → Secrets and variables → Actions → Secrets"; exit 1
           fi
@@ -365,15 +398,25 @@ jobs:
             echo "::error::temperature is empty (keep), a number from 0 to 1, or none (don't send it) — got '$TEMPERATURE'"; exit 1
           fi
           echo "go=true" >> "$GITHUB_OUTPUT"
-          echo "## agent-suite · $ACTION · $SUITE suite${filter:+ (filter \"$filter\")}" >> "$GITHUB_STEP_SUMMARY"
+          echo "## agent-suite · $ACTION · $SUITE suite${filter:+ (filter \"$filter\")} · agent $agent" >> "$GITHUB_STEP_SUMMARY"
 
       # ---------- configure ----------
+      # With the suite set to calls: analysis-calls.json onto the
+      # back-office agent — call criteria instead of tip criteria, and
+      # the overrides the phone needs allowed on that agent too (the
+      # first message above all: a call opens with the row's own line).
       - name: Configure the agent
         if: steps.plan.outputs.go == 'true' && steps.plan.outputs.action == 'configure'
         run: |
-          node loop.mjs configure | tee "$RUNNER_TEMP/configure.txt"
+          args=(configure)
+          if [ "$SUITE" = "calls" ]; then args+=(--file analysis-calls.json); fi
+          node loop.mjs "${args[@]}" | tee "$RUNNER_TEMP/configure.txt"
           { echo; echo '```'; cat "$RUNNER_TEMP/configure.txt"; echo '```'; echo
-            echo "Next button: **baseline** — push the test files and run the suite on the live agent."; } >> "$GITHUB_STEP_SUMMARY"
+            if [ "$SUITE" = "calls" ]; then
+              echo "The back-office agent (\`$ELEVENLABS_AGENT_ID\`) now grades every call it makes with the call criteria, and allows the first-message and language overrides the phone sends. Next button: **baseline** with the suite set to **calls**."
+            else
+              echo "Next button: **baseline** — push the test files and run the suite on the live agent. For the agent that makes the calls, press **configure** again with the suite set to **calls**."
+            fi; } >> "$GITHUB_STEP_SUMMARY"
 
       # ---------- the situation tests, from the live rows ----------
       # The situations are the dashboard's rows, not this repository's:

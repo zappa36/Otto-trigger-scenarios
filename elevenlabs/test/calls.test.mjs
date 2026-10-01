@@ -370,6 +370,41 @@ test('rows from a file, a chain whose next row is missing, and an inactive row',
   assert.ok(!('call_num' in t.body.dynamic_variables), 'no number, no variable');
 });
 
+/* The back-office agent: the calls run on a second agent with its own
+ * prompt, so Otto's is never touched. One id, carried the way the first
+ * one is: a config.js placeholder the deploy injects (with the kit's own
+ * agent as the default), the phone opening calls on it, the loop's
+ * criteria for it. */
+test('the back-office agent is wired through config, the deploy, the phone and the loop', () => {
+  const config = readFileSync(path.join(REPO, 'config.js'), 'utf8');
+  assert.match(config, /^window\.ELEVENLABS_CALL_AGENT_ID = '__ELEVENLABS_CALL_AGENT_ID__';$/m, 'the placeholder the deploy injects');
+  const def = config.match(/^if \(String\(window\.ELEVENLABS_CALL_AGENT_ID\)\.slice\(0, 2\) === '__'\) window\.ELEVENLABS_CALL_AGENT_ID = '([^']*)';$/m);
+  assert.ok(def, 'the runtime guard with the default');
+  assert.match(def[1], /^agent_[a-z0-9]{20,}$/, 'the default is an agent id, not the placeholder');
+  assert.match(readFileSync(path.join(REPO, 'scripts', 'vercel-build.sh'), 'utf8'), /^sub ELEVENLABS_CALL_AGENT_ID __ELEVENLABS_CALL_AGENT_ID__$/m, 'the deploy injects it');
+  const app = readFileSync(path.join(REPO, 'app.js'), 'utf8');
+  assert.match(app, /get\('callagent'\) \|\| window\.ELEVENLABS_CALL_AGENT_ID/, 'the phone reads the id, ?callagent= first');
+  assert.match(app, /const id = calling \? callAgentId\(\) : OttoAgent\.agentId\(\);/, 'a call goes to the back-office agent, a report to Otto');
+  assert.match(app, /OttoAgent\.prefetchUrl\(callAgentId\(\)\)/, 'the back-office agent\'s line is signed ahead of the Answer tap');
+  const agent = readFileSync(path.join(REPO, 'otto-agent.js'), 'utf8');
+  assert.match(agent, /agent: null, chip: 'ELEVENLABS',/, 'mount takes the agent to open');
+  assert.match(agent, /const freshUrl = id => \(signed\.url && signed\.id === id &&/, 'a signed URL is only reused for the agent it was signed for');
+  assert.match(agent, /socketUrl\(mountAgentId\(\)\)/);
+  const fn = readFileSync(path.join(REPO, 'supabase', 'functions', 'elevenlabs-token', 'index.ts'), 'utf8');
+  assert.match(fn, /const pinned = csv\('ELEVENLABS_AGENT_ID', ''\);/, 'the token function pins several agents, comma-separated');
+  assert.match(fn, /not one this function signs for/, 'and refuses another rather than signing for Otto');
+  /* the criteria file for that agent: the same shape as analysis.json */
+  const spec = JSON.parse(readFileSync(path.join(HERE, '..', 'analysis-calls.json'), 'utf8'));
+  const ps = spec.platform_settings;
+  const ids = ps.evaluation.criteria.map(c => c.id);
+  assert.deepEqual(ids, ['otto_call_purpose', 'otto_call_outcome', 'otto_three_questions', 'otto_no_invention', 'otto_one_language', 'otto_closed_politely']);
+  assert.equal(new Set(ids).size, ids.length, 'criterion ids collide');
+  ps.evaluation.criteria.forEach(c => { assert.equal(c.type, 'prompt'); assert.equal(c.scope, 'conversation'); assert.ok(c.conversation_goal_prompt.length > 120, c.id + ' is too short to grade by'); });
+  assert.deepEqual(Object.keys(ps.data_collection), ['call_outcome', 'reached_right_person', 'somebody_home', 'question_count', 'callee_language']);
+  assert.equal(ps.overrides.conversation_config_override.agent.first_message, true, 'a call opens with the row\'s line: the override must be allowed');
+  assert.equal(ps.overrides.conversation_config_override.agent.language, true);
+});
+
 /* the phone's side of the contract: app.js builds the same five
  * variables and the same default openers, read out of its source */
 test('app.js carries the call variables and the openers the suite assumes', () => {

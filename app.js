@@ -1666,13 +1666,19 @@ function agentBriefing() {
 const agentGreeting = () => (reporting ? '' : ottoGreeting());
 
 function mountOtto(recorderOnly) {
-  if (!recorderOnly && OttoAgent.available()) {
+  /* a call goes to the back-office agent — its own prompt, written for
+   * calling — and everything else to Otto himself; the two are the same
+   * agent only when no second id is configured */
+  const id = calling ? callAgentId() : OttoAgent.agentId();
+  if (!recorderOnly && OttoAgent.available(id)) {
     return OttoAgent.mount({
       ...voiceOpts(),
       greeting: agentGreeting,
       vars: agentVars,
       briefing: agentBriefing,
       language: () => testLang,
+      agent: () => id,
+      chip: calling && id !== OttoAgent.agentId() ? 'ELEVENLABS · BACK OFFICE' : 'ELEVENLABS',
       onFallback() {
         voice = mountOtto(true);
         /* a trigger that fired still owes the tester its question */
@@ -1749,6 +1755,12 @@ function closeOtto() {
  * in this browser; and when neither has a row, from calls-starter.js,
  * so the ⚙ sheet never lists nothing. Only the active rows are rung. */
 const escCall = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+/* The agent that makes the calls: the back-office agent, with its own
+ * prompt written for calling (config.js's ELEVENLABS_CALL_AGENT_ID;
+ * ?callagent=ID for a quick test), so Otto's own prompt is never
+ * touched; Otto himself when no second id is configured. */
+const callAgentId = () =>
+  String(new URLSearchParams(location.search).get('callagent') || window.ELEVENLABS_CALL_AGENT_ID || '').trim() || OttoAgent.agentId();
 const calleeOf = row => (String((row && row.callee) || '').toLowerCase() === 'driver' ? 'driver' : 'consignee');
 const calleeWord = row => (calleeOf(row) === 'driver' ? 'the driver' : 'the customer');
 const callKey = row => String(row.id || ('n' + row.num));
@@ -1950,6 +1962,7 @@ function armCall(row, delaySec, previous) {
   const sec = Math.max(0, Math.round(+delaySec || 0));
   ringing = { row, previous: String(previous || '').trim(), at: Date.now() + sec * 1000, timer: null };
   ringContext(); // born in the tap, when there is one
+  OttoAgent.prefetchUrl(callAgentId()); // the back-office agent's line, signed ahead of the Answer tap
   if (!sec) { showRing(); return; }
   const chip = el('ring-wait');
   const tick = () => {
@@ -1985,6 +1998,7 @@ function showRing() {
   el('card').hidden = true;
   if (el('settings')) el('settings').hidden = true;
   el('ring-screen').hidden = false;
+  OttoAgent.prefetchUrl(callAgentId()); // a ring that waited a while: the URL fetched at arming may have aged
   startRing();
 }
 function answerCall() {
@@ -2293,9 +2307,13 @@ el('build').onclick = async () => {
     ? 'the agent opens in his OWN words (no first-message override)'
     : 'the recorded debrief asks "' + LANG_TEXT[testLang].ask + '"')
     + ' · filed against the stop within ' + REPORT_RADIUS + ' m, else the open card, else no stop');
-  /* the calls Otto makes: how many the ⚙ sheet lists, and from where */
+  /* the calls Otto makes: how many the ⚙ sheet lists, from where, and
+   * which agent rings — the back-office one, or Otto himself */
   out.push('calls: ' + calls.length + ' on the TAKE A CALL list' + (callsFrom ? ' (from ' + callsFrom + ')' : '')
-    + ' · Otto rings as the back office with the call\'s opener as his first line');
+    + ' · rung by ' + (callAgentId() && callAgentId() !== OttoAgent.agentId()
+      ? 'the back-office agent ' + callAgentId() + (OttoAgent.available(callAgentId()) ? '' : ' (UNUSABLE here)')
+      : 'the same agent as the reports (no ELEVENLABS_CALL_AGENT_ID)')
+    + ' · the call\'s opener is his first line');
   /* the card's 🇬🇧/🇮🇹 pick — an Italian debrief that comes out English
    * usually means the agent declined the language override */
   out.push('debrief language: ' + (testLang === 'it'

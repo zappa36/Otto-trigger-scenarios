@@ -135,6 +135,7 @@ this folder.
 |---|---|---|
 | `ELEVENLABS_API_KEY` | **secret** — the workspace key; every live command refuses to run without it | your shell / a CI secret. Never in browser code, never logged, never committed |
 | `ELEVENLABS_AGENT_ID` | the agent the phone opens (public by design — the same value `config.js` carries) | shell / CI |
+| `ELEVENLABS_CALL_AGENT_ID` | the back-office agent that makes the calls (config.js's second id): `pull` reads its conversations as well, and the buttons run the calls suite on it — the plan step writes it into `ELEVENLABS_AGENT_ID` for that press, falling back to the id config.js carries | optional |
 | `OPENAI_API_KEY` | **secret** — the proposer (the repo's existing provider; `scenario-ai` uses the same key) | shell / CI |
 | `LOOP_MODEL` | the proposer's model, default `gpt-4o` | optional |
 | `SUPABASE_URL` / `SUPABASE_ANON_KEY` | where the debriefs and grades are (`pull` reads them) and where a suite run is published for the dashboard (`publish` adds an `agent_runs` row); default: the kit's project, the same pair `scripts/tune_triggers.py` carries | optional |
@@ -404,6 +405,19 @@ the buttons (`calls`) and `--filter` on `run` need; `--rows 1,2` on a
 calls run picks call rows by their number, and `compare` judges a calls
 run by call row.
 
+**The agent it runs on.** The calls are made by a second agent, the
+back-office one, with its own prompt written for calling, so Otto's is
+never touched: `ELEVENLABS_CALL_AGENT_ID` (config.js carries the kit's
+own as its default). The buttons run the calls suite on it; from a
+terminal, export it as `ELEVENLABS_AGENT_ID` for a calls run.
+`configure --file analysis-calls.json` puts the call criteria on it —
+said who he was and why he rang, confirmed what was agreed, at most
+three questions, no invention, one language, closed by letting them go
+— and the data collection ElevenLabs runs on every real call (the
+outcome, whether the right person answered, whether somebody is home),
+plus the overrides the phone sends, allowed. `pull` reads that agent's
+conversations too when the variable is set.
+
 **The chain is the phone's.** The suite tests each row on its own, with
 `previous_call` as its fixture. On the phone (⚙ → TAKE A CALL, or the
 dashboard's "ring this call on the phone" link) a call whose row names a
@@ -478,7 +492,7 @@ row edited on the dashboard is in the next press.
 
 | Button | Runs | Summary ends with |
 |---|---|---|
-| **configure** | `configure` | the next button |
+| **configure** | `configure` — with the suite set to **calls**, `configure --file analysis-calls.json` onto the back-office agent that makes the calls: call criteria, and the overrides allowed there too | the next button |
 | **settings** | `settings` — one GET of the agent, the LLM panel's knobs printed (model, reasoning effort, temperature, backup), nothing of the prompt; no suite, no cost | what the live Otto runs on right now |
 | **baseline** | `generate --situations` → `generate --calls` → `push-tests` → `run --label main` → `publish` (`repeat` from the form; Mondays 06:00 UTC too) | the suite's pass rates |
 | **field** | `pull --days N` → `score` → `cut` → `push-tests` | what was pulled, scored and cut — and how fast Otto answered ([reply speed](#reply-speed)) |
