@@ -1764,6 +1764,40 @@ const callAgentId = () =>
   String(new URLSearchParams(location.search).get('callagent') || window.ELEVENLABS_CALL_AGENT_ID || '').trim() || OttoAgent.agentId();
 const calleeOf = row => (String((row && row.callee) || '').toLowerCase() === 'driver' ? 'driver' : 'consignee');
 const calleeWord = row => (calleeOf(row) === 'driver' ? 'the driver' : 'the customer');
+/* The words a call row may leave to its stop. A row names a stop
+ * (calls-starter.js, the dashboard's CALLS tab), and the stop has the
+ * address, the customer and the floor — so the row's texts say
+ * {address}, {customer}, {name}, {floor} or {stop} and the stop fills
+ * them in, on the phone and in the suite alike: a row moved to another
+ * door keeps reading right. {{address}} works too, for anyone who
+ * writes placeholders the ElevenLabs way. A word the stop has nothing
+ * for stays as written. The call's name is left alone — it is a label,
+ * and the dashboard matches a run's results to the row by it.
+ * Mirrored word for word in lib/scenario-vars.mjs, app.js and dashboard.js. */
+const CALL_PLACEHOLDER = /\{\{?\s*([a-z][a-z0-9_]*)\s*\}?\}/gi;
+const CALL_FILLS = {
+  address: d => String((d && d.title) || ''),                              // Kollwitzstraße 71
+  full_address: d => String((d && d.addr) || (d && d.title) || ''),        // Kollwitzstraße 71, 10435 Berlin
+  customer: d => (d && d.consignee ? surnameOf(d.consignee) : ''),          // Fischer
+  name: d => String((d && d.consignee) || ''),                              // R. Fischer
+  floor: d => String((d && d.floor) || ''),                                 // 5
+  stop: d => (d && d.stop != null && d.stop !== '' ? String(d.stop) : ''),  // 8
+};
+const fillCall = (text, d) => String(text == null ? '' : text).replace(CALL_PLACEHOLDER, (m, k) => {
+  const f = CALL_FILLS[String(k).toLowerCase()];
+  const v = f ? f(d) : '';
+  return v || m;
+});
+const CALL_TEXT_FIELDS = ['purpose', 'otto_says', 'previous_call', 'they_say', 'they_know', 'must_establish', 'off_topic', 'outcome'];
+const fillCallRow = (row, d) => {
+  if (!row) return row;
+  const out = { ...row };
+  CALL_TEXT_FIELDS.forEach(k => {
+    if (Array.isArray(out[k])) out[k] = out[k].map(x => (typeof x === 'string' ? fillCall(x, d) : x));
+    else if (typeof out[k] === 'string' && out[k]) out[k] = fillCall(out[k], d);
+  });
+  return out;
+};
 const callKey = row => String(row.id || ('n' + row.num));
 /* the next call in the chain, by number: an active row other than this one */
 const nextCallOf = row => {
@@ -1992,7 +2026,7 @@ function showRing() {
   el('ring-as').textContent = calleeOf(row) === 'driver'
     ? `You answer as the driver${d ? ' · about ' + d.title : ''}`
     : `You answer as the customer${d && d.consignee ? ', ' + d.consignee : ''}${d ? ' · ' + d.title : ''}`;
-  const prev = previous || String(row.previous_call || '').trim();
+  const prev = previous || fillCall(String(row.previous_call || '').trim(), d);
   el('ring-prev').textContent = prev ? 'Otto knows from the call before: ' + prev : '';
   el('ring-prev').hidden = !prev;
   if (typeof Darts !== 'undefined') Darts.dismiss();
@@ -2023,8 +2057,9 @@ function declineCall() {
 }
 /* the call itself: the agent (or the recorded fallback) with the call's
  * opener, variables and briefing — openOtto in call mode */
-function openCall(row, previous) {
-  const d = callStop(row);
+function openCall(raw, previous) {
+  const d = callStop(raw);
+  const row = fillCallRow(raw, d); // {address}, {customer}… from the stop, before anything reads the row
   if (testLang === 'it' && row.otto_says) translateIt(stripQuotes(row.otto_says));
   openOtto(d, false, { row, d, previous: String(previous || '').trim() || String(row.previous_call || '').trim() });
 }

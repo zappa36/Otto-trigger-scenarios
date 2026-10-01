@@ -1890,6 +1890,51 @@ const callRow = r => {
 };
 const calleeOf = c => (String((c && c.callee) || '').toLowerCase() === 'driver' ? 'driver' : 'consignee');
 const calleeWord = c => (calleeOf(c) === 'driver' ? 'the driver' : 'the customer');
+/* 'F. Brandt' → 'Brandt' (lib/scenario-vars.mjs, app.js) */
+const surnameOf = c => String(c || '').trim().replace(/^(?:[A-ZÀ-Þ]\.\s*)+/, '').trim() || String(c || '').trim();
+/* The words a call row may leave to its stop. A row names a stop
+ * (calls-starter.js, the dashboard's CALLS tab), and the stop has the
+ * address, the customer and the floor — so the row's texts say
+ * {address}, {customer}, {name}, {floor} or {stop} and the stop fills
+ * them in, on the phone and in the suite alike: a row moved to another
+ * door keeps reading right. {{address}} works too, for anyone who
+ * writes placeholders the ElevenLabs way. A word the stop has nothing
+ * for stays as written. The call's name is left alone — it is a label,
+ * and the dashboard matches a run's results to the row by it.
+ * Mirrored word for word in lib/scenario-vars.mjs, app.js and dashboard.js. */
+const CALL_PLACEHOLDER = /\{\{?\s*([a-z][a-z0-9_]*)\s*\}?\}/gi;
+const CALL_FILLS = {
+  address: d => String((d && d.title) || ''),                              // Kollwitzstraße 71
+  full_address: d => String((d && d.addr) || (d && d.title) || ''),        // Kollwitzstraße 71, 10435 Berlin
+  customer: d => (d && d.consignee ? surnameOf(d.consignee) : ''),          // Fischer
+  name: d => String((d && d.consignee) || ''),                              // R. Fischer
+  floor: d => String((d && d.floor) || ''),                                 // 5
+  stop: d => (d && d.stop != null && d.stop !== '' ? String(d.stop) : ''),  // 8
+};
+const fillCall = (text, d) => String(text == null ? '' : text).replace(CALL_PLACEHOLDER, (m, k) => {
+  const f = CALL_FILLS[String(k).toLowerCase()];
+  const v = f ? f(d) : '';
+  return v || m;
+});
+const CALL_TEXT_FIELDS = ['purpose', 'otto_says', 'previous_call', 'they_say', 'they_know', 'must_establish', 'off_topic', 'outcome'];
+const fillCallRow = (row, d) => {
+  if (!row) return row;
+  const out = { ...row };
+  CALL_TEXT_FIELDS.forEach(k => {
+    if (Array.isArray(out[k])) out[k] = out[k].map(x => (typeof x === 'string' ? fillCall(x, d) : x));
+    else if (typeof out[k] === 'string' && out[k]) out[k] = fillCall(out[k], d);
+  });
+  return out;
+};
+/* the stop a call names, for the words it leaves to it — the route
+ * file's stop, or null when the row names none (the suite then picks
+ * one by the row's number; here the words stay as written) */
+function callStopOf(c) {
+  const route = sitRoute();
+  const want = c && c.stop != null && c.stop !== '' ? +c.stop : null;
+  const st = route && want != null ? route.stops.find(x => x.stop === want) : null;
+  return st ? { title: st.title, addr: st.addr, consignee: st.consignee || '', floor: st.floor || '', stop: st.stop } : null;
+}
 const callNumOf = v => (v === '' || v == null || !isFinite(+v) ? null : Math.round(+v));
 /* the next call in the chain, by number — null when the row names none, or one that is not there */
 const nextCallOf = c => (c && c.next_call != null && c.next_call !== '' ? calls.find(x => x !== c && x.num != null && +x.num === +c.next_call) || null : null);
@@ -1975,7 +2020,7 @@ function renderCall(c) {
   const d = callDraft(c);
   const dirty = callEdit && callEdit.id === c.id && callDirty();
   const active = open ? d.active : c.active !== false;
-  const says = String(c.they_say || '').trim();
+  const says = fillCall(String(c.they_say || '').trim(), callStopOf(c));
   const to = open ? d.callee : calleeOf(c);
   const route = sitRoute();
   const stopField = route
@@ -2008,16 +2053,16 @@ function renderCall(c) {
             </select>
           </div>
           <div>
-            <label>The stop it is about <span class="pe-sub">— the address and the customer's name</span></label>
+            <label>The stop it is about <span class="pe-sub">— the address and the customer's name; the boxes below may say {address}, {customer}, {name}, {floor} or {stop}, and this stop fills them in</span></label>
             ${stopField}
           </div>
           <div class="full">
             <label>Why Otto is calling <span class="pe-sub">— his brief, in a sentence or two; the rules go here too (fresh food is handed over in person)</span></label>
-            <textarea data-call-field="purpose" placeholder="A fresh-food box for F. Brandt is on today's round, due between 17:00 and 19:00. Find out whether somebody will be home, and if not, from when.">${esc(d.purpose)}</textarea>
+            <textarea data-call-field="purpose" placeholder="A fresh-food box for {name} is on today's round, due between 17:00 and 19:00. Find out whether somebody will be home, and if not, from when.">${esc(d.purpose)}</textarea>
           </div>
           <div class="full">
             <label>Otto opens with <span class="pe-sub">— the first thing he says; empty = &ldquo;Hello, this is Otto from the delivery office&hellip;&rdquo;</span></label>
-            <textarea data-call-field="otto_says" placeholder="Hello, this is Otto from the delivery office. Am I speaking with Mr Brandt?">${esc(d.otto_says)}</textarea>
+            <textarea data-call-field="otto_says" placeholder="Hello, this is Otto from the delivery office. Am I speaking with Mr {customer}?">${esc(d.otto_says)}</textarea>
           </div>
           <div class="full">
             <label>What the office learned on the call before <span class="pe-sub">— only when this call follows another; on the phone the real outcome of that call replaces it</span></label>
@@ -4768,8 +4813,38 @@ const callSheetMissing = () => {
 };
 function renderCallSheetLink() {
   const n = callSheetMissing().length;
-  return n ? `
-    <p class="sit-restore"><button class="link-btn" type="button" data-call-restore>…or restore the ${n} starter call${n === 1 ? '' : 's'} not in the list</button></p>` : '';
+  const have = CALL_SHEET ? CALL_SHEET.calls.length - n : 0;
+  return `${n ? `
+    <p class="sit-restore"><button class="link-btn" type="button" data-call-restore>…or restore the ${n} starter call${n === 1 ? '' : 's'} not in the list</button></p>` : ''}${have ? `
+    <p class="sit-restore"><button class="link-btn" type="button" data-call-reload title="Writes the starter file's words back over the ${have} row${have === 1 ? '' : 's'} with the same name — your own edits to those rows are lost; your other rows, the numbers and the chain stay as they are">…or reload the ${have} starter call${have === 1 ? '' : 's'} in the list from the file</button></p>` : ''}`;
+}
+/* The starter file moved on (its rows now say {address} and {customer}
+ * instead of one door's words): write its words back over the rows
+ * that came from it, found by name, keeping each row's number, its
+ * place in the chain and whether it is in the suite. */
+async function reloadCallSheet() {
+  if (!CALL_SHEET) return;
+  const byTitle = new Map(calls.map(c => [normTitle(c.title), c]));
+  const numOf = title => { const c = byTitle.get(normTitle(title)); return c && c.num != null && c.num !== '' ? c.num : null; };
+  let n = 0;
+  const touched = new Set();
+  for (const r of CALL_SHEET.calls) {
+    const mine = byTitle.get(normTitle(r.title));
+    if (!mine) continue;
+    touched.add(mine.id);
+    const follows = r.next_call == null || r.next_call === '' ? null : CALL_SHEET.calls.find(x => +x.num === +r.next_call);
+    const fresh = callRow({ ...r, num: mine.num, next_call: follows ? numOf(follows.title) : null, active: mine.active !== false });
+    const patch = {};
+    CALL_COLS.forEach(k => { if (k !== 'num' && k !== 'active' && JSON.stringify(fresh[k]) !== JSON.stringify(mine[k] === undefined ? null : mine[k])) patch[k] = fresh[k]; });
+    if (!Object.keys(patch).length) continue;
+    Object.assign(mine, patch);
+    if (Backend.enabled) { try { await Backend.updateCall(mine.id, patch); } catch (e) { schemaHint(e); } }
+    n++;
+  }
+  if (callEdit && touched.has(callEdit.id)) callEdit = null; // an open edit on a reloaded row is stale now; one on another row stays
+  persistLocal();
+  render();
+  console.info(n ? `${n} starter call(s) reloaded from the file` : 'the starter calls in the list already match the file');
 }
 async function loadCallSheet() {
   const missing = callSheetMissing();
@@ -5196,6 +5271,7 @@ el('list').addEventListener('click', e => {
     return;
   }
   if (e.target.closest('[data-call-restore]')) { loadCallSheet(); return; }
+  if (e.target.closest('[data-call-reload]')) { reloadCallSheet(); return; }
   const callCard = e.target.closest('.callrow');
   if (callCard) {
     const c = calls.find(x => x.id === callCard.dataset.call);

@@ -73,7 +73,7 @@ import path from 'node:path';
 import { loadSheet, loadSituationsSheet, loadCallsSheet, loadRoute, loadSupabase, loadSituationsSupabase, loadCallsSupabase } from './lib/sheet.mjs';
 import {
   agentVars, agentBriefing, agentGreeting, initDynamicVariables, scenarioShape, measuredBits, sentence,
-  callOf, callOpener, callBriefing, surnameOf,
+  callOf, fillCallRow, callOpener, callBriefing, surnameOf,
 } from './lib/scenario-vars.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -659,8 +659,12 @@ function callConditions({ row, d, persona }) {
   return withVerdict(c);
 }
 
-export function buildCallTest({ row, persona, stops, index = 0 }) {
-  const d = destinationOf(situationStop(row, stops, index));
+export function buildCallTest({ row: raw, persona, stops, index = 0 }) {
+  const stop = situationStop(raw, stops, index);
+  const d = destinationOf(stop);
+  /* the row's words with what it left to its stop filled in — {address},
+   * {customer}, {name}, {floor}, {stop} — before anything reads them */
+  const row = fillCallRow(raw, { ...d, stop: stop.stop });
   const num = row.num != null && row.num !== '' ? Number(row.num) : null;
   const short = scenarioShort(row) || 'untitled';
   const name = `Otto · call ${num != null ? '#' + num + ' ' : ''}${short} · ${persona.id}`;

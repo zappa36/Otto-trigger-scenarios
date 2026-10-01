@@ -659,6 +659,14 @@ So the dashboard grows a **CALLS** tab, and each row is one call:
 | the outcome Otto should confirm | what was agreed and what happens next, in one line |
 | then Otto calls | the call that follows this one on the phone, carrying what this one found |
 
+Any of those boxes may say `{address}`, `{customer}`, `{name}`,
+`{floor}` or `{stop}`: the stop the row names fills them in, on the
+phone and in the suite alike, so a row moved to another door keeps
+reading right. The starter rows are written that way — "A fresh-food
+box for {name} is on today's round" is "…for R. Fischer…" at
+Kollwitzstraße 71, and "so I skip {address}?" is what the driver says
+about it. The call's name is a label and stays as written.
+
 [`calls-starter.js`](calls-starter.js) ships ten of them — a home check
 that finds the customer at work until six, and the call that tells the
 driver; a home check where somebody is home and there is nothing to

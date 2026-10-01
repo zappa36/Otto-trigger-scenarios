@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { startMock } from './mock-elevenlabs.mjs';
 import { loadCallsSheet, loadRoute } from '../lib/sheet.mjs';
-import { callOf, callOpener, callBriefing, surnameOf, LANG_TEXT, agentVars, initDynamicVariables } from '../lib/scenario-vars.mjs';
+import { callOf, callOpener, callBriefing, surnameOf, fillCall, fillCallRow, LANG_TEXT, agentVars, initDynamicVariables } from '../lib/scenario-vars.mjs';
 import { buildCallTests, buildCallTest, CALL_PERSONAS, CALL_VARS, SITUATION_VARS, SITUATION_PERSONAS, TRIGGER_PERSONAS, PERSONAS, endsWithNothingAgreed } from '../generate-tests.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -137,7 +137,8 @@ test('a call test sends what the phone sends on a call — the REPORT set plus t
 test('the opener is the row\'s own line, or the app\'s line for the person rung', () => {
   const d = stops[0];
   const brandt = built.find(t => t.file === 'call-01-home-check--terse.json');
-  assert.equal(brandt.body.chat_history[0].message, rows[0].otto_says);
+  assert.equal(brandt.body.chat_history[0].message, fillCall(rows[0].otto_says, d), 'the row\'s own line, its {customer} filled from the stop');
+  assert.equal(brandt.body.chat_history[0].message, 'Hello, this is Otto from the delivery office. Am I speaking with Mr Brandt? I\'m calling about your fresh-food delivery this evening.');
   /* no line on the row: the app's own, the surname without the initial */
   assert.equal(callOpener({ callee: 'consignee' }, d), 'Hello, this is Otto from the delivery office. I\'m calling about a delivery for Brandt — am I speaking with the right person?');
   assert.equal(callOpener({ callee: 'driver' }, d), 'Hi, this is Otto from the office — got a moment?');
@@ -183,7 +184,7 @@ test('the conditions are the row\'s: purpose, what to establish, what is off top
   assert.match(c[4], /so “between six and seven” is a conclusion, not an invention\); the delivery's own address and the customer's name are known to the office too\. An invented time, name, reason or address is not fine, and neither is a promise nobody made/);
   assert.match(c[4], /^NO INVENTION — Otto states no fact that the customer did not say and the office did not already know\. What the office knows: A fresh-food box for R\. Fischer/);
   assert.match(c[5], /^LENGTH — after saying why he is calling, Otto asks at most three questions in total/);
-  assert.ok(c[6].includes(row.outcome.replace(/\.$/, '')), 'the close names the outcome');
+  assert.ok(c[6].includes(fillCall(row.outcome, stops.find(st => st.stop === 8)).replace(/\.$/, '')), 'the close names the outcome, with the stop\'s words filled in');
   assert.match(c[6], /Judge it only on what the customer said in this conversation: a fact they never mentioned is not missing, and the address need not be said\./);
   assert.match(c[6], /What fails: no summary at all, a summary that contradicts the customer, or a closing that is only thanks\./);
   /* a call to the driver is judged in the driver's words */
@@ -238,7 +239,7 @@ test('callOf, the variables and the briefing — the phone\'s side, ported', () 
   assert.equal(callOf({ title: 'x' }).callee, 'consignee', 'the customer unless the row says driver');
   assert.equal(callOf({ title: 'x', callee: 'DRIVER' }).callee, 'driver');
   assert.equal(callOf(null), null);
-  const v = agentVars({ scenario: null, destination: stops[0], call: callOf(row) });
+  const v = agentVars({ scenario: null, destination: stops[0], call: callOf(fillCallRow(row, stops[0])) }); // the phone fills the row before agentVars reads it
   assert.deepEqual(Object.keys(initDynamicVariables(v)), CALL_VARS);
   assert.equal(v.call_num, 2);
   assert.equal(v.scenario_title, '', 'no scenario on a call');
@@ -438,4 +439,70 @@ test('app.js carries the call variables and the openers the suite assumes', () =
   const evalLine = m => new Function('surnameOf', 'return ' + m[2])(surname);
   const got = lines.map(m => (typeof evalLine(m) === 'function' ? evalLine(m)(d) : evalLine(m)));
   assert.deepEqual(got, [LANG_TEXT.en.callConsignee(d), LANG_TEXT.en.callDriver, LANG_TEXT.it.callConsignee(d), LANG_TEXT.it.callDriver], 'the phone\'s openers drifted from lib/scenario-vars.mjs');
+});
+
+/* ---- the words a row leaves to its stop ---- */
+test('a row may say {address}, {customer}, {name}, {floor} or {stop}: the stop fills them in', () => {
+  const d = { title: 'Kollwitzstraße 71', addr: 'Kollwitzstraße 71, 10435 Berlin', consignee: 'R. Fischer', floor: '5', stop: 8 };
+  assert.equal(fillCall('the stop at {address}, the {customer} box ({name}, floor {floor}, stop {stop}; {full_address})', d),
+    'the stop at Kollwitzstraße 71, the Fischer box (R. Fischer, floor 5, stop 8; Kollwitzstraße 71, 10435 Berlin)');
+  assert.equal(fillCall('{{address}} and {{ customer }} the ElevenLabs way', d), 'Kollwitzstraße 71 and Fischer the ElevenLabs way');
+  assert.equal(fillCall('{Address} reads either way', d), 'Kollwitzstraße 71 reads either way');
+  assert.equal(fillCall('{gate_code} is nobody\'s; {floor} has nothing here', { title: 'X' }), '{gate_code} is nobody\'s; {floor} has nothing here', 'what the stop has nothing for stays as written');
+  assert.equal(fillCall('nothing to fill', null), 'nothing to fill');
+  assert.equal(fillCall(null, d), '');
+  const row = fillCallRow({ title: 'Skip {customer}', purpose: 'the stop at {address}', must_establish: ['that {customer} is skipped', 7], they_say: '', next_call: 5 }, d);
+  assert.equal(row.title, 'Skip {customer}', 'the title is a label and stays');
+  assert.equal(row.purpose, 'the stop at Kollwitzstraße 71');
+  assert.deepEqual(row.must_establish, ['that Fischer is skipped', 7]);
+  assert.equal(row.they_say, '');
+  assert.equal(row.next_call, 5);
+  assert.equal(fillCallRow(null, d), null);
+});
+
+test('the generated tests read the filled words — no placeholder reaches ElevenLabs', () => {
+  const row = { num: 5, title: 'Skip Fischer today', callee: 'driver', stop: 8,
+    purpose: 'Tell the driver that the stop at {address} is off today\'s round.', otto_says: 'Hi — about {address}, the {customer} box.',
+    previous_call: '{customer} at {address} is away.', they_say: 'So I skip {address}?', they_know: '{address} is stop {stop}.',
+    must_establish: ['that the driver skips {address}'], off_topic: ['the gate code'], outcome: 'Stop {stop} is skipped — {name} gets it tomorrow.', next_call: null };
+  const b = buildCallTest({ row, persona: PERSONAS.find(p => p.id === 'terse'), stops }).body;
+  assert.equal(b.chat_history[0].message, 'Hi — about Kollwitzstraße 71, the Fischer box.');
+  assert.equal(b.dynamic_variables.call_purpose, 'Tell the driver that the stop at Kollwitzstraße 71 is off today\'s round.');
+  assert.equal(b.dynamic_variables.call_previous, 'Fischer at Kollwitzstraße 71 is away.');
+  assert.match(b.simulation_scenario, /what you tell him is “So I skip Kollwitzstraße 71\?”/);
+  assert.match(b.simulation_scenario, /Kollwitzstraße 71 is stop 8\./);
+  assert.match(b.success_conditions[1], /that the driver skips Kollwitzstraße 71/);
+  assert.match(b.success_conditions[6], /Stop 8 is skipped — R\. Fischer gets it tomorrow/);
+  assert.match(b._otto.briefing, /Why you are calling: Tell the driver that the stop at Kollwitzstraße 71/);
+  assert.doesNotMatch(JSON.stringify(b), /\{\{?\s*[a-z][a-z0-9_]*\s*\}?\}/i, 'nothing left to fill anywhere in the test');
+  /* the name is a label: left as written, so the dashboard can match a run's results to the row */
+  assert.equal(buildCallTest({ row: { ...row, title: 'Skip {customer} today' }, persona: PERSONAS.find(p => p.id === 'terse'), stops }).body._otto.call_title, 'Skip {customer} today');
+  /* a row without a stop lands on the stop with its number, and the words follow it there */
+  const loose = buildCallTest({ row: { ...row, stop: '' }, persona: PERSONAS.find(p => p.id === 'terse'), stops }).body;
+  assert.equal(loose.dynamic_variables.destination_title, stops[4].title);
+  assert.match(loose.dynamic_variables.call_purpose, new RegExp(`the stop at ${stops[4].title} is off`));
+});
+
+test('the starter rows leave their stops to the stop', () => {
+  rows.forEach(r => {
+    const st = stops.find(s => s.stop === +r.stop);
+    assert.ok(st, `#${r.num} names a stop`);
+    const own = [st.title, surnameOf(st.consignee)];
+    for (const k of ['purpose', 'otto_says', 'previous_call', 'they_say', 'they_know', 'outcome']) {
+      own.forEach(w => assert.ok(!String(r[k] || '').includes(w), `#${r.num} ${k} spells out "${w}" where a placeholder would follow the stop`));
+    }
+    for (const k of ['must_establish', 'off_topic']) r[k].forEach(x => own.forEach(w => assert.ok(!x.includes(w), `#${r.num} ${k}: "${x}"`)));
+  });
+  built.forEach(t => assert.doesNotMatch(JSON.stringify({ ...t.body, name: '' }), /\{\{?\s*[a-z][a-z0-9_]*\s*\}?\}/i, t.file));
+});
+
+test('app.js and dashboard.js carry fillCall word for word', () => {
+  const grab = (src, what) => {
+    const m = /(?:export )?const CALL_PLACEHOLDER[\s\S]*?const fillCallRow[\s\S]*?\n};\n/.exec(src);
+    assert.ok(m, `${what}: the fillCall block`);
+    return m[0].replace(/^export /gm, '');
+  };
+  const lib = grab(readFileSync(path.join(HERE, '..', 'lib', 'scenario-vars.mjs'), 'utf8'), 'lib');
+  assert.equal(grab(readFileSync(path.join(REPO, 'app.js'), 'utf8'), 'app.js'), lib, 'app.js drifted from lib/scenario-vars.mjs');
+  assert.equal(grab(readFileSync(path.join(REPO, 'dashboard.js'), 'utf8'), 'dashboard.js'), lib, 'dashboard.js drifted from lib/scenario-vars.mjs');
 });
