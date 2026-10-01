@@ -294,17 +294,23 @@ test('run --rows runs only those situation rows', async () => {
     'Otto · situation #6 A big dog at the door · vague': 'test_s6v',
     'Otto · situation #16 Reception takes parcels only until three · terse': 'test_s16',
     'Otto · situation #8 Gate needs a code · terse': 'test_s8',
+    'Otto · call #8 Late notice · terse': 'test_c8',
     [T1]: 'test_001',
   }));
   let r = await loop(['run', '--rows', '6, 8', '--repeat', '1', '--label', 'trial'], dir);
   assert.equal(r.code, 0, r.out);
-  assert.deepEqual(sent('POST', /run-tests$/)[0].body.tests.map(t => t.test_id), ['test_s6t', 'test_s6v', 'test_s8'], '#16 is not #6, and a trigger test has no row');
+  assert.deepEqual(sent('POST', /run-tests$/)[0].body.tests.map(t => t.test_id), ['test_s6t', 'test_s6v', 'test_s8', 'test_c8'], '#16 is not #6, a trigger test has no row, and a call row counts by its own number');
   assert.equal(sent('POST', /run-tests$/)[0].body.repeat_count, undefined, 'one run each');
-  assert.match(r.out, /rows 6, 8: 3 test\(s\)/);
+  assert.match(r.out, /rows 6, 8: 4 test\(s\)/);
+  mock.requests.length = 0;
+  /* the suite's filter decides which sheet the numbers mean */
+  r = await loop(['run', '--rows', '8', '--filter', 'Otto · call', '--repeat', '1'], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual(sent('POST', /run-tests$/)[0].body.tests.map(t => t.test_id), ['test_c8']);
   mock.requests.length = 0;
   r = await loop(['run', '--rows', '99'], dir);
   assert.equal(r.code, 1);
-  assert.match(r.out, /no test in tests\.lock\.json is for situation row\(s\) 99 — the numbers are the # on the SITUATIONS tab/);
+  assert.match(r.out, /no test in tests\.lock\.json is for situation or call row\(s\) 99 — the numbers are the # on the SITUATIONS or CALLS tab/);
   r = await loop(['run', '--rows', 'six'], dir);
   assert.equal(r.code, 1);
   assert.match(r.out, /--rows takes situation numbers, comma-separated \(6,8,10\), not "six"/);
@@ -412,7 +418,7 @@ test('publish posts the results file as one agent_runs row — the contract dash
   assert.equal(row.ran_at, results.at);
   assert.deepEqual(row.tests[0], {
     name: T1, test_id: 'test_001', kind: 'scenario', scenario_num: 1, scenario_title: 'Parking loops — two slow passes and a stop',
-    situation_num: null, situation_title: null, persona: 'cooperative', language: 'en',
+    situation_num: null, situation_title: null, call_num: null, call_title: null, call_to: null, persona: 'cooperative', language: 'en',
     runs: 3, passed: 2, pass_rate: 2 / 3,
     why: 'The agent asked four questions and never let the tester go. It opened correctly.',
     failure: {
@@ -437,7 +443,7 @@ test('publish posts the results file as one agent_runs row — the contract dash
     speed: { answer_s: 0.9, gap_s: null, call_s: 5.5, turns: 3, source: 'metrics' },
     cost: { per_call_usd: 0.000406, calls: 1 },
   });
-  assert.deepEqual(row.tests[1], { name: T8, test_id: 'test_pre8', kind: 'scenario', scenario_num: 8, scenario_title: 'Blocked route — turned round short of the address', situation_num: null, situation_title: null, persona: 'terse', language: 'en', runs: 3, passed: 3, pass_rate: 1, why: null, failure: null,
+  assert.deepEqual(row.tests[1], { name: T8, test_id: 'test_pre8', kind: 'scenario', scenario_num: 8, scenario_title: 'Blocked route — turned round short of the address', situation_num: null, situation_title: null, call_num: null, call_title: null, call_to: null, persona: 'terse', language: 'en', runs: 3, passed: 3, pass_rate: 1, why: null, failure: null,
     success: { test_run_id: 'run_4', rationale: 'no rationale returned', transcript: [{ role: 'user', message: 'Road was shut.' }, { role: 'agent', message: 'Which street was closed?' }, { role: 'user', message: 'Danziger.' }, { role: 'agent', message: 'Thanks, bye.' }] },
     checks: null,
     speed: { answer_s: null, gap_s: 3, call_s: 12, turns: 2, source: 'timestamps' }, cost: null });
@@ -445,6 +451,7 @@ test('publish posts the results file as one agent_runs row — the contract dash
     tests: 2, tests_at_100: 1, runs: 6, passed: 5, pass_rate: 5 / 6,
     by_scenario: { 1: { tests: 1, runs: 3, passed: 2, pass_rate: 2 / 3 }, 8: { tests: 1, runs: 3, passed: 3, pass_rate: 1 } },
     by_situation: {},
+    by_call: {},
     by_check: { 1: { pass: 2, fail: 0 }, 2: { pass: 1, fail: 1 }, 3: { pass: 0, fail: 1 } },
     /* the model trial's numbers, on every run: what Otto was set to,
      * how fast he answered, what the calls cost, who answered / drove / judged */
@@ -455,7 +462,7 @@ test('publish posts the results file as one agent_runs row — the contract dash
   });
   assert.equal(mock.state.agentRuns.length, 1, 'stored');
   assert.match(r.out, /5\/6 runs passed across 2 test\(s\) -> agent_runs\nspeed and cost — Otto's first sentence after 0\.9 s/);
-  assert.match(r.out, /published agent_runs 00000000-0000-4000-8000-000000000001 \(2 scenario\(s\), 0 situation\(s\), main, https:\/\/github\.com\/o\/r\/actions\/runs\/42\) — dashboard\.html shows it per row/);
+  assert.match(r.out, /published agent_runs 00000000-0000-4000-8000-000000000001 \(2 scenario\(s\), 0 situation\(s\), 0 call\(s\), main, https:\/\/github\.com\/o\/r\/actions\/runs\/42\) — dashboard\.html shows it per row/);
 
   /* the note is gone: it said what the branch's prompt changed, and
    * anyone can read this table with the anon key. The flag is refused
@@ -520,16 +527,32 @@ test('publish posts the results file as one agent_runs row — the contract dash
   const oldFile = path.join(dir, 'old.json');
   writeFileSync(oldFile, JSON.stringify(old));
   const oldRow = agentRunRow(old, { runUrl: '' });
-  assert.deepEqual(oldRow.tests[0], { name: 'Otto · regression · conv_old', test_id: 'test_9', kind: 'regression', scenario_num: null, scenario_title: null, situation_num: null, situation_title: null, persona: null, language: null, runs: 2, passed: 1, pass_rate: 0.5, why: 'Too long. Really.', failure: null, success: null, checks: null, speed: null, cost: null });
+  assert.deepEqual(oldRow.tests[0], { name: 'Otto · regression · conv_old', test_id: 'test_9', kind: 'regression', scenario_num: null, scenario_title: null, situation_num: null, situation_title: null, call_num: null, call_title: null, call_to: null, persona: null, language: null, runs: 2, passed: 1, pass_rate: 0.5, why: 'Too long. Really.', failure: null, success: null, checks: null, speed: null, cost: null });
   assert.equal(oldRow.summary.by_check, undefined, 'no verdict words anywhere, no by_check');
   assert.equal(oldRow.summary.speed, undefined, 'no timings kept, no speed; and no settings, cost or models either');
-  assert.deepEqual(oldRow.summary, { tests: 1, tests_at_100: 0, runs: 2, passed: 1, pass_rate: 0.5, by_scenario: {}, by_situation: {} }, 'a test without a row counts in the totals and under no row');
+  assert.deepEqual(oldRow.summary, { tests: 1, tests_at_100: 0, runs: 2, passed: 1, pass_rate: 0.5, by_scenario: {}, by_situation: {}, by_call: {} }, 'a test without a row counts in the totals and under no row');
   assert.equal(oldRow.version_id, null);
   assert.equal(oldRow.run_url, null, 'an empty --run-url is none');
   mock.requests.length = 0;
   r = await loop(['publish', '--results', oldFile], dir);
   assert.equal(r.code, 0, r.out);
   assert.equal(sent('POST', /agent_runs$/)[0].body[0].ran_at, '2026-09-01T06:00:00.000Z');
+});
+
+test('pull reads the back-office agent\'s conversations too, when there is one', async () => {
+  const dir = workdir();
+  mock.requests.length = 0;
+  const r = await loop(['pull', '--no-stamp'], dir, { ELEVENLABS_CALL_AGENT_ID: 'agent_calls1' });
+  assert.equal(r.code, 0, r.out);
+  const asked = sent('GET', /\/v1\/convai\/conversations$/).map(x => x.query.agent_id);
+  assert.ok(asked.includes(ENV().ELEVENLABS_AGENT_ID), 'Otto\'s conversations are listed');
+  assert.ok(asked.includes('agent_calls1'), 'and the back-office agent\'s');
+  assert.match(r.out, /pull — two agents: Otto \(agent_test1\) and the back-office agent that makes the calls \(agent_calls1\)/);
+  /* the same id twice is one agent, listed once */
+  mock.requests.length = 0;
+  await loop(['pull', '--no-stamp'], dir, { ELEVENLABS_CALL_AGENT_ID: ENV().ELEVENLABS_AGENT_ID });
+  assert.deepEqual([...new Set(sent('GET', /\/v1\/convai\/conversations$/).map(x => x.query.agent_id))], [ENV().ELEVENLABS_AGENT_ID]);
+  rmSync(dir, { recursive: true, force: true });
 });
 
 test('pull joins conversations to their dashboard grades by conversation_id and stamps the agent version', async () => {
@@ -851,6 +874,24 @@ test('configure merges analysis.json over the agent\'s own settings and enables 
   assert.deepEqual(mock.state.agent.platform_settings.auth, theirs.auth, 'auth survived a replacing PATCH');
   assert.match(r.out, /other platform settings go back as they are: auth, call_limits, privacy, widget, testing, queueing_config/);
 
+  /* --file: the back-office agent's twin, call criteria instead of tip
+   * criteria, the same overrides — and the PATCH says which file it was */
+  mock.requests.length = 0;
+  const calls = await loop(['configure', '--file', path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'analysis-calls.json')], dir);
+  assert.equal(calls.code, 0, calls.out);
+  const creq = sent('PATCH', /\/v1\/convai\/agents\/agent_test1$/)[0];
+  const cps = creq.body.platform_settings;
+  assert.ok(cps.evaluation.criteria.some(c => c.id === 'otto_call_purpose'), 'the call criteria went up');
+  assert.ok(cps.evaluation.criteria.some(c => c.id === 'their_crit'), 'theirs kept');
+  assert.equal(cps.data_collection.call_outcome.type, 'string');
+  assert.deepEqual(cps.data_collection.somebody_home.enum, ['yes', 'no', 'later', 'not_asked']);
+  assert.deepEqual(cps.overrides.conversation_config_override, { agent: { first_message: true, language: true }, conversation: { text_only: true } });
+  assert.match(creq.body.version_description, /analysis-calls\.json/);
+  assert.match(calls.out, /agent\.first_message\s+enabled in this PATCH/);
+  const gone = await loop(['configure', '--file', 'nowhere.json'], dir);
+  assert.equal(gone.code, 1);
+  assert.match(gone.out, /nowhere\.json is not there/);
+
   rmSync(path.join(dir, 'analysis.json'));
   mock.requests.length = 0;
   const r2 = await loop(['configure'], dir);
@@ -959,6 +1000,17 @@ test('aggregate, compareResults, scoreData and gradeSummary as pure functions', 
   assert.equal(gradeSummary({ checks: {}, note: 'a note' }).graded, true);
   assert.equal(gradeSummary({ checks: { opener: true } }).bad, false);
   assert.deepEqual(gradeSummary({ checks: { opener: true, tip: false } }).failed, ['tip']);
+  /* a call suite compares by call row, and says so */
+  const callT = (n, persona, passed) => ({ name: `Otto · call #${n} Home check · ${persona}`, kind: 'call', call_num: n, call_title: 'Home check', call_to: 'consignee', runs: 3, passed, pass_rate: passed / 3 });
+  const callBase = { tests: [callT(1, 'terse', 1), callT(1, 'cooperative', 3), callT(2, 'terse', 3), callT(2, 'cooperative', 3)] };
+  const callBranch = { tests: [callT(1, 'terse', 3), callT(1, 'cooperative', 3), callT(2, 'terse', 3), callT(2, 'cooperative', 3)] };
+  const cc = compareResults(callBase, callBranch);
+  assert.deepEqual(cc.rows.map(r => r.name), ['call #1 Home check', 'call #2 Home check']);
+  assert.equal(cc.accept, true);
+  assert.match(cc.reason, /^1 call\(s\) improved, none dropped by more than 25 points, and the total went up: 12 of 12 calls against 10 of 12/);
+  const cd = compareResults(callBranch, callBase);
+  assert.equal(cd.accept, false);
+  assert.match(cd.reason, /^1 call\(s\) dropped by more than 25 points \(#1 Home check: −2 calls\)/);
   const c = compareResults({ tests: [{ name: 'x', pass_rate: 0.5 }] }, { tests: [{ name: 'x', pass_rate: 0.4 }] });
   assert.equal(c.accept, false);
   assert.equal(c.rows[0].dropped, false, 'a ten-point drop is within the margin');
@@ -995,6 +1047,14 @@ test('aggregate, compareResults, scoreData and gradeSummary as pure functions', 
     { kind: 'situation', situation_num: 3, situation_title: 'A dog at the door', runs: 2, passed: 1 },
   ] }, null);
   assert.deepEqual(both.map(x => [x.key, x.kind, x.title]).sort(), [['#3', 'scenario', 'T'], ['s#3', 'situation', 'A dog at the door']]);
+  /* and a call row apart from both — the third sheet numbers from one too */
+  const three = scoreData({ tests: [
+    { scenario_num: 3, scenario_title: 'T', runs: 2, passed: 2 },
+    { kind: 'situation', situation_num: 3, situation_title: 'A dog at the door', runs: 2, passed: 1 },
+    { kind: 'call', call_num: 3, call_title: 'Home check', call_to: 'consignee', runs: 2, passed: 0, rationales: ['Never said who he was.'] },
+  ] }, null);
+  assert.deepEqual(three.map(x => [x.key, x.kind, x.title]), [['c#3', 'call', 'Home check'], ['s#3', 'situation', 'A dog at the door'], ['#3', 'scenario', 'T']], 'worst first');
+  assert.equal(three[0].reasons[0].reason, 'never said who he was');
   assert.equal(reasonKey('  The AGENT asked   four questions! Then more.'), 'the agent asked four questions');
 });
 
@@ -1411,6 +1471,66 @@ test('a situation test carries its row through run, results and the agent_runs r
    * suite gives them: still filed as one */
   const guessed = agentRunRow({ agent_id: 'a', tests: [{ name, runs: 1, passed: 1 }] });
   assert.equal(guessed.tests[0].kind, 'situation');
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('a call test rides through push-tests, run and publish as a call — filed under the CALLS tab\'s row, with who was rung', async () => {
+  const dir = workdir();
+  const configs = path.join(dir, 'test_configs', 'calls');
+  rmSync(path.join(dir, 'test_configs'), { recursive: true, force: true });
+  mkdirSync(configs, { recursive: true });
+  const name = 'Otto · call #4 Home check · suspicious';
+  writeFileSync(path.join(configs, 'call-04-home-check--suspicious.json'), JSON.stringify({
+    name,
+    type: 'simulation',
+    dynamic_variables: { destination_title: 'Kollwitzstraße 71', debrief_language: 'English', trigger_fired: 'no', call_num: 4, call_title: 'Home check — away until tomorrow, neighbour offered', call_to: 'consignee', call_purpose: 'A fresh-food box …' },
+    chat_history: [{ role: 'agent', time_in_call_secs: 0, message: 'Hello, this is Otto from the delivery office. Am I speaking with Mr Fischer?' }],
+    simulation_scenario: 'You are the person who answers the phone …',
+    simulation_max_turns: 10,
+    success_conditions: ['PURPOSE — …'],
+    _otto: { kind: 'call', call_num: 4, call_title: 'Home check — away until tomorrow, neighbour offered', call_to: 'consignee', persona: 'suspicious', language: 'en', scenario_num: null, scenario_title: null, situation_num: null, situation_title: null, briefing: 'You are Otto, calling …' },
+  }, null, 2));
+
+  let r = await loop(['push-tests'], dir);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(readJson(path.join(dir, 'tests.lock.json'))[name], 'test_001');
+  const posted = sent('POST', /agent-testing\/create$/)[0].body;
+  assert.equal(posted._otto, undefined, 'the _otto block is stripped before posting');
+  assert.equal(posted.chat_history[0].role, 'agent', 'a call test opens with Otto\'s line — he is the one calling');
+
+  r = await loop(['run', '--repeat', '3'], dir);
+  assert.equal(r.code, 0, r.out);
+  const results = readJson(path.join(dir, 'results', filesIn(path.join(dir, 'results'))[0]));
+  const mine = results.tests.find(t => t.name === name);
+  assert.ok(mine, 'the call test is in the results');
+  assert.equal(mine.kind, 'call');
+  assert.equal(mine.call_num, 4);
+  assert.equal(mine.call_title, 'Home check — away until tomorrow, neighbour offered');
+  assert.equal(mine.call_to, 'consignee');
+  assert.equal(mine.scenario_num, null);
+  assert.equal(mine.situation_num, null);
+  assert.equal(mine.persona, 'suspicious');
+
+  mock.requests.length = 0;
+  r = await loop(['publish'], dir);
+  assert.equal(r.code, 0, r.out);
+  const row = sent('POST', /agent_runs$/)[0].body[0];
+  const published = row.tests.find(t => t.name === name);
+  assert.equal(published.kind, 'call');
+  assert.equal(published.call_num, 4);
+  assert.equal(published.call_title, 'Home check — away until tomorrow, neighbour offered');
+  assert.equal(published.call_to, 'consignee');
+  assert.equal(published.scenario_num, null);
+  assert.equal(published.situation_num, null);
+  assert.deepEqual(row.summary.by_call, { 4: { tests: 1, runs: 3, passed: 2, pass_rate: 2 / 3 } });
+  assert.deepEqual(row.summary.by_situation, {});
+  assert.match(r.out, /0 scenario\(s\), 0 situation\(s\), 1 call\(s\)/);
+  /* a results file from before the calls, published by a name the
+   * suite gives them: still filed as one; and who was rung is only
+   * ever one of the two words */
+  const guessed = agentRunRow({ agent_id: 'a', tests: [{ name, runs: 1, passed: 1, call_to: 'nobody' }] });
+  assert.equal(guessed.tests[0].kind, 'call');
+  assert.equal(guessed.tests[0].call_to, null);
   rmSync(dir, { recursive: true, force: true });
 });
 

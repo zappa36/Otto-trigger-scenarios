@@ -27,13 +27,16 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
 const GEN = path.join(HERE, '..', 'generate-tests.mjs');
 
-/* C5 — the key set the phone sends, as the shared contract lists it */
+/* C5 — the key set the phone sends, as the shared contract lists it
+ * (the call_* five arrived with the calls Otto makes: empty, and so
+ * never sent, on a report and on a trigger debrief) */
 const C5_KEYS = [
   'destination_title', 'destination_address', 'destination_lat', 'destination_lng', 'destination_consignee',
   'destination_floor', 'destination_notes', 'scenario_num', 'scenario_title', 'scenario_version',
   'scenario_question', 'debrief_language', 'scenario_rule', 'scenario_ar_states', 'scenario_signals',
   'scenario_timing', 'scenario_test_steps', 'expected_tip_type', 'trigger_fired', 'trigger_passes',
-  'trigger_stopped', 'park_distance_m', 'walk_m', 'activity_state', 'activity_summary', 'distance_to_pin_m',
+  'trigger_stopped', 'park_distance_m', 'walk_m', 'activity_state', 'activity_summary',
+  'call_num', 'call_title', 'call_to', 'call_purpose', 'call_previous', 'distance_to_pin_m',
 ];
 
 /* the keys agentVars() in app.js assigns, read from the source: every

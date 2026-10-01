@@ -704,6 +704,52 @@
   .sit-grid input:focus, .sit-grid textarea:focus, .sit-grid select:focus { border-color: rgba(60,192,224,.55); }
   .sit-edit .fb-rec-foot { margin-top: 12px; }
   .sit-restore { margin: 2px 0 0; text-align: center; }
+
+  /* ---------- calls ----------
+   * The third sheet's card wears the situation card's chrome and its
+   * form (.sit-grid); what is its own: who is rung, as a chip, the
+   * link that rings the call on the phone, and the phone's own calls
+   * under the form. */
+  .call-to {
+    flex: none;
+    font-family: ui-monospace, monospace;
+    font-size: 9.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(195,166,255,.4);
+    color: #d9c8ff;
+    background: rgba(195,166,255,.08);
+    white-space: nowrap;
+  }
+  .call-to.driver { border-color: rgba(60,192,224,.4); color: #7fd6ea; background: rgba(60,192,224,.08); }
+  .call-then { flex: none; font-size: 11px; color: #8b97a8; white-space: nowrap; }
+  .call-ring {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px dashed rgba(140,165,200,.3);
+    font-size: 12.5px;
+    color: #aeb9c8;
+  }
+  .call-ring a { color: #7fd6ea; font-weight: 600; text-decoration: none; white-space: nowrap; }
+  .call-ring a:hover { text-decoration: underline; }
+  .call-field { margin-top: 12px; }
+  .call-field .cmp-k { display: block; margin-bottom: 6px; }
+  .call-msg {
+    margin-top: 6px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(140,165,200,.14);
+    font-size: 12.5px;
+  }
+  .call-msg-when { font-family: ui-monospace, monospace; font-size: 10px; letter-spacing: .08em; color: #8b97a8; margin-right: 8px; }
+  .call-msg .msg-convo { margin-top: 6px; }
   @media (max-width: 640px) {
     .sit-grid { grid-template-columns: 1fr; }
   }
@@ -1491,6 +1537,7 @@
     <button class="chip" id="import-open" type="button">⎘ PASTE FROM EXCEL</button>
     <button class="chip primary" id="new-open" type="button">+ NEW SCENARIO</button>
     <button class="chip primary" id="new-situation" type="button" title="One more thing a driver reports — the card is the editor" hidden>+ NEW SITUATION</button>
+    <button class="chip primary" id="new-call" type="button" title="One more call Otto makes — the card is the editor" hidden>+ NEW CALL</button>
     <a class="chip plain" href="index.html" target="_blank" rel="noopener">PHONE APP ↗</a>
     <a class="chip plain" href="parcelvox-dashboard.html" target="_blank" rel="noopener" title="ParcelVox route knowledge — the dispatcher's view of tips, routes and stops">DISPATCHER ↗</a>
   </div>
@@ -1605,6 +1652,7 @@
 <script src="field-map.js"></script>
 <script src="trigger-scenarios.js"></script>
 <script src="situations-starter.js"></script>
+<script src="calls-starter.js"></script>
 <script src="route-schoeneberg.js"></script>
 <script src="route-kollwitz.js"></script>
 <script src="dashboard.js"></script>

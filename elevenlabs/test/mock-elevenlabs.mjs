@@ -1,7 +1,7 @@
 /*
  * An in-process stand-in for the three services the loop talks to —
  * the ElevenLabs API (tests, invocations, conversations, the agent,
- * branches), Supabase's REST (messages, scenarios, situations,
+ * branches), Supabase's REST (messages, scenarios, situations, calls,
  * agent_runs) and the proposer's chat-completions endpoint — on one
  * port, fed from test/fixture/.
  * It records every request it gets, which is how the tests check what
@@ -31,6 +31,7 @@ export async function startMock(fixtureDir) {
     messages: load(fixtureDir, 'messages.json'),
     scenarios: load(fixtureDir, 'scenarios.json'),
     situations: load(fixtureDir, 'situations.json'),
+    calls: load(fixtureDir, 'calls.json'),
   };
   const state = {};
   const mock = { requests: [], state, fixture };
@@ -54,6 +55,9 @@ export async function startMock(fixtureDir) {
     /* the dashboard's situation rows, and the same switch for them */
     state.situations = JSON.parse(JSON.stringify(fixture.situations));
     state.situationsTable = true;
+    /* the dashboard's call rows (the CALLS tab), and the same switch */
+    state.calls = JSON.parse(JSON.stringify(fixture.calls));
+    state.callsTable = true;
     /* the designer's "not a problem" list, empty; the same switch */
     state.accepted = [];
     state.acceptedTable = true;
@@ -225,6 +229,12 @@ export async function startMock(fixtureDir) {
     ['GET', /^\/rest\/v1\/situations$/, (m, q) => {
       if (!state.situationsTable) return noTable('situations');
       const rows = q.active === 'eq.true' ? state.situations.filter(r => r.active !== false) : state.situations;
+      return [200, rows];
+    }],
+    /* the calls tab's rows — the call suite is cut from them the same way */
+    ['GET', /^\/rest\/v1\/calls$/, (m, q) => {
+      if (!state.callsTable) return noTable('calls');
+      const rows = q.active === 'eq.true' ? state.calls.filter(r => r.active !== false) : state.calls;
       return [200, rows];
     }],
     ['GET', /^\/rest\/v1\/agent_runs$/, () => (state.agentRunsTable ? [200, state.agentRuns] : noTable('agent_runs'))],

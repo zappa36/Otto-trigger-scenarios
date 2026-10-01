@@ -8,6 +8,7 @@
     "test": "node --test",
     "generate": "node generate-tests.mjs",
     "generate:situations": "node generate-tests.mjs --situations",
+    "generate:calls": "node generate-tests.mjs --calls",
     "loop": "node loop.mjs"
   },
   "engines": { "node": ">=20" }

@@ -7,7 +7,10 @@
  *   app.js         stripQuotes, sentence, fmtParamVal, fillParams,
  *                  notesOnFile, scenarioShape, resolveSays, questionFor,
  *                  LANG_TEXT's own spoken lines and voiceOpts().greeting
- *                  (agentGreeting here), agentVars, agentBriefing
+ *                  (agentGreeting here), agentVars, agentBriefing —
+ *                  and, for a call Otto makes (calls-starter.js), the
+ *                  opener a call opens with (callOpener), the call as
+ *                  agentVars sees it (callOf) and its briefing (callBriefing)
  *   otto-agent.js  initPayload's dynamic-variable filter
  *                  (initDynamicVariables here)
  *
@@ -88,12 +91,23 @@ export const LANG_TEXT = {
   en: {
     plain: 'Tap the mic and tell me what you found.',
     at: d => `This is ${d.title}${d.addr ? ' — ' + d.addr : ''}. What's the situation there? Tap the mic and describe what you see.`,
+    /* a call Otto makes, when the row has no opening line of its own:
+     * the office rings the customer, or the driver (callOpener below) */
+    callConsignee: d => `Hello, this is Otto from the delivery office. I'm calling about a delivery ${d && d.consignee ? 'for ' + surnameOf(d.consignee) : 'to ' + ((d && d.title) || 'your address')} — am I speaking with the right person?`,
+    callDriver: 'Hi, this is Otto from the office — got a moment?',
   },
   it: {
     plain: 'Tocca il microfono e dimmi cosa hai trovato.',
     at: d => `Questa è ${d.title}${d.addr ? ' — ' + d.addr : ''}. Com'è la situazione lì? Tocca il microfono e descrivi cosa vedi.`,
+    callConsignee: d => `Buongiorno, sono Otto dell'ufficio consegne. Chiamo per una consegna ${d && d.consignee ? 'per ' + surnameOf(d.consignee) : 'a ' + ((d && d.title) || 'questo indirizzo')} — parlo con la persona giusta?`,
+    callDriver: 'Ciao, sono Otto dell\'ufficio — hai un momento?',
   },
 };
+
+/* "F. Brandt" → "Brandt": a consignee on file is an initial and a
+ * surname, and an initial read aloud ("F dot Brandt") is not how
+ * anyone opens a call. A business name ("Café Kolmar") is left whole. */
+export const surnameOf = c => String(c || '').trim().replace(/^(?:[A-ZÀ-Þ]\.\s*)+/, '').trim() || String(c || '').trim();
 
 /* voiceOpts().greeting in app.js — the line the phone hands the agent
  * as its first message: the row's "Otto says" question when the row has
@@ -108,7 +122,7 @@ export function agentGreeting(sc, d, { run = null, lang = 'en', saysIt = {} } = 
 
 /* agentVars() in app.js, key for key and in the same order. Everything
  * measured is what THIS run measured. */
-export function agentVars({ scenario: sc, destination: d, run: tr = null, activity = null, distance_to_pin_m = null, lang = 'en', saysIt = {} }) {
+export function agentVars({ scenario: sc, destination: d, run: tr = null, activity = null, distance_to_pin_m = null, lang = 'en', saysIt = {}, call = null }) {
   const p = sc && sc.params;
   const v = {
     destination_title: d ? d.title : '',
@@ -137,9 +151,70 @@ export function agentVars({ scenario: sc, destination: d, run: tr = null, activi
     walk_m: tr && tr.shape === 'parkwalk' ? Math.round(tr.walk_m || 0) : '',
     activity_state: activity ? String(activity.state || '') : '',
     activity_summary: activity ? String(activity.summary || '') : '',
+    /* a call Otto is making (calls-starter.js, the dashboard's CALLS
+     * tab): which call, who was rung, why, and what the office learned
+     * on the call before it — empty on a report and on a trigger
+     * debrief, so none of them goes up there (initDynamicVariables) */
+    call_num: call && call.num != null && call.num !== '' ? call.num : '',
+    call_title: call ? String(call.title || '') : '',
+    call_to: call ? String(call.callee || '') : '',
+    call_purpose: call ? String(call.purpose || '') : '',
+    call_previous: call ? String(call.previous || '') : '',
   };
   if (distance_to_pin_m != null && d) v.distance_to_pin_m = Math.round(distance_to_pin_m);
   return v;
+}
+
+/* ---------- a call Otto makes ----------
+ * A row of the CALLS tab, as agentVars wants it: who is rung
+ * (`callee`, consignee or driver), why, and what the office learned on
+ * the call before this one — the row's own previous_call in the suite,
+ * the outcome of the call just taken on the phone (`previous`). */
+export function callOf(row, previous = null) {
+  if (!row) return null;
+  return {
+    num: row.num != null && row.num !== '' ? Number(row.num) : null,
+    title: String(row.title || ''),
+    callee: String(row.callee || '').toLowerCase() === 'driver' ? 'driver' : 'consignee',
+    purpose: String(row.purpose || ''),
+    previous: String(previous != null && String(previous).trim() ? previous : (row.previous_call || '')),
+  };
+}
+
+/* The line a call opens with — the agent's first message, overridden
+ * the way a trigger debrief's "Otto says" is: the row's own opener when
+ * it has one (Italian from the phone's cache when the call is 🇮🇹 and
+ * the translation landed), the app's own line for the person rung
+ * otherwise. An outbound call cannot open with the platform's "how can
+ * I help you?" — Otto is the one calling. */
+export function callOpener(row, d, { lang = 'en', saysIt = {} } = {}) {
+  const says = stripQuotes(row && row.otto_says);
+  if (says) return (lang === 'it' && saysIt[says]) || says;
+  const t = LANG_TEXT[lang === 'it' ? 'it' : 'en'];
+  return callOf(row).callee === 'driver' ? t.callDriver : t.callConsignee(d);
+}
+
+/* callBriefing() in app.js — the contextual update the phone sends as
+ * a call opens, from the variables above: an agent whose prompt names
+ * none of the call_* variables is still told, in plain words, that it
+ * is the one who rang, whom, and why */
+export function callBriefing(v, lang = 'en') {
+  const lines = [];
+  const floor = String(v.destination_floor || '').trim();
+  const where = v.destination_title
+    ? `${v.destination_title}${v.destination_address ? ' (' + v.destination_address + ')' : ''}${floor ? ', ' + (/^\d+$/.test(floor) ? 'floor ' + floor : floor) : ''}`
+    : 'a delivery address';
+  const who = v.call_to === 'driver'
+    ? 'the driver on this round'
+    : `the customer${v.destination_consignee ? ', ' + v.destination_consignee : ''}`;
+  lines.push(`You are Otto, calling from the delivery office. You have rung ${who} about the delivery at ${where}. This is an outbound call: you called them, so say who you are and why you are calling before anything else.`);
+  if (v.call_title) lines.push(`The call${v.call_num !== '' && v.call_num != null ? ' #' + v.call_num : ''}: ${sentence(v.call_title)}`);
+  if (v.call_purpose) lines.push(`Why you are calling: ${sentence(v.call_purpose)}`);
+  if (v.call_previous) lines.push(`What the office learned before this call: ${sentence(v.call_previous)}`);
+  if (v.destination_notes) lines.push(sentence(`Notes on file for this address: ${v.destination_notes}`));
+  lines.push('Ask what you need to know, keep it to two or three short questions, confirm what was agreed in one line and say what happens next, then let them go.');
+  if (lang === 'it') lines.push('This call is in Italian: conduct the whole call in Italian — every question and reply.');
+  return lines.join(' ');
 }
 
 /* the measured facts of a fired run, in the briefing's words — reused

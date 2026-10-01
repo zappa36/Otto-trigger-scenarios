@@ -27,6 +27,7 @@ const LS_MSGS = 'od_messages';
 const LS_SCEN = 'od_scenarios';
 const LS_RUNS = 'od_runs';
 const LS_SITU = 'od_situations';
+const LS_CALLS = 'od_calls';
 
 let scenarios = [];
 let destinations = [];
@@ -62,6 +63,23 @@ let situationsMissing = false;  // the table is not in the database yet
 let expandedSitId = null;
 let sitEdit = null;             // { id, ...form values } — the open card's unsaved edits
 
+/* ---------- the calls ----------
+ * The third sheet, its own list tab: the calls Otto MAKES. The office
+ * rings the customer about a fresh-food box (will somebody be home),
+ * or the driver about a stop (running late, skip it), and the person
+ * called says what they say. Edited exactly like the situations — the
+ * card is the editor, a draft per card — and read by two more
+ * surfaces: the phone's ⚙ TAKE A CALL list (which rings), and the
+ * suite's --calls generator. `callMessages` is the phone's own calls,
+ * filed as messages with "call #N · …" as their context; a call made
+ * on a phone without the Kollwitzkiez route loaded is filed against
+ * no stop, so they are kept apart from messagesByDest. */
+let calls = [];
+let callsMissing = false;       // the table is not in the database yet
+let expandedCallId = null;
+let callEdit = null;            // { id, ...form values } — the open card's unsaved edits
+let callMessages = [];
+
 /* in-flight UI state for the tuning loop — all per one scenario at a time */
 let tune = null;         // { id, params } — slider values not yet saved as a version
 let fbRec = null;        // { id, text, via, state } — the open feedback recorder
@@ -92,7 +110,9 @@ const schemaHint = e => {
   warn(e);
   if (!Backend.enabled) return;
   const msg = String((e && e.message) || '');
-  if (/situations/i.test(msg) || /PGRST205|42P01|schema cache/i.test(msg)) {
+  if (/\bcalls\b/i.test(msg) && /\b404\b|PGRST205|42P01|schema cache/i.test(msg)) {
+    schemaMsg = 'That row could not be saved — the backend has no calls table yet. Re-run supabase/schema.sql once, then ↻ REFRESH. Until then rows stay in this browser only.';
+  } else if (/situations/i.test(msg) || /PGRST205|42P01|schema cache/i.test(msg)) {
     schemaMsg = 'That row could not be saved — the backend has no situations table yet. Re-run supabase/schema.sql once, then ↻ REFRESH. Until then rows stay in this browser only.';
   } else if (/column|schema|400/i.test(msg)) {
     schemaMsg = 'Save failed — a table is missing newer columns. Re-run supabase/schema.sql, then ↻ REFRESH.';
@@ -117,7 +137,7 @@ const uiBusy = () => !!proposalBusy
    * poll would rebuild the page and fold every expanded conversation
    * back up under the reader — ↻ REFRESH is there when they are done */
   || (runsTabOn() && !!openRunId)
-  || (cardView !== 'demo' && !!(tune || fbRec || proposal || msgEdit || gradeBusy() || sitDirty()))
+  || (cardView !== 'demo' && !!(tune || fbRec || proposal || msgEdit || gradeBusy() || sitDirty() || callDirty()))
   || !el('form-sheet').hidden || !el('stop-sheet').hidden || notesEditing();
 
 const persistLocal = () => {
@@ -126,6 +146,7 @@ const persistLocal = () => {
     localStorage.setItem(LS_SCEN, JSON.stringify(scenarios));
     localStorage.setItem(LS_DEST, JSON.stringify(destinations));
     localStorage.setItem(LS_SITU, JSON.stringify(situations));
+    localStorage.setItem(LS_CALLS, JSON.stringify(calls));
   } catch { /* private mode */ }
 };
 
@@ -294,6 +315,15 @@ function tuneDiff(saved, cur) {
 /* ---------- status model ---------- */
 function msgsOf(sc) {
   return (sc.destination_id && messagesByDest[sc.destination_id]) || [];
+}
+/* the phone's own calls for a call row: filed as messages whose
+ * context opens with "call #N · " (callContext in app.js), newest first */
+const CALL_CONTEXT = /^call #(\d+) · /;
+const isCallMessage = m => CALL_CONTEXT.test(String((m && m.context) || ''));
+function callMsgsOf(c) {
+  const num = c && c.num != null && c.num !== '' ? +c.num : null;
+  if (num == null) return [];
+  return callMessages.filter(m => +(CALL_CONTEXT.exec(String(m.context || '')) || [])[1] === num);
 }
 
 /* ---------- debrief editing ----------
@@ -488,8 +518,13 @@ const agentTime = r => new Date(agentRanAt(r) || 0).getTime() || 0;
  *   prev    the baseline before it — what the trend is measured against
  *   branch  a proposed prompt's run on an agent branch, newer than that
  *           baseline: the candidate the designer is asked to promote */
-function agentSuite() {
-  const agentId = String(window.ELEVENLABS_AGENT_ID || '').trim() || String((agentRuns[0] && agentRuns[0].agent_id) || '');
+function agentSuite(kind) {
+  /* a call row's suite ran on the back-office agent, when there is one
+   * (config.js's ELEVENLABS_CALL_AGENT_ID); every other row's on Otto */
+  const configured = kind === 'call'
+    ? String(window.ELEVENLABS_CALL_AGENT_ID || window.ELEVENLABS_AGENT_ID || '').trim()
+    : String(window.ELEVENLABS_AGENT_ID || '').trim();
+  const agentId = configured || String((agentRuns[0] && agentRuns[0].agent_id) || '');
   const mine = agentRuns.filter(r => r && String(r.agent_id || '') === agentId);
   const mains = mine.filter(r => r.label === 'main');
   const main = mains[0] || null;
@@ -502,15 +537,20 @@ function agentSuite() {
  * now, so the kind decides which fields are read: a situation's tests
  * carry kind 'situation' and situation_num / situation_title, and must
  * never land on a trigger scenario's card (or the other way round). */
+/* the fields a test of each kind carries its row in; a regression test
+ * cut from a field debrief is a scenario's, by its join */
+const KIND_FIELDS = { situation: ['situation_num', 'situation_title'], call: ['call_num', 'call_title'], scenario: ['scenario_num', 'scenario_title'] };
+const testKind = t => (t && (t.kind === 'situation' || t.kind === 'call') ? t.kind : 'scenario');
 function agentTestsFor(run, row, kind) {
   if (!run || !row) return [];
-  const situ = kind === 'situation';
+  const k = KIND_FIELDS[kind] ? kind : 'scenario';
+  const [fNum, fTitle] = KIND_FIELDS[k];
   const num = row.num == null || row.num === '' ? null : +row.num;
   const title = normTitle(row.title);
   return agentRunTests(run).filter(t => {
-    if (situ !== (t.kind === 'situation')) return false;
-    const tNum = situ ? t.situation_num : t.scenario_num;
-    const tTitle = situ ? t.situation_title : t.scenario_title;
+    if (testKind(t) !== k) return false;
+    const tNum = t[fNum];
+    const tTitle = t[fTitle];
     return (num != null && tNum != null && +tNum === num)
       || (!!title && normTitle(tTitle) === title);
   });
@@ -525,7 +565,7 @@ const agentCls = t => { const r = agentRate(t); return r >= 1 ? 'ok' : r >= 0.5 
  * debrief named as such — then passed/runs. Ordered for the eye, not
  * worst-first like the loop prints: personas in the order
  * personas.json lists them, Italian after English, regressions last. */
-const PERSONA_ORDER = ['cooperative', 'terse', 'sidetracked', 'vague', 'annoyed'];
+const PERSONA_ORDER = ['cooperative', 'terse', 'sidetracked', 'vague', 'annoyed', 'suspicious'];
 /* The word the page uses for a driver type. The id is part of every
  * test's name in ElevenLabs, so it is not renamed — "terse" stays the
  * id and reads "quiet" here. */
@@ -540,8 +580,13 @@ const PERSONA_ABOUT = {
   sidetracked: 'starts with small talk, then answers.',
   vague: 'says “it did not really work out” and no more until Otto asks what happened.',
   annoyed: 'is fed up and behind on the round: short, sharp answers, and asks to be let go.',
+  /* the call suite's own: the person Otto rang does not know who is calling */
+  suspicious: 'asks who is calling and how they got the number before answering anything.',
 };
-const personaAbout = id => PERSONA_ABOUT[id] || 'a driver type from personas.json.';
+const personaAbout = id => PERSONA_ABOUT[id] || 'a persona from personas.json.';
+/* the other side of a call: the customer, or the driver Otto rang —
+ * the word the transcripts and the chips use for the USER turns */
+const otherSide = t => (t && t.kind === 'call' ? (t.call_to === 'driver' ? 'DRIVER' : 'CUSTOMER') : 'DRIVER');
 const agentWho = t => {
   const parts = [];
   if (t.persona) parts.push(personaLabel(t.persona));
@@ -672,8 +717,20 @@ async function loadAll() {
       (ms || []).forEach(m => {
         if (m.destination_id) (messagesByDest[m.destination_id] = messagesByDest[m.destination_id] || []).push(m);
       });
+      /* the phone's calls, by their context — with or without a stop */
+      callMessages = (ms || []).filter(isCallMessage);
       pruneGrades();
     } catch (e) { warn(e); }
+    /* the calls the same way: their own request, their own absence */
+    try {
+      calls = (await Backend.listCalls()) || [];
+      callsMissing = false;
+      if (/calls table/i.test(schemaMsg)) schemaMsg = '';
+    } catch (e) {
+      warn(e);
+      callsMissing = /\b404\b|PGRST205|42P01|schema cache/i.test(String((e && e.message) || ''));
+      calls = [];
+    }
     /* the situations ride their own request: they have no pin and no
      * debriefs, and a database still missing the table must cost the
      * scenarios nothing — the SITUATIONS tab says what to re-run */
@@ -742,10 +799,13 @@ async function loadAll() {
     try { scenarios = JSON.parse(localStorage.getItem(LS_SCEN) || '[]'); } catch { scenarios = []; }
     try { destinations = JSON.parse(localStorage.getItem(LS_DEST) || '[]'); } catch { destinations = []; }
     try { situations = JSON.parse(localStorage.getItem(LS_SITU) || '[]'); } catch { situations = []; }
+    try { calls = JSON.parse(localStorage.getItem(LS_CALLS) || '[]'); } catch { calls = []; }
     messagesByDest = {};
+    callMessages = [];
     try {
       (JSON.parse(localStorage.getItem(LS_MSGS) || '[]')).forEach(m => {
         if (m.destination_id) (messagesByDest[m.destination_id] = messagesByDest[m.destination_id] || []).push(m);
+        if (isCallMessage(m)) callMessages.push(m);
       });
     } catch { /* private mode */ }
     pruneGrades();
@@ -764,9 +824,12 @@ async function loadAll() {
     ((a.num == null ? 1e9 : a.num) - (b.num == null ? 1e9 : b.num))
     || String(a.created_at || '').localeCompare(String(b.created_at || '')));
   sortSituations();
+  sortCalls();
+  callMessages.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
   /* a draft whose row is gone (deleted elsewhere, or a reload that no
    * longer carries it) has nothing left to save onto */
   if (sitEdit && !situations.some(s => s.id === sitEdit.id)) sitEdit = null;
+  if (callEdit && !calls.some(c => c.id === callEdit.id)) callEdit = null;
   /* the run analysis is cached per run, and it reads the situation rows
    * for their tips — a reload that changed either invalidates it */
   runAnalysisCache = { id: null, out: null };
@@ -804,8 +867,9 @@ function renderStats() {
   if (schemaMsg) { el('stats').textContent = schemaMsg; return; }
   /* the line counts what the list is showing: on the SITUATIONS tab the
    * scenarios' pins and debriefs are not the subject, the situations and
-   * how many of them the suite has results for are */
-  const suite = agentSuite();
+   * how many of them the suite has results for are — and on the CALLS
+   * tab the suite is the back-office agent's */
+  const suite = agentSuite(callsTabOn() ? 'call' : undefined);
   const parts = [];
   if (runsTabOn()) {
     parts.push(`${agentRuns.length} suite run${agentRuns.length === 1 ? '' : 's'} on file`);
@@ -819,6 +883,14 @@ function renderStats() {
     const withResults = situations.filter(s => agentTestsFor(suite.main, s, 'situation').length).length;
     if (withResults) parts.push(`${withResults} with results`);
     const out = situations.filter(s => s.active === false).length;
+    if (out) parts.push(`${out} out of the suite`);
+  } else if (callsTabOn()) {
+    parts.push(`${calls.length} call${calls.length === 1 ? '' : 's'}`);
+    const withResults = calls.filter(c => agentTestsFor(suite.main, c, 'call').length).length;
+    if (withResults) parts.push(`${withResults} with results`);
+    const taken = callMessages.length;
+    if (taken) parts.push(`${taken} taken on the phone`);
+    const out = calls.filter(c => c.active === false).length;
     if (out) parts.push(`${out} out of the suite`);
   } else {
     renderScenarioStats(parts);
@@ -1187,9 +1259,11 @@ function suiteStateNote(situ) {
     return `Could not read the suite\'s runs — ${esc(agentRunsError)}. ↻ REFRESH to try again.`;
   }
   if (!agentRuns.length) {
-    return situ
-      ? 'The suite has not run yet — Actions → agent-suite → Run workflow → baseline (suite: situations). Its results land here: one chip per voice, the failing conversations under them.'
-      : 'The suite has not run yet — Actions → agent-suite → Run workflow → baseline. Its results land here: one chip per test, the failing conversations under them.';
+    return situ === 'call'
+      ? 'The suite has not run yet — Actions → agent-suite → Run workflow → baseline (suite: calls). Its results land here: one chip per voice, the failing conversations under them.'
+      : situ
+        ? 'The suite has not run yet — Actions → agent-suite → Run workflow → baseline (suite: situations). Its results land here: one chip per voice, the failing conversations under them.'
+        : 'The suite has not run yet — Actions → agent-suite → Run workflow → baseline. Its results land here: one chip per test, the failing conversations under them.';
   }
   return '';
 }
@@ -1207,8 +1281,12 @@ function suiteStateNote(situ) {
  * matched on, what the empty states tell you to press, and the field
  * line — a situation has no pin, so it has no debriefs to roll up. */
 function renderAgentBlock(row, kind) {
-  const situ = kind === 'situation';
-  const noun = situ ? 'situation' : 'scenario';
+  /* a situation and a call are alike here: a sheet row with no pin,
+   * tested by the suite from the live rows; a call also has the
+   * phone's own calls as its field half */
+  const call = kind === 'call';
+  const situ = kind === 'situation' || call;
+  const noun = call ? 'call' : situ ? 'situation' : 'scenario';
   const box = inner => `
           <div class="agent-block">${inner}</div>`;
   const head = (rest, title, link) => `
@@ -1219,9 +1297,9 @@ function renderAgentBlock(row, kind) {
     ? `<a class="row-link" href="${esc(r.run_url)}" target="_blank" rel="noopener" title="${esc(what)}">open the run ↗</a>` : '');
   /* one wording per state, shared with the RUNS tab: the same absence
    * must not be explained two different ways on two surfaces */
-  const state = suiteStateNote(situ);
+  const state = suiteStateNote(call ? 'call' : situ);
   if (state) return box(head() + note(state));
-  const { agentId, main, prev, branch } = agentSuite();
+  const { agentId, main, prev, branch } = agentSuite(kind);
   if (!main && !branch) {
     return box(head() + note(`The runs on file are for another agent than this dashboard is configured for (${esc(agentId)}) — a baseline on this agent lands here.`));
   }
@@ -1266,7 +1344,7 @@ function renderAgentBlock(row, kind) {
     const s = jsonOf(t.success);
     const goodRaw = s && typeof s === 'object' ? jsonOf(s.transcript) : null;
     const good = Array.isArray(goodRaw) ? goodRaw.filter(u => u && typeof u === 'object') : [];
-    const turnHtml = u => `<div class="msg-turn ${u.role === 'user' ? 'me' : 'ai'}"><b>${u.role === 'user' ? 'TESTER' : 'OTTO'}</b>${esc(u.message || '')}${runToolNote(u)}</div>`;
+    const turnHtml = u => `<div class="msg-turn ${u.role === 'user' ? 'me' : 'ai'}"><b>${u.role === 'user' ? (call ? otherSide(t) : 'TESTER') : 'OTTO'}</b>${esc(u.message || '')}${runToolNote(u)}</div>`;
     return `
             <div class="agent-fail">
               <span class="agent-fail-who">${esc(agentWho(t))}</span><span class="agent-why-tag" title="The evaluator writes one paragraph per criterion, passed or failed. This is only the FIRST LINE of that text, so it can quote a criterion that passed — it is not the reason the test failed. The full reasons, criterion by criterion, are on the RUNS tab.">FIRST LINE OF THE EVALUATOR’S REASONS · NOT THE VERDICT</span><span class="agent-why">${esc(why)}</span>
@@ -1308,7 +1386,13 @@ function renderAgentBlock(row, kind) {
    * has no pin and therefore no field debriefs — no line at all there,
    * rather than one that says "none" forever. */
   let fieldLine = '';
-  if (!situ) {
+  if (call) {
+    /* the phone's own calls for this row — the designer answering as
+     * the customer or the driver; the list itself is on the card */
+    const n = callMsgsOf(row).length;
+    fieldLine = `
+            <p class="agent-field" title="The calls taken on the phone for this row — ⚙ TAKE A CALL on the phone, or the ring link above">${esc(n ? `phone: ${n} call${n === 1 ? '' : 's'} taken — read them under YOUR CALLS above` : 'phone: no call taken for this row yet — ⚙ on the phone → TAKE A CALL, or the ring link above')}</p>`;
+  } else if (!situ) {
     const agentMsgs = msgsOf(row).filter(m => m && m.via === 'elevenlabs');
     const grades = agentMsgs.map(m => gradeSummary(gradeOf(m))).filter(g => g.graded);
     const ok = grades.filter(g => !g.bad).length;
@@ -1324,7 +1408,7 @@ function renderAgentBlock(row, kind) {
     ? note('No baseline on the live prompt yet — Actions → agent-suite → baseline. A proposed prompt has run meanwhile:')
     : !tests.length
       ? note(situ
-        ? 'No test for this situation in the latest run — it is generated from these rows at run time; press baseline again.'
+        ? `No test for this ${noun} in the latest run — it is generated from these rows at run time; press baseline again${call ? ' (suite: calls)' : ''}.`
         : 'No test for this scenario yet — generate the tests from your rows (cd elevenlabs &amp;&amp; node generate-tests.mjs --supabase), push them, then baseline again.')
       : chips + fails;
   /* the card shows this row's chips and its failing conversations; the
@@ -1333,7 +1417,7 @@ function renderAgentBlock(row, kind) {
    * landing on this row in the run's EVERY SITUATION table */
   const full = situ && main
     ? `<button class="row-link" type="button" data-runjump="${esc(main.id)}" data-runsit="${esc(row.id)}"
-        title="Open this run's summary on the RUNS tab, scrolled to this situation">see the full reasons ↓</button>` : '';
+        title="Open this run's summary on the RUNS tab, scrolled to this ${noun}">see the full reasons ↓</button>` : '';
   const links = full || runLink(main, 'The GitHub Actions run that produced this baseline');
   return box(head(headLine, headTitle,
     links ? `<span class="agent-links">${full}${runLink(main, 'The GitHub Actions run that produced this baseline')}</span>` : '')
@@ -1789,6 +1873,231 @@ function renderSituationsEmpty() {
       </div>`;
 }
 
+/* ---------- the call card ----------
+ * Collapsed: who Otto rings and what they say, under the title — the
+ * whole row in a glance. Open: the row itself, every field an input
+ * (the situation card's form), the link that rings this call on the
+ * phone, the calls taken on the phone for this row, and the suite's
+ * results. The columns are the calls table's, in its order. */
+const CALL_COLS = ['num', 'title', 'callee', 'stop', 'purpose', 'otto_says', 'previous_call', 'they_say', 'they_know', 'must_establish', 'off_topic', 'outcome', 'next_call', 'active'];
+const callRow = r => {
+  const o = {};
+  CALL_COLS.forEach(k => {
+    if (r[k] === undefined) return;
+    o[k] = (k === 'must_establish' || k === 'off_topic') ? sitList(r[k]) : r[k];
+  });
+  return o;
+};
+const calleeOf = c => (String((c && c.callee) || '').toLowerCase() === 'driver' ? 'driver' : 'consignee');
+const calleeWord = c => (calleeOf(c) === 'driver' ? 'the driver' : 'the customer');
+const callNumOf = v => (v === '' || v == null || !isFinite(+v) ? null : Math.round(+v));
+/* the next call in the chain, by number — null when the row names none, or one that is not there */
+const nextCallOf = c => (c && c.next_call != null && c.next_call !== '' ? calls.find(x => x !== c && x.num != null && +x.num === +c.next_call) || null : null);
+
+function callDraftOf(c) {
+  return {
+    id: c.id,
+    title: String(c.title == null ? '' : c.title),
+    callee: calleeOf(c),
+    stop: c.stop == null || c.stop === '' ? '' : String(c.stop),
+    purpose: String(c.purpose == null ? '' : c.purpose),
+    otto_says: String(c.otto_says == null ? '' : c.otto_says),
+    previous_call: String(c.previous_call == null ? '' : c.previous_call),
+    they_say: String(c.they_say == null ? '' : c.they_say),
+    they_know: String(c.they_know == null ? '' : c.they_know),
+    must_establish: sitList(c.must_establish).join('\n'),
+    off_topic: sitList(c.off_topic).join('\n'),
+    outcome: String(c.outcome == null ? '' : c.outcome),
+    next_call: c.next_call == null || c.next_call === '' ? '' : String(c.next_call),
+    active: c.active !== false,
+  };
+}
+const callDraft = c => (callEdit && callEdit.id === c.id ? callEdit : callDraftOf(c));
+function openCallEdit(c) {
+  if (!callEdit || callEdit.id !== c.id) callEdit = callDraftOf(c);
+  return callEdit;
+}
+/* what would be written: only the columns that actually changed */
+function callPatch(c, d) {
+  const shape = (x, draft) => ({
+    title: String(x.title == null ? '' : x.title).trim() || 'Untitled call',
+    callee: calleeOf(x),
+    stop: callNumOf(x.stop),
+    purpose: String(x.purpose == null ? '' : x.purpose).trim() || null,
+    otto_says: String(x.otto_says == null ? '' : x.otto_says).trim() || null,
+    previous_call: String(x.previous_call == null ? '' : x.previous_call).trim() || null,
+    they_say: String(x.they_say == null ? '' : x.they_say).trim() || null,
+    they_know: String(x.they_know == null ? '' : x.they_know).trim() || null,
+    must_establish: draft ? sitLines(x.must_establish) : sitList(x.must_establish),
+    off_topic: draft ? sitLines(x.off_topic) : sitList(x.off_topic),
+    outcome: String(x.outcome == null ? '' : x.outcome).trim() || null,
+    next_call: callNumOf(x.next_call),
+    active: draft ? !!x.active : x.active !== false,
+  });
+  const now = shape(d, true), was = shape(c, false);
+  const patch = {};
+  Object.keys(now).forEach(k => {
+    if (JSON.stringify(was[k]) !== JSON.stringify(now[k])) patch[k] = now[k];
+  });
+  return patch;
+}
+function callDirty() {
+  if (!callEdit) return false;
+  const c = calls.find(x => x.id === callEdit.id);
+  return !!c && Object.keys(callPatch(c, callEdit)).length > 0;
+}
+
+/* the calls taken on the phone for this row — the designer answering
+ * as the customer or the driver — newest first, the conversation
+ * folded under each */
+function renderCallField(c) {
+  const list = callMsgsOf(c);
+  if (!list.length) return '';
+  const turnHtml = u => `<div class="msg-turn ${u.from === 'me' ? 'me' : 'ai'}"><b>${u.from === 'me' ? 'YOU' : 'OTTO'}</b>${esc(u.text || '')}</div>`;
+  return `
+      <div class="call-field">
+        <span class="cmp-k">YOUR CALLS · ${list.length}</span>
+        ${list.slice(0, 5).map(m => {
+    const convo = jsonOf(m.convo);
+    const turns = Array.isArray(convo) ? convo.filter(u => u && typeof u === 'object') : [];
+    const as = String(m.context || '').replace(CALL_CONTEXT, '').split(' · ').pop();
+    return `<div class="call-msg" title="${esc(m.conversation_id ? 'ElevenLabs conversation ' + m.conversation_id : '')}">
+            <span class="call-msg-when">${esc(fmtTime(m.created_at))}</span><span>${esc(as)}</span>${m.via === 'elevenlabs' ? ' <span class="badge badge-debriefed">◆ AGENT</span>' : ''}
+            ${turns.length ? `<details class="msg-convo"><summary>THE CALL · ${turns.length} TURNS</summary>${turns.map(turnHtml).join('')}</details>` : `<p class="rm-dim">${esc(m.transcript || '')}</p>`}
+          </div>`;
+  }).join('')}
+        ${list.length > 5 ? `<p class="rs-how">…and ${list.length - 5} more.</p>` : ''}
+      </div>`;
+}
+
+function renderCall(c) {
+  const open = expandedCallId === c.id;
+  const d = callDraft(c);
+  const dirty = callEdit && callEdit.id === c.id && callDirty();
+  const active = open ? d.active : c.active !== false;
+  const says = String(c.they_say || '').trim();
+  const to = open ? d.callee : calleeOf(c);
+  const route = sitRoute();
+  const stopField = route
+    ? `<select data-call-field="stop">
+            <option value=""${d.stop === '' ? ' selected' : ''}>— no stop: the suite picks one</option>
+            ${route.stops.map(st => `<option value="${esc(st.stop)}"${String(st.stop) === d.stop ? ' selected' : ''}>${esc(st.stop)} · ${esc(st.title)}${st.consignee ? ' — ' + esc(st.consignee) : ''}</option>`).join('')}
+          </select>`
+    : `<input type="number" min="1" step="1" data-call-field="stop" value="${esc(d.stop)}" placeholder="stop #">`;
+  const others = calls.filter(x => x !== c && x.num != null && x.num !== '');
+  const nextField = `<select data-call-field="next_call">
+            <option value=""${d.next_call === '' ? ' selected' : ''}>— none: after this call the phone goes back to the map</option>
+            ${others.map(x => `<option value="${esc(x.num)}"${String(x.num) === d.next_call ? ' selected' : ''}>#${esc(x.num)} ${esc(x.title)} → ${esc(calleeWord(x))}</option>`).join('')}
+          </select>`;
+  const next = nextCallOf(c);
+  const ringHref = c.num != null && c.num !== '' ? `index.html?call=${encodeURIComponent(c.num)}` : '';
+
+  const body = !open ? '' : `
+    <div class="sc-body">
+      <div class="sit-edit">
+        <div class="sit-grid">
+          <div class="full">
+            <label>Call</label>
+            <input type="text" data-call-field="title" value="${esc(d.title)}" placeholder="What the call is, in a few words">
+          </div>
+          <div>
+            <label>Otto rings</label>
+            <select data-call-field="callee">
+              <option value="consignee"${d.callee === 'consignee' ? ' selected' : ''}>the customer — the consignee at the stop</option>
+              <option value="driver"${d.callee === 'driver' ? ' selected' : ''}>the driver on the round</option>
+            </select>
+          </div>
+          <div>
+            <label>The stop it is about <span class="pe-sub">— the address and the customer's name</span></label>
+            ${stopField}
+          </div>
+          <div class="full">
+            <label>Why Otto is calling <span class="pe-sub">— his brief, in a sentence or two; the rules go here too (fresh food is handed over in person)</span></label>
+            <textarea data-call-field="purpose" placeholder="A fresh-food box for F. Brandt is on today's round, due between 17:00 and 19:00. Find out whether somebody will be home, and if not, from when.">${esc(d.purpose)}</textarea>
+          </div>
+          <div class="full">
+            <label>Otto opens with <span class="pe-sub">— the first thing he says; empty = &ldquo;Hello, this is Otto from the delivery office&hellip;&rdquo;</span></label>
+            <textarea data-call-field="otto_says" placeholder="Hello, this is Otto from the delivery office. Am I speaking with Mr Brandt?">${esc(d.otto_says)}</textarea>
+          </div>
+          <div class="full">
+            <label>What the office learned on the call before <span class="pe-sub">— only when this call follows another; on the phone the real outcome of that call replaces it</span></label>
+            <textarea data-call-field="previous_call">${esc(d.previous_call)}</textarea>
+          </div>
+          <div class="full">
+            <label>What the person says <span class="pe-sub">— once Otto has said why he is calling</span></label>
+            <textarea data-call-field="they_say" placeholder="&ldquo;Oh — I'm still at work. I won't be home before six.&rdquo;">${esc(d.they_say)}</textarea>
+          </div>
+          <div class="full">
+            <label>What the person knows if asked <span class="pe-sub">— and only then; the simulated person never volunteers it</span></label>
+            <textarea data-call-field="they_know">${esc(d.they_know)}</textarea>
+          </div>
+          <div class="full">
+            <label>The call has to establish <span class="pe-sub">— one per line</span></label>
+            <textarea data-call-field="must_establish" placeholder="whether somebody will be home between 17:00 and 19:00&#10;if not, from what time">${esc(d.must_establish)}</textarea>
+          </div>
+          <div class="full">
+            <label>Off topic here <span class="pe-sub">— one per line; asking these is a fail</span></label>
+            <textarea data-call-field="off_topic" placeholder="parking&#10;the gate code">${esc(d.off_topic)}</textarea>
+          </div>
+          <div class="full">
+            <label>The outcome Otto should confirm <span class="pe-sub">— what was agreed and what happens next, in one line</span></label>
+            <input type="text" data-call-field="outcome" value="${esc(d.outcome)}" placeholder="Nobody home before 18:00 — the driver comes after six; the office tells the driver.">
+          </div>
+          <div class="full">
+            <label>Then Otto calls <span class="pe-sub">— the call that follows this one on the phone, carrying what this one found</span></label>
+            ${nextField}
+          </div>
+        </div>
+        <div class="fb-rec-foot">
+          <button class="mini-btn${active ? ' accent' : ''}" type="button" data-call-act="active"
+            title="${esc(active ? 'In the suite — the next baseline makes this call, and the phone lists it' : 'Out of the suite — kept here, but no test is generated for it and the phone does not list it')}">${active ? '✓ in the suite' : '✗ out of the suite'}</button>
+          <span class="fb-hint">${dirty ? 'Unsaved changes' : 'Edited here; the suite and the phone read these rows.'}</span>
+          <button class="mini-btn accent" type="button" data-call-act="save">Save</button>
+          <button class="mini-btn" type="button" data-call-act="cancel">Cancel</button>
+          <span class="row-links"><button class="row-link danger" type="button" data-call-act="del">Delete</button></span>
+        </div>
+      </div>
+      ${ringHref ? `
+      <div class="call-ring">
+        <a href="${esc(ringHref)}" target="_blank" rel="noopener">📞 Ring this call on the phone ↗</a>
+        <span>Opens the phone page with this call ringing. Answer as ${esc(calleeWord(c))}${next ? `; when it ends, Otto rings ${esc(calleeWord(next))} with call #${esc(next.num)}` : ''}. Or on the phone itself: ⚙ → TAKE A CALL.</span>
+      </div>` : ''}
+      ${renderCallField(c)}
+      ${renderAgentBlock(c, 'call')}
+    </div>`;
+
+  return `
+    <article class="sc callrow" data-call="${esc(c.id)}">
+      <header class="sc-header">
+        <span class="sc-num">${c.num != null && c.num !== '' ? '#' + esc(c.num) : '·'}</span>
+        <div class="sc-head">
+          <h3>${esc(c.title || 'Untitled call')}</h3>
+          ${says ? `<div class="sc-addr-line sit-says">${esc(calleeWord(c))}: &ldquo;${esc(says)}&rdquo;</div>` : '<div class="sc-addr-line warn">⚠ Nothing for the person to say yet — open the row and write what they say</div>'}
+        </div>
+        <span class="call-to${to === 'driver' ? ' driver' : ''}" title="Who Otto rings">→ ${to === 'driver' ? 'driver' : 'customer'}</span>
+        ${next ? `<span class="call-then" title="The call that follows this one on the phone">then #${esc(next.num)}</span>` : ''}
+        ${dirty ? '<span class="badge badge-nopin" title="Edited but not saved">UNSAVED</span>' : ''}
+        ${active ? '' : '<span class="badge badge-out" title="Kept here, but the suite generates no test for it and the phone does not list it">OUT OF THE SUITE</span>'}
+        <button class="sc-del" type="button" data-call-act="del" title="Delete call" aria-label="Delete call">×</button>
+      </header>
+      ${body}
+    </article>`;
+}
+
+function renderCallsEmpty() {
+  const n = CALL_SHEET ? CALL_SHEET.calls.length : 0;
+  return `
+      <div class="empty">
+        <b>No calls yet</b>
+        <p>A call is one Otto makes from the back office: he rings the customer about a fresh-food box — will somebody be home — or the driver about a stop, and the person says what they say. The suite acts each one out in four voices; on the phone you take the call yourself (⚙ → TAKE A CALL).</p>
+        ${callsMissing ? '<p class="cmp-empty">No calls table in the backend yet — re-run supabase/schema.sql once, then ↻ REFRESH.</p>' : ''}
+        <div class="top-actions">
+          <button class="chip primary" type="button" data-call-empty="new">+ NEW CALL</button>
+          ${n ? `<button class="chip" type="button" data-call-empty="sheet">⇩ LOAD THE STARTER CALLS · ${n}</button>` : ''}
+        </div>
+      </div>`;
+}
+
 /* ---------- the RUNS tab: one summary page per suite run ----------
  * The suite publishes a run and the cards show it a row at a time. That
  * answers "how did THIS situation go" and not the question actually
@@ -1857,11 +2166,23 @@ const runHits = (set, text) => { const w = runBag(text); let n = 0; set.forEach(
  * #5 was this sheet's row #1. A tip compared against the wrong row
  * would be worse than no tip line at all. */
 function runSitRow(t) {
+  if (t && t.kind === 'call') {
+    const ct = normTitle(t.call_title);
+    return (ct && calls.find(c => normTitle(c.title) === ct))
+      || (t.call_num != null && calls.find(c => c.num != null && +c.num === +t.call_num))
+      || null;
+  }
   const title = normTitle(t && t.situation_title);
   return (title && situations.find(s => normTitle(s.title) === title))
     || (t && t.situation_num != null && situations.find(s => s.num != null && +s.num === +t.situation_num))
     || null;
 }
+/* the row a test was cut from, by kind: a situation's number and title,
+ * or a call's — and one key for both, so the two sheets never add up */
+const runRowNum = t => (t && t.kind === 'call' ? t.call_num : t ? t.situation_num : null);
+const runRowTitle = t => String((t && (t.kind === 'call' ? t.call_title : t.situation_title)) || '').trim();
+const runRowKey = t => `${t.kind}|${runRowNum(t) == null ? '' : runRowNum(t)}|${normTitle(runRowTitle(t))}`;
+const isRowTest = t => !!t && (t.kind === 'situation' || t.kind === 'call');
 
 /* "he told the driver he had filed it" — the agent's own words, not the
  * evaluator's reading of them */
@@ -1895,7 +2216,10 @@ function runFacts(run) {
     const turns = Array.isArray(raw) ? raw.filter(u => u && typeof u === 'object') : [];
     if (!turns.length) return null;
     const agent = turns.filter(u => u.role !== 'user');
-    const row = runSitRow(t);
+    /* a call row has an outcome where a situation row has a tip; the
+     * tip readings below are the driver report's, so a call reads as a
+     * test with no row here (its row still links from the tables) */
+    const row = t.kind === 'call' ? null : runSitRow(t);
 
     const opener = runStrip(agent[0] && agent[0].message).trim();
     /* the first thing the agent said AFTER the driver's report — the
@@ -1998,6 +2322,19 @@ const RUN_CRITERIA = [
   'ends by confirming the tip in one line, then lets the driver go',
   'asks one open question first — the vague driver only',
 ];
+/* the same for a call Otto made (generate-tests.mjs callConditions):
+ * seven checks in this order, an eighth for the suspicious person */
+const RUN_CRITERIA_CALLS = [
+  'says who he is and why he is calling, within his first two turns',
+  'asks what the call has to establish, and nothing off topic',
+  'never asks for something the person already said',
+  'sounds like a person from the office — no script, no lecturing',
+  'invents nothing the person did not say and the office did not know',
+  'at most three questions after saying why he is calling',
+  'ends by confirming what was agreed and what happens next, in one line',
+  'says who he is when asked who is calling — the suspicious person only',
+];
+const runCriteriaOf = t => (t && t.kind === 'call' ? RUN_CRITERIA_CALLS : RUN_CRITERIA);
 /* The judge's own word at the head of a paragraph — every check asks
  * for "PASS or FAIL, then the reason" — so the count per check is its
  * word wherever it complied, and a reading of the prose only for runs
@@ -2046,13 +2383,14 @@ function runRollup(run) {
     : tests.filter(t => +t.runs > 0 && +t.passed === +t.runs).length;
   const rate = sm.pass_rate != null && isFinite(+sm.pass_rate) ? +sm.pass_rate : (conv > 0 ? passed / conv : 0);
   const situ = tests.some(t => t.kind === 'situation');
-  const trig = tests.some(t => t.kind && t.kind !== 'situation');
+  const call = tests.some(t => t.kind === 'call');
+  const trig = tests.some(t => t.kind && t.kind !== 'situation' && t.kind !== 'call');
   const personas = [...new Set(tests.map(t => String(t.persona || '')).filter(Boolean))]
     .sort((a, b) => (PERSONA_ORDER.indexOf(a) + 1 || 99) - (PERSONA_ORDER.indexOf(b) + 1 || 99));
-  const rows = [...new Set(tests.filter(t => t.kind === 'situation')
-    .map(t => (t.situation_num == null ? '' : t.situation_num) + '|' + normTitle(t.situation_title)))];
+  const rows = [...new Set(tests.filter(isRowTest).map(runRowKey))];
+  const kinds = [situ, call, trig].filter(Boolean).length;
   return { tests, conv, passed, nTests, perfect, rate,
-    suite: situ && trig ? 'mixed' : situ ? 'situations' : trig ? 'triggers' : '',
+    suite: kinds > 1 ? 'mixed' : situ ? 'situations' : call ? 'calls' : trig ? 'triggers' : '',
     personas, rowCount: rows.length,
     repeat: +run.repeat > 0 ? +run.repeat : (tests[0] && +tests[0].runs) || 0 };
 }
@@ -2065,11 +2403,13 @@ const runPct = r => Math.round((+r || 0) * 100) + '%';
 /* ---------- per situation, from the run's own tests ---------- */
 function runSituations(run, facts) {
   const by = new Map();
-  agentRunTests(run).filter(t => t.kind === 'situation').forEach(t => {
-    const key = normTitle(t.situation_title) || 'situation ' + t.situation_num;
+  /* a call row counts here like a situation row — one bar, one line
+   * of the table — keyed by its kind, so #3 of each sheet stays apart */
+  agentRunTests(run).filter(isRowTest).forEach(t => {
+    const key = runRowKey(t);
     let o = by.get(key);
     if (!o) {
-      o = { num: t.situation_num, title: String(t.situation_title || '').trim() || ('situation ' + t.situation_num),
+      o = { kind: t.kind, num: runRowNum(t), title: runRowTitle(t) || (t.kind + ' ' + runRowNum(t)),
         row: runSitRow(t), runs: 0, passed: 0, tests: [] };
       by.set(key, o);
     }
@@ -2311,6 +2651,10 @@ const RUN_PATTERNS = [
     how: 'We compared the words of Otto\'s first question with the row\'s "a good follow-up asks about" list and its "off topic here" list. It counts only when the off-topic list matches more.' },
 ];
 function runFindings(run, facts) {
+  /* the patterns below read a driver's report — the tip, the report
+   * read back, the follow-up — and a call Otto made is none of that;
+   * its calls are judged by the checks alone (the notes by check) */
+  facts = facts.filter(f => !(f.test && f.test.kind === 'call'));
   const n = facts.length;
   if (!n) return [];
   const out = RUN_PATTERNS.map(p => {
@@ -2661,11 +3005,11 @@ function renderModelCalls(rows) {
     for (const t of agentRunTests(r)) {
       /* a test with neither number nor title (a row switched off since,
        * still run from an old lock) has no situation to pick */
-      if (t.kind !== 'situation' || (t.situation_num == null && !normTitle(t.situation_title))) continue;
-      const key = (t.situation_num == null ? '' : t.situation_num) + '|' + normTitle(t.situation_title);
+      if (!isRowTest(t) || (runRowNum(t) == null && !normTitle(runRowTitle(t)))) continue;
+      const key = runRowKey(t);
       if (seen.has(key)) continue;
       seen.add(key);
-      const o = sits.get(key) || { key, num: t.situation_num, title: String(t.situation_title || '').trim() || ('situation ' + t.situation_num), in: 0 };
+      const o = sits.get(key) || { key, num: runRowNum(t), title: runRowTitle(t) || (t.kind + ' ' + runRowNum(t)), in: 0 };
       o.in++;
       sits.set(key, o);
     }
@@ -2673,7 +3017,7 @@ function renderModelCalls(rows) {
   const options = [...sits.values()].sort((a, b) => (b.in - a.in) || ((+a.num || 0) - (+b.num || 0)));
   if (!options.length) return '';
   const sit = options.find(o => o.key === modelsSit) || options[0];
-  const testsAt = r => agentRunTests(r).filter(t => t.kind === 'situation' && ((t.situation_num == null ? '' : t.situation_num) + '|' + normTitle(t.situation_title)) === sit.key);
+  const testsAt = r => agentRunTests(r).filter(t => isRowTest(t) && runRowKey(t) === sit.key);
   const personas = PERSONA_ORDER.filter(p => runs.some(r => testsAt(r).some(t => t.persona === p)));
   const persona = personas.includes(modelsPersona) ? modelsPersona : personas[0] || '';
   const card = r => {
@@ -2687,8 +3031,8 @@ function renderModelCalls(rows) {
     const secs = sp ? (sp.source === 'metrics' ? sp.answer_s : sp.gap_s) : null;
     const line = [runWhat(r).toLowerCase(), t ? (passed ? 'this call passed' : 'this call failed') : '', judge, secs != null ? `${sp.source === 'metrics' ? '' : '≈'}${fmtSecs(secs)} to answer` : ''].filter(Boolean).join(' · ');
     const turns = call && Array.isArray(call.transcript) && call.transcript.length
-      ? call.transcript.map(u => `<div class="msg-turn ${u.role === 'user' ? 'me' : 'ai'}"><b>${u.role === 'user' ? 'DRIVER' : 'OTTO'}</b>${esc(u.message || '')}${runToolNote(u)}</div>`).join('')
-      : `<p class="rm-dim">${t ? 'no call kept for this test' : 'no call at this situation for this driver in this run'}</p>`;
+      ? call.transcript.map(u => `<div class="msg-turn ${u.role === 'user' ? 'me' : 'ai'}"><b>${u.role === 'user' ? otherSide(t) : 'OTTO'}</b>${esc(u.message || '')}${runToolNote(u)}</div>`).join('')
+      : `<p class="rm-dim">${t ? 'no call kept for this test' : 'no call at this row for this persona in this run'}</p>`;
     return `
         <article class="rm-call" data-run="${esc(r.id)}">
           <p class="rm-call-who"><b>${esc(who)}</b><span>${esc(line)}</span></p>
@@ -2698,8 +3042,8 @@ function renderModelCalls(rows) {
   return `
       <div class="rm-calls-head">
         <span class="cmp-k">The same call on each model</span>
-        <select data-models-sit title="which situation">${options.map(o => `<option value="${esc(o.key)}"${o.key === sit.key ? ' selected' : ''}>${esc((o.num != null ? '#' + o.num + ' ' : '') + o.title)}</option>`).join('')}</select>
-        <select data-models-persona title="which driver type">${personas.map(p => `<option value="${esc(p)}"${p === persona ? ' selected' : ''}>the ${esc(personaLabel(p))} driver</option>`).join('')}</select>
+        <select data-models-sit title="which situation or call">${options.map(o => `<option value="${esc(o.key)}"${o.key === sit.key ? ' selected' : ''}>${esc((o.key.startsWith('call|') ? 'call ' : '') + (o.num != null ? '#' + o.num + ' ' : '') + o.title)}</option>`).join('')}</select>
+        <select data-models-persona title="which driver type, or who picked up">${personas.map(p => `<option value="${esc(p)}"${p === persona ? ' selected' : ''}>the ${esc(personaLabel(p))} ${sit.key.startsWith('call|') ? 'person' : 'driver'}</option>`).join('')}</select>
         <span class="rm-dim">${trials.length ? 'the trials, then the live prompt they are measured against' : 'no model trial yet — the live prompt alone'}</span>
       </div>
       <div class="rm-calls">${runs.map(card).join('')}</div>`;
@@ -2712,15 +3056,17 @@ function renderModelCalls(rows) {
 function renderRunCall(f) {
   if (!f) return '';
   const paras = runReasonParas(f.rationale);
-  const who = `${agentWho(f.test)} driver · ${String(f.test.situation_title || f.test.name || '').slice(0, 60)} · ${f.turns.length} turns`;
+  const isCall = f.test.kind === 'call';
+  const who = `${agentWho(f.test)} ${isCall ? otherSide(f.test).toLowerCase() : 'driver'} · ${String(runRowTitle(f.test) || f.test.name || '').slice(0, 60)} · ${f.turns.length} turns`;
+  const crit = runCriteriaOf(f.test);
   return `
       <details class="rs-more rs-call"><summary>show a real call</summary>
         <p class="rs-call-who">${esc(who)}</p>
-        ${f.turns.map(u => `<div class="msg-turn ${u.role === 'user' ? 'me' : 'ai'}"><b>${u.role === 'user' ? 'DRIVER' : 'OTTO'}</b>${esc(u.message || '')}${runToolNote(u)}</div>`).join('')}
+        ${f.turns.map(u => `<div class="msg-turn ${u.role === 'user' ? 'me' : 'ai'}"><b>${u.role === 'user' ? otherSide(f.test) : 'OTTO'}</b>${esc(u.message || '')}${runToolNote(u)}</div>`).join('')}
       </details>
       ${paras.length || f.rationale ? `<details class="rs-more rs-notes"><summary>the judge&rsquo;s notes on this call</summary>
         <p class="rs-how">Word for word, one paragraph per check. Nothing is shortened.</p>
-        ${paras.length ? paras.map(p => `<p class="rs-reason"><b>${p.n}. ${esc(RUN_CRITERIA[p.n - 1] || 'check ' + p.n)}</b>${esc(p.text)}${
+        ${paras.length ? paras.map(p => `<p class="rs-reason"><b>${p.n}. ${esc(crit[p.n - 1] || 'check ' + p.n)}</b>${esc(p.text)}${
     runOldRule(p.n, p.text) ? `<span class="rs-old">${esc(RUN_OLD_NOTE)}</span>` : ''}</p>`).join('')
     : `<p class="rs-reason">${esc(f.rationale)}</p>`}
       </details>` : ''}`;
@@ -2785,7 +3131,7 @@ const runSitName = s => `${s.row && s.row.num != null ? '#' + s.row.num + ' ' : 
  * with a dash of its own would otherwise run into the sentence's */
 const runSitQuote = s => `${s.row && s.row.num != null ? '#' + s.row.num + ' ' : s.num != null ? '#' + s.num + ' ' : ''}“${s.title}”`;
 const runTestName = t => {
-  if (t.kind === 'situation') { const row = runSitRow(t); return `${row && row.num != null ? '#' + row.num + ' ' : ''}“${String(t.situation_title || '').trim()}”`; }
+  if (isRowTest(t)) { const row = runSitRow(t); return `${t.kind === 'call' ? 'call ' : ''}${row && row.num != null ? '#' + row.num + ' ' : ''}“${runRowTitle(t)}”`; }
   return `“${String(t.scenario_title || t.name || '').replace(/^Otto · /, '').trim()}”`;
 };
 
@@ -2861,10 +3207,17 @@ function renderRunSummary(run) {
   const failed = Math.max(0, roll.conv - roll.passed);
   const pct = Math.round(roll.rate * 100);
   const calls = k => `${k} call${k === 1 ? '' : 's'}`;
+  /* a calls run is read in its own words: the rows are calls, the
+   * personas are the people Otto rang, the checks are the call checks */
+  const isCalls = roll.suite === 'calls';
+  const noun = isCalls ? 'call' : 'situation';
+  const TAB = isCalls ? 'CALLS' : 'SITUATIONS';
+  const whoType = isCalls ? 'persona' : 'driver type';
+  const crit = isCalls ? RUN_CRITERIA_CALLS : RUN_CRITERIA;
   const sitN = roll.rowCount;
   const perN = roll.personas.length;
   const shapeLine = sitN && perN && roll.repeat
-    ? `${sitN} situation${sitN === 1 ? '' : 's'} × ${perN} driver type${perN === 1 ? '' : 's'} × ${roll.repeat} run${roll.repeat === 1 ? '' : 's'} each = ${calls(roll.conv)}.` : '';
+    ? `${sitN} ${noun}${sitN === 1 ? '' : 's'} × ${perN} ${whoType}${perN === 1 ? '' : 's'} × ${roll.repeat} run${roll.repeat === 1 ? '' : 's'} each = ${calls(roll.conv)}.` : '';
   /* the NOT A PROBLEM list applies to every run: a pattern on it is not
    * a problem here, not in the chart, and not a suggestion */
   const onList = new Set(accepted.map(r => r.key));
@@ -2904,10 +3257,10 @@ function renderRunSummary(run) {
       </div>`;
 
   /* (b) Otto by situation — one bar each, worst first, click = the card */
-  const sitChart = !sits.length ? '<p class="cmp-empty">This run has no situation tests.</p>' : `
+  const sitChart = !sits.length ? `<p class="cmp-empty">This run has no ${noun} tests.</p>` : `
         <div class="rs-bars">${sits.map(s => renderRunBar(esc(runSitName(s)), s.rate, `${s.passed} of ${s.runs}`, runBarCls(s.rate),
     s.row ? `data-sitjump="${esc(s.row.id)}" tabindex="0" role="button"` : '',
-    `${s.title} — ${s.passed} of ${s.runs} calls passed. ${s.row ? 'Click to open this situation on the SITUATIONS tab.' : 'No row with this title on the SITUATIONS tab.'}`)).join('')}
+    `${s.title} — ${s.passed} of ${s.runs} calls passed. ${s.row ? `Click to open this ${noun} on the ${TAB} tab.` : `No row with this title on the ${TAB} tab.`}`)).join('')}
         </div>
         <p class="rs-legend"><span><span class="rs-sw bad"></span>under half passed</span><span><span class="rs-sw warn"></span>half or more</span><span><span class="rs-sw ok"></span>all passed</span></p>`;
   const perSit = sits.length ? sits[0].runs : 0;
@@ -2915,7 +3268,7 @@ function renderRunSummary(run) {
   /* (c) Otto by driver type */
   const typeChart = !personas.length ? '<p class="cmp-empty">This run has no driver types.</p>' : `
         <div class="rs-bars">${personas.map(p => renderRunBar(esc(personaLabel(p.persona)), p.rate, `${p.passed} of ${p.runs}`, runBarCls(p.rate), '',
-    `${personaLabel(p.persona)}: ${p.passed} of ${p.runs} calls passed. This driver ${personaAbout(p.persona)}`)).join('')}
+    `${personaLabel(p.persona)}: ${p.passed} of ${p.runs} calls passed. This ${isCalls ? 'person' : 'driver'} ${personaAbout(p.persona)}`)).join('')}
         </div>
         <ul class="rs-types">${personas.map(p => `<li><b>${esc(personaLabel(p.persona))}</b> ${esc(personaAbout(p.persona))}</li>`).join('')}</ul>`;
 
@@ -2927,7 +3280,7 @@ function renderRunSummary(run) {
     well.push(`${perfect.length} of ${roll.nTests} tests passed every time: ${perfect.slice(0, 3).map(t =>
       `${runTestName(t)}${t.persona ? ' with the ' + t.persona + ' driver' : ''}`).join(', ')}${perfect.length > 3 ? `, and ${perfect.length - 3} more` : ''}.`);
   }
-  if (best) well.push(`Best situation: ${runSitQuote(best)} — ${best.passed} of ${best.runs} calls passed.`);
+  if (best) well.push(`Best ${noun}: ${runSitQuote(best)} — ${best.passed} of ${best.runs} calls passed.`);
   if (held.length) well.push(held[0]);
   const wellBody = well.length ? `<ul class="rs-ul rs-well">${well.slice(0, 3).map(l => `<li>${esc(l)}</li>`).join('')}</ul>`
     : '<p class="cmp-empty">Nothing passed in this run. There is no good news to report here.</p>';
@@ -2952,15 +3305,17 @@ function renderRunSummary(run) {
   const hiddenLine = !hiddenN ? '' : `
         <p class="rs-how rs-hidden">${hiddenN === 1 ? '1 pattern is' : hiddenN + ' patterns are'} on your NOT A PROBLEM list and not shown here — see the end of the report.</p>`;
   const zeroLine = !zero.length || rowsHidden ? '' : `
-        <p class="rs-item-line rs-zero"><span class="rs-rank">·</span><span>${zero.length} of ${sits.length} situations failed with every driver type: ${
+        <p class="rs-item-line rs-zero"><span class="rs-rank">·</span><span>${zero.length} of ${sits.length} ${noun}s failed with every ${whoType}: ${
     zero.map(s => esc(runSitName(s))).join(' · ')}. See the last card under WHAT TO CHANGE.</span></p>`;
 
   /* the suggestions, in the findings' order, the rows at 0% last */
   const sugg = shown.map(fd => (RUN_FIXES[fd.id] ? { ...RUN_FIXES[fd.id], id: fd.id, name: fd.name, what: RUN_FIXES[fd.id].what(fd.count, n), ex: fd.ex } : null)).filter(Boolean);
   if (zero.length && !rowsHidden) {
-    sugg.push({ id: ROWS_KEY, name: ROWS_NAME, title: 'Check these rows on the SITUATIONS tab',
-      what: `${zero.length} of ${sits.length} situations failed with every driver type.`,
-      why: 'When no driver type gets through, the problem is often the row, not Otto. The driver\'s first words, or the follow-up the row expects, may not match how real drivers talk. Read the row and change it if it sounds wrong.',
+    sugg.push({ id: ROWS_KEY, name: ROWS_NAME, title: `Check these rows on the ${TAB} tab`,
+      what: `${zero.length} of ${sits.length} ${noun}s failed with every ${whoType}.`,
+      why: isCalls
+        ? 'When nobody Otto rings gets a good call, the problem is often the row, not Otto. What the person says, what the call must establish, or the outcome on the row may not fit each other. Read the row and change it if it sounds wrong.'
+        : 'When no driver type gets through, the problem is often the row, not Otto. The driver\'s first words, or the follow-up the row expects, may not match how real drivers talk. Read the row and change it if it sounds wrong.',
       rows: zero });
   }
   const suggBody = sugg.map((s, i) => `
@@ -2971,7 +3326,7 @@ function renderRunSummary(run) {
           ${s.ex ? renderRunExampleBox(s.ex) : ''}
           ${s.rows ? `<ul class="rs-ul rs-rows">${s.rows.map(z => `<li>${z.row
     ? `<button class="row-link" type="button" data-sitjump="${esc(z.row.id)}">${esc(runSitName(z))} — open the row →</button>`
-    : `${esc(runSitName(z))} — no row with this title on the SITUATIONS tab`}</li>`).join('')}</ul>` : ''}
+    : `${esc(runSitName(z))} — no row with this title on the ${TAB} tab`}</li>`).join('')}</ul>` : ''}
           ${s.text ? `
           <p class="rs-sug-p"><b>Add this to the prompt</b></p>
           <pre class="rs-pre" id="rs-fix-${i}">${esc(s.text)}</pre>` : ''}
@@ -2983,17 +3338,19 @@ function renderRunSummary(run) {
         </section>`).join('');
   const suggEmpty = sugg.length ? '' : findings.length || zero.length
     ? '<p class="cmp-empty">Nothing left to change — every pattern found in this run is on your NOT A PROBLEM list.</p>'
-    : '<p class="cmp-empty">No pattern in this run calls for a change.</p>';
+    : isCalls
+      ? '<p class="cmp-empty">There are no ready-made lines for a calls run: read the judge&rsquo;s notes under WHAT WENT WRONG, then change the prompt in ElevenLabs — or the row on the CALLS tab — by hand.</p>'
+      : '<p class="cmp-empty">No pattern in this run calls for a change.</p>';
 
   /* every situation, worst first — the detail behind the bars */
   const cols = roll.personas;
-  const table = !sits.length ? '<p class="cmp-empty">This run has no situation tests.</p>' : `
+  const table = !sits.length ? `<p class="cmp-empty">This run has no ${noun} tests.</p>` : `
         <table class="rs-tbl rs-sits">
-          <thead><tr><th>#</th><th>situation</th><th>passed</th>${cols.map(p => `<th>${esc(p)}</th>`).join('')}<th>failed calls</th></tr></thead>
+          <thead><tr><th>#</th><th>${noun}</th><th>passed</th>${cols.map(p => `<th>${esc(p)}</th>`).join('')}<th>failed calls</th></tr></thead>
           <tbody>${sits.map(s => `
             <tr class="rs-sit-row${s.row ? '' : ' nolink'}" data-sitjump="${esc(s.row ? s.row.id : '')}" tabindex="0"
-              title="${esc(s.row ? `Row #${s.row.num == null ? '?' : s.row.num} on the SITUATIONS tab — click to open it`
-    : 'No row with this title on the SITUATIONS tab — load the starter situations, or it was renamed')}">
+              title="${esc(s.row ? `Row #${s.row.num == null ? '?' : s.row.num} on the ${s.kind === 'call' ? 'CALLS' : 'SITUATIONS'} tab — click to open it`
+    : `No row with this title on the ${s.kind === 'call' ? 'CALLS' : 'SITUATIONS'} tab — load the starter ${s.kind === 'call' ? 'calls' : 'situations'}, or it was renamed`)}">
               <td>${s.row && s.row.num != null ? esc(s.row.num) : s.num == null ? '·' : esc(s.num)}</td>
               <td class="rs-sit-t">${esc(s.title)}</td>
               <td><span class="agent-chip ${runBarCls(s.rate)}">${s.passed} of ${s.runs}</span></td>
@@ -3015,7 +3372,7 @@ function renderRunSummary(run) {
           <table class="rs-tbl">
             <thead><tr><th>#</th><th>the check</th><th>failed</th><th>of calls judged</th></tr></thead>
             <tbody>${bcKeys.map(n => `
-              <tr><td>${n}</td><td>${esc(RUN_CRITERIA[n - 1] || 'check ' + n)}</td>
+              <tr><td>${n}</td><td>${esc(crit[n - 1] || 'check ' + n)}</td>
               <td>${(byCheck[n] && byCheck[n].fail) || 0}</td><td>${((byCheck[n] && byCheck[n].fail) || 0) + ((byCheck[n] && byCheck[n].pass) || 0)}</td></tr>`).join('')}
             </tbody>
           </table>
@@ -3030,12 +3387,14 @@ function renderRunSummary(run) {
           <table class="rs-tbl">
             <thead><tr><th>#</th><th>the check</th><th>failed</th><th>passed</th><th>unclear</th>${oldN ? '<th>old rule</th>' : ''}</tr></thead>
             <tbody>${criteria.map(c => `
-              <tr><td>${c.idx}</td><td>${esc(RUN_CRITERIA[c.idx - 1] || 'check ' + c.idx)}</td>
+              <tr><td>${c.idx}</td><td>${esc(crit[c.idx - 1] || 'check ' + c.idx)}</td>
               <td>${c.fail + c.plain} of ${c.paras}</td><td>${c.pass || '·'}</td><td>${c.paras - c.fail - c.pass - c.plain - c.old || '·'}</td>${oldN ? `<td>${c.old || '·'}</td>` : ''}</tr>`).join('')}
             </tbody>
           </table>
           ${oldN ? `<p class="rs-how">${oldN} note${oldN === 1 ? '' : 's'} under check 5 counted Otto&rsquo;s greeting as a question. Graded by the old rule — the next run counts only follow-ups.</p>` : ''}
-          <p class="rs-how">Checks 1, 5 and 6 are different for the &ldquo;Nothing to report&rdquo; row, and check 7 is only for the vague driver — so that row has fewer notes.</p>
+          <p class="rs-how">${isCalls
+            ? 'Check 8 is only for the suspicious person — so the other calls have seven notes.'
+            : 'Checks 1, 5 and 6 are different for the &ldquo;Nothing to report&rdquo; row, and check 7 is only for the vague driver — so that row has fewer notes.'}</p>
         </details>
       </section>`;
 
@@ -3060,14 +3419,14 @@ function renderRunSummary(run) {
       ${head}
       <div class="rs-two">
         <section class="rs-sec">
-          <h3 class="rs-h2">Otto by situation</h3>
-          <p class="rs-how">Worst first.${perSit ? ` Each situation was called ${perSit} times.` : ''} Click a bar to open the situation.</p>
+          <h3 class="rs-h2">Otto by ${noun}</h3>
+          <p class="rs-how">Worst first.${perSit ? ` Each ${noun} was ${isCalls ? 'made' : 'called'} ${perSit} times.` : ''} Click a bar to open the ${noun}.</p>
           ${sitChart}
         </section>
         <div class="rs-two-right">
           <section class="rs-sec">
-            <h3 class="rs-h2">Otto by driver type</h3>
-            <p class="rs-how">The same situations, played by ${roll.personas.length === 1 ? 'one kind' : ['', '', 'two', 'three', 'four', 'five', 'six'][roll.personas.length] ? ['', '', 'two', 'three', 'four', 'five', 'six'][roll.personas.length] + ' kinds' : roll.personas.length + ' kinds'} of driver.</p>
+            <h3 class="rs-h2">Otto by ${isCalls ? 'who picked up' : 'driver type'}</h3>
+            <p class="rs-how">The same ${noun}s, ${isCalls ? 'answered' : 'played'} by ${roll.personas.length === 1 ? 'one kind' : ['', '', 'two', 'three', 'four', 'five', 'six'][roll.personas.length] ? ['', '', 'two', 'three', 'four', 'five', 'six'][roll.personas.length] + ' kinds' : roll.personas.length + ' kinds'} of ${isCalls ? 'person' : 'driver'}.</p>
             ${typeChart}
           </section>
           <section class="rs-sec">
@@ -3078,7 +3437,13 @@ function renderRunSummary(run) {
       </div>
       <section class="rs-sec">
         <h3 class="rs-h2">What went wrong</h3>
-        ${n ? `<p class="rs-how">Counted from the ${n} failed calls. One call can be in more than one line.</p>${wrongChart}${wrongList}${
+        ${isCalls ? `<p class="rs-how">The pattern finder reads a driver's report — the tip, the report read back — and a call Otto made has none of that. So here is every failed call the judge kept, one per failed test, with the judge's notes check by check.</p>${
+    facts.length ? facts.map(f => `
+          <div class="rs-item">
+            <p class="rs-item-line"><span class="rs-rank">·</span><span>${esc(runTestName(f.test))}${f.test.persona ? ` — the ${esc(personaLabel(f.test.persona))} ${esc(otherSide(f.test).toLowerCase())}` : ''}${f.test.why ? `: ${esc(f.test.why)}` : ''}</span></p>
+            <div class="rs-item-more">${renderRunCall(f)}</div>
+          </div>`).join('') : '<p class="cmp-empty">This run kept no failed call to read.</p>'}`
+    : n ? `<p class="rs-how">Counted from the ${n} failed calls. One call can be in more than one line.</p>${wrongChart}${wrongList}${
     !shown.length && findings.length ? '<p class="cmp-empty">Every pattern found in this run is on your NOT A PROBLEM list.</p>' : ''}${hiddenLine}`
       : '<p class="cmp-empty">This run kept no failed call to read, so nothing can be counted here.</p>'}
         ${zeroLine}
@@ -3090,8 +3455,8 @@ function renderRunSummary(run) {
         ${suggBody}${suggEmpty}
       </section>
       <section class="rs-sec">
-        <h3 class="rs-h2">Every situation</h3>
-        <p class="rs-how">Worst first. Click a row to open that situation on the SITUATIONS tab.</p>
+        <h3 class="rs-h2">Every ${noun}</h3>
+        <p class="rs-how">Worst first. Click a row to open that ${noun} on the ${TAB} tab.</p>
         ${table}
       </section>
       ${critBlock}
@@ -3108,14 +3473,16 @@ function renderTabs() {
   const sit = cardView === 'demo' ? '' : `
       <button class="tab${sitTabOn() ? ' on' : ''}" type="button" data-tab="situations"
         title="What a driver reports when they press REPORT — the pilot's other sheet, tested by the agent suite in four voices">SITUATIONS · ${situations.length}</button>
+      <button class="tab${callsTabOn() ? ' on' : ''}" type="button" data-tab="calls"
+        title="The calls Otto makes — the office ringing the customer about a fresh-food box, or the driver about a stop; tested by the agent suite in four voices, and taken on the phone by you">CALLS · ${calls.length}</button>
       <button class="tab${runsTabOn() ? ' on' : ''}" type="button" data-tab="runs"
         title="Every test run, newest first — one report each: what went well, what went wrong, and what to change. Reading only; nothing on it changes the agent.">RUNS · ${agentRuns.length}</button>`;
   const scen = !scenarios.length ? '' : !listMixed()
-    ? `<button class="tab${sitTabOn() ? '' : ' on'}" type="button" data-tab="${scenarios.every(fromSheet) ? 'sheet' : 'own'}"
+    ? `<button class="tab${sitTabOn() || callsTabOn() ? '' : ' on'}" type="button" data-tab="${scenarios.every(fromSheet) ? 'sheet' : 'own'}"
         title="The trigger scenarios — when Otto speaks, and what he asks">${scenarios.every(fromSheet) ? '⇩ STARTER SHEET' : 'YOUR SCENARIOS'} · ${scenarios.length}</button>`
-    : `<button class="tab${!sitTabOn() && listTab !== 'sheet' ? ' on' : ''}" type="button" data-tab="own"
+    : `<button class="tab${!sitTabOn() && !callsTabOn() && listTab !== 'sheet' ? ' on' : ''}" type="button" data-tab="own"
         title="Rows made on this dashboard">YOUR SCENARIOS · ${own}</button>
-      <button class="tab${!sitTabOn() && listTab === 'sheet' ? ' on' : ''}" type="button" data-tab="sheet"
+      <button class="tab${!sitTabOn() && !callsTabOn() && listTab === 'sheet' ? ' on' : ''}" type="button" data-tab="sheet"
         title="Rows loaded from the shipped starter sheet — rename one and it moves to your tab">⇩ STARTER SHEET · ${scenarios.length - own}</button>`;
   return !scen && !sit ? '' : `
     <div class="tabs">${scen}${sit}</div>`;
@@ -3127,11 +3494,13 @@ function render() {
   /* the top bar follows the tab: a situation has no pin to import, no
    * spec to export and no Excel sheet behind it */
   const sit = sitTabOn();
+  const callsTab = callsTabOn();
   const runs = runsTabOn();
   el('new-situation').hidden = !sit;
-  el('new-open').hidden = sit || runs;
-  el('import-open').hidden = sit || runs;
-  el('spec-all').hidden = sit || runs;
+  if (el('new-call')) el('new-call').hidden = !callsTab;
+  el('new-open').hidden = sit || callsTab || runs;
+  el('import-open').hidden = sit || callsTab || runs;
+  el('spec-all').hidden = sit || callsTab || runs;
   /* the RUNS tab is a report with no pins to show: the map column goes
    * away and the report takes the full width. Leaving the tab brings
    * the map back and tells it its box changed size. */
@@ -3169,6 +3538,11 @@ function render() {
   if (sit) {
     box.innerHTML = renderTabs()
       + (situations.length ? situations.map(renderSituation).join('') + renderSitSheetLink() : renderSituationsEmpty());
+    return;
+  }
+  if (callsTab) {
+    box.innerHTML = renderTabs()
+      + (calls.length ? calls.map(renderCall).join('') + renderCallSheetLink() : renderCallsEmpty());
     return;
   }
   if (!scenarios.length) {
@@ -4194,16 +4568,19 @@ const fromSheet = sc => SHEET_TITLES.has(normTitle(sc.title));
  * does not carry it — the choice is kept, not cleared, and flipping
  * back to TESTING lands on it again. */
 const LS_TAB = 'od_scen_tab';
-const LIST_TABS = ['own', 'sheet', 'situations', 'runs'];
+const LIST_TABS = ['own', 'sheet', 'situations', 'calls', 'runs'];
 let listTab = 'own';
 try { const t = localStorage.getItem(LS_TAB); if (LIST_TABS.includes(t)) listTab = t; } catch { /* private mode */ }
 const sitTabOn = () => listTab === 'situations' && cardView !== 'demo';
+/* CALLS is workshop chrome like SITUATIONS: the calls Otto makes, the
+ * third sheet, hidden by the DEMO view the same way */
+const callsTabOn = () => listTab === 'calls' && cardView !== 'demo';
 /* RUNS is workshop chrome too — a per-run report of what the simulated
  * drivers got out of Otto is the last thing a client demo wants on
  * screen, so the DEMO view hides it exactly as it hides SITUATIONS */
 const runsTabOn = () => listTab === 'runs' && cardView !== 'demo';
 const listMixed = () => scenarios.some(fromSheet) && scenarios.some(sc => !fromSheet(sc));
-const inTab = sc => !sitTabOn() && !runsTabOn() && (!listMixed() || ((listTab === 'sheet') === fromSheet(sc)));
+const inTab = sc => !sitTabOn() && !callsTabOn() && !runsTabOn() && (!listMixed() || ((listTab === 'sheet') === fromSheet(sc)));
 function setListTab(t) {
   listTab = LIST_TABS.includes(t) ? t : 'own';
   /* leaving the RUNS tab closes whatever summary was open: coming back
@@ -4376,6 +4753,130 @@ async function deleteSituation(s) {
   if (sitEdit && sitEdit.id === s.id) sitEdit = null;
   persistLocal();
   render();
+}
+
+/* ---------- the starter calls ----------
+ * calls-starter.js ships ten calls Otto makes. Loaded the same way as
+ * the situations — idempotent by title, the sheet's numbering kept
+ * while it is free. The chain between rows (next_call) is by number,
+ * so a load that has to renumber renumbers the chain with it. */
+const CALL_SHEET = window.CALLS_SHEET || null;
+const callSheetMissing = () => {
+  if (!CALL_SHEET) return [];
+  const have = new Set(calls.map(c => normTitle(c.title)));
+  return CALL_SHEET.calls.filter(r => !have.has(normTitle(r.title)));
+};
+function renderCallSheetLink() {
+  const n = callSheetMissing().length;
+  return n ? `
+    <p class="sit-restore"><button class="link-btn" type="button" data-call-restore>…or restore the ${n} starter call${n === 1 ? '' : 's'} not in the list</button></p>` : '';
+}
+async function loadCallSheet() {
+  const missing = callSheetMissing();
+  if (!missing.length) return;
+  const taken = new Set(calls.map(c => c.num).filter(n => n != null));
+  let next = Math.max(0, ...calls.map(c => +c.num || 0));
+  const clash = missing.some(r => taken.has(r.num));
+  const renum = new Map();
+  if (clash) missing.forEach(r => renum.set(r.num, ++next));
+  const rows = missing.map(r => callRow({
+    ...r,
+    num: clash ? renum.get(r.num) : r.num,
+    next_call: r.next_call == null || r.next_call === '' ? null : (clash ? (renum.get(+r.next_call) || null) : r.next_call),
+    active: true,
+  }));
+  let added = [];
+  if (Backend.enabled) {
+    try { added = (await Backend.insertCalls(rows)) || []; } catch (e) { schemaHint(e); }
+  }
+  if (!added.length) {
+    added = rows.map(r => ({ ...r, id: localId('k'), created_at: new Date().toISOString() }));
+  }
+  calls.push(...added);
+  sortCalls();
+  persistLocal();
+  render();
+  if (added[0]) scrollToCall(added[0].id);
+}
+
+/* ---------- call CRUD ----------
+ * A new call is a real row from the first click, like a situation. */
+async function newCall() {
+  setListTab('calls');
+  const row = callRow({
+    num: Math.max(0, ...calls.map(c => +c.num || 0)) + 1,
+    title: 'New call',
+    callee: 'consignee',
+    stop: null,
+    purpose: null,
+    otto_says: null,
+    previous_call: null,
+    they_say: null,
+    they_know: null,
+    must_establish: [],
+    off_topic: [],
+    outcome: null,
+    next_call: null,
+    active: true,
+  });
+  let saved = null;
+  if (Backend.enabled) {
+    try {
+      const out = await Backend.insertCalls([row]);
+      if (Array.isArray(out) && out[0]) saved = out[0];
+    } catch (e) { schemaHint(e); }
+  }
+  if (!saved) saved = { ...row, id: localId('k'), created_at: new Date().toISOString() };
+  calls.push(saved);
+  sortCalls();
+  expandedCallId = saved.id;
+  callEdit = callDraftOf(saved);
+  persistLocal();
+  render();
+  scrollToCall(saved.id);
+}
+
+/* one writer for both the input and the change event — true when the
+ * event was a call field's and the draft has taken it */
+function onCallFieldInput(e) {
+  const k = e.target.getAttribute && e.target.getAttribute('data-call-field');
+  if (!k) return false;
+  const card = e.target.closest('.callrow');
+  const c = card && calls.find(x => x.id === card.dataset.call);
+  if (c) openCallEdit(c)[k] = e.target.value;
+  return true;
+}
+
+async function saveCall(c) {
+  const d = callEdit && callEdit.id === c.id ? callEdit : null;
+  const patch = d ? callPatch(c, d) : {};
+  callEdit = null;
+  if (Object.keys(patch).length) {
+    Object.assign(c, patch);
+    if (Backend.enabled) Backend.updateCall(c.id, patch).catch(schemaHint);
+    persistLocal();
+  }
+  render();
+}
+
+async function deleteCall(c) {
+  if (!confirm(`Delete this call?\n\n#${c.num || '·'} ${c.title}`)) return;
+  calls = calls.filter(x => x !== c);
+  if (Backend.enabled) Backend.deleteCall(c.id).catch(warn);
+  if (expandedCallId === c.id) expandedCallId = null;
+  if (callEdit && callEdit.id === c.id) callEdit = null;
+  persistLocal();
+  render();
+}
+
+function sortCalls() {
+  calls.sort((a, b) =>
+    ((a.num == null ? 1e9 : +a.num) - (b.num == null ? 1e9 : +b.num))
+    || String(a.created_at || '').localeCompare(String(b.created_at || '')));
+}
+function scrollToCall(id) {
+  const node = el('list').querySelector(`[data-call="${CSS.escape(id)}"]`);
+  if (node) node.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 /* ---------- the demo route ----------
@@ -4663,6 +5164,14 @@ el('list').addEventListener('click', e => {
     if (sj) {
       const id = sj.dataset.sitjump;
       if (!id) return;  // no row of that title on the sheet — nothing to open
+      /* a call row opens on the CALLS tab, a situation on its own */
+      if (calls.some(c => c.id === id)) {
+        expandedCallId = id;
+        setListTab('calls');
+        render();
+        scrollToCall(id);
+        return;
+      }
       expandedSitId = id;
       setListTab('situations');
       render();
@@ -4676,6 +5185,34 @@ el('list').addEventListener('click', e => {
       render();
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
+    }
+    return;
+  }
+
+  /* ---- the calls tab ---- */
+  const callEmpty = e.target.closest('[data-call-empty]');
+  if (callEmpty) {
+    if (callEmpty.dataset.callEmpty === 'new') newCall(); else loadCallSheet();
+    return;
+  }
+  if (e.target.closest('[data-call-restore]')) { loadCallSheet(); return; }
+  const callCard = e.target.closest('.callrow');
+  if (callCard) {
+    const c = calls.find(x => x.id === callCard.dataset.call);
+    if (!c) return;
+    const ca = e.target.closest('[data-call-act]');
+    if (ca) {
+      const a = ca.dataset.callAct;
+      if (a === 'save') saveCall(c);
+      else if (a === 'cancel') { callEdit = null; render(); }
+      else if (a === 'del') deleteCall(c);
+      else if (a === 'active') { const d = openCallEdit(c); d.active = !d.active; render(); }
+      return;
+    }
+    if (e.target.closest('a')) return;  // the ring link opens the phone page
+    if (e.target.closest('.sc-header')) {
+      expandedCallId = expandedCallId === c.id ? null : c.id;
+      render();
     }
     return;
   }
@@ -4787,6 +5324,7 @@ el('list').addEventListener('input', e => {
   /* the situation card's fields write straight into the draft — no
    * repaint, so a cursor mid-word stays where it is */
   if (onSitFieldInput(e)) return;
+  if (onCallFieldInput(e)) return;
   const card = e.target.closest('.sc');
   if (!card) return;
   const sc = scenarios.find(x => x.id === card.dataset.id);
@@ -4828,6 +5366,7 @@ el('list').addEventListener('change', e => {
   /* a <select> is the one field that can change without an input event
    * on every browser — the same writer, once more on change */
   if (onSitFieldInput(e)) return;
+  if (onCallFieldInput(e)) return;
   const k = e.target.getAttribute && e.target.getAttribute('data-note-field');
   if (!k) return;
   const card = e.target.closest('.sc');
@@ -4861,6 +5400,7 @@ el('list').addEventListener('keydown', e => {
 
 el('new-open').onclick = () => openForm(null);
 el('new-situation').onclick = newSituation;
+if (el('new-call')) el('new-call').onclick = newCall;
 el('form-cancel').onclick = () => { el('form-sheet').hidden = true; };
 el('form-save').onclick = submitForm;
 el('f-draft').onclick = runDraft;

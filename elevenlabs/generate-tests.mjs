@@ -45,6 +45,21 @@
  *   node generate-tests.mjs --lang en --scenario 8 --out /tmp/t
  *   node generate-tests.mjs --situations         # the situation suite, from the live rows
  *   node generate-tests.mjs --situations --sheet # …from situations-starter.js
+ *   node generate-tests.mjs --calls              # the call suite, from the live rows
+ *   node generate-tests.mjs --calls --sheet      # …from calls-starter.js
+ *
+ * The THIRD suite turns the table round: Otto is the one calling. A
+ * call row (calls-starter.js, and the calls table the dashboard's
+ * CALLS tab edits) is the office ringing the customer about a
+ * fresh-food box — will somebody be home — or the driver about a stop,
+ * with the line Otto opens with, what the person says once he has got
+ * to the point, what they know if asked, what the call has to
+ * establish, and the one-line outcome. --calls turns each row into
+ * four simulated people on the other end of the line and seven yes/no
+ * conditions on Otto's side: purpose, relevance, no repetition,
+ * natural, no invention, length, close — plus one for the person who
+ * wants to know who is calling. Generated from the live rows at run
+ * time, like the situations (test_configs/calls/ is gitignored).
  *
  * Deterministic on purpose: stable ordering, no timestamps, the same
  * sheet always produces byte-identical files, so test_configs/ can be
@@ -55,21 +70,27 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
-import { loadSheet, loadSituationsSheet, loadRoute, loadSupabase, loadSituationsSupabase } from './lib/sheet.mjs';
+import { loadSheet, loadSituationsSheet, loadCallsSheet, loadRoute, loadSupabase, loadSituationsSupabase, loadCallsSupabase } from './lib/sheet.mjs';
 import {
   agentVars, agentBriefing, agentGreeting, initDynamicVariables, scenarioShape, measuredBits, sentence,
+  callOf, callOpener, callBriefing, surnameOf,
 } from './lib/scenario-vars.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_OUT = path.join(HERE, 'test_configs');
 /* generated from the live rows on every run, so never committed */
 export const DEFAULT_SITUATION_OUT = path.join(DEFAULT_OUT, 'situations');
+export const DEFAULT_CALL_OUT = path.join(DEFAULT_OUT, 'calls');
 export const PERSONAS = JSON.parse(readFileSync(path.join(HERE, 'personas.json'), 'utf8')).personas;
-/* a persona says which suites it is cut for; no `suites` means both.
- * The vague driver only makes sense where the DRIVER opens the
+/* a persona says which suites it is cut for; no `suites` means every
+ * suite. The vague driver only makes sense where the DRIVER opens the
  * conversation — a trigger scenario opens with Otto's own question and
- * there is nothing vague left to be. */
+ * there is nothing vague left to be — and the suspicious one only where
+ * Otto rings somebody who does not know who is calling. */
 const forSuite = suite => PERSONAS.filter(p => !Array.isArray(p.suites) || p.suites.includes(suite));
+/* how a persona talks in a given suite: `style_calls` when the suite is
+ * the calls (a customer has no shift and no next stop), `style` else */
+const personaStyle = (p, suite) => String((suite === 'calls' && p.style_calls) || p.style || '');
 /* The two AI players in every simulated call besides Otto: the one
  * that plays the driver and the judge that reads the call. Named in
  * every test file rather than left to ElevenLabs's default, which can
@@ -85,6 +106,7 @@ export const VERDICT_ASK = 'Start your answer with PASS or FAIL, then the reason
 const withVerdict = conditions => conditions.map(s => s + ' ' + VERDICT_ASK);
 export const TRIGGER_PERSONAS = forSuite('triggers');
 export const SITUATION_PERSONAS = forSuite('situations');
+export const CALL_PERSONAS = forSuite('calls');
 
 /* The analytics API's report categories — what Otto files a debrief
  * under, and the words the sheet's "What Otto learns" column leads with */
@@ -356,6 +378,7 @@ const inScope = (body, { langs, only, kind }) => {
   const o = body && body._otto;
   if (!o || o.kind !== kind) return false;
   if (kind === 'situation') return only == null || Number(o.situation_num) === Number(only);
+  if (kind === 'call') return only == null || Number(o.call_num) === Number(only);
   return langs.includes(o.language) && (only == null || Number(o.scenario_num) === Number(only));
 };
 
@@ -543,12 +566,143 @@ export function buildSituationTests(rows, { only = null, personas = SITUATION_PE
   return out;
 }
 
+/* ============================================================
+ * The call suite — Otto rings the customer, or the driver
+ * ============================================================ */
+
+/* The turn cap. Eight turns is a whole call with room to spare: Otto's
+ * opener, the answer, two or three questions with their answers, the
+ * summary, a goodbye. The suspicious person spends the first exchange
+ * asking who is calling, so that one gets two more. */
+const callTurns = persona => (persona.id === 'suspicious' ? 10 : 8);
+
+/* What the phone sends when Otto rings somebody: the stop the call is
+ * about (`destination_*`), the language, trigger_fired "no" — exactly
+ * the REPORT set — and the five call_* variables: which call, who was
+ * rung, why, and what the office learned on the call before. Spelled
+ * out like SITUATION_VARS, because it is the contract the test asserts. */
+export const CALL_VARS = [...SITUATION_VARS, 'call_num', 'call_title', 'call_to', 'call_purpose', 'call_previous'];
+function callVarsAll(row, d) {
+  return agentVars({ scenario: null, destination: d, run: null, activity: null, lang: 'en', call: callOf(row) });
+}
+const callVars = v => initDynamicVariables(Object.fromEntries(CALL_VARS.map(k => [k, v[k]])));
+
+/* who is on the other end of the line, in the words the conditions use */
+const calleeWord = row => (callOf(row).callee === 'driver' ? 'the driver' : 'the customer');
+
+/* The person Otto rang, in the first person. Everything they may say
+ * comes from the row: what they say once Otto has got to the point,
+ * and the facts they give up only when asked. The customer is the
+ * consignee on file at the stop — unless the row says otherwise (a
+ * wrong number is a row too). */
+function callScenario({ row, d, persona }) {
+  const callee = callOf(row).callee;
+  const lines = [];
+  const where = `${d.title}${d.addr ? ` (${d.addr})` : ''}`;
+  if (callee === 'driver') {
+    const who = d.consignee ? `, the delivery for ${d.consignee}${d.floor ? ', ' + floorText(d.floor) : ''}` : '';
+    lines.push(`You are the delivery driver on the Kollwitzkiez round in Berlin, in the van between two stops. Your phone rings: it is Otto, the voice from the office. The call is about the stop at ${where}${who}.`);
+  } else {
+    const name = d.consignee ? surnameOf(d.consignee) : 'the customer';
+    lines.push(`You are the person who answers the phone at the number the delivery office has on file for ${name}, the customer expecting a delivery at ${where}${d.floor ? ', ' + floorText(d.floor) : ''}. You are ${name} yourself, unless what you say below says otherwise. Your phone rings: it is Otto from the delivery office.`);
+  }
+  lines.push(`Otto speaks first. Answer the phone as yourself; once Otto has said why he is calling, what you tell him is “${String(row.they_say || '').trim()}” — in your own words is fine.`);
+  lines.push(`What you know if Otto asks, and only when he asks: ${sentence(row.they_know)}`);
+  lines.push(`How you talk: ${sentence(personaStyle(persona, 'calls'))}`);
+  lines.push('You speak English.');
+  lines.push(`Ground rules: stay in character as ${callee === 'driver' ? 'the driver' : 'the person who answered'}; never mention being simulated or that this is a test; `
+    + `do not volunteer anything beyond your answer until Otto asks for it${persona.id === 'cooperative' ? ' — you may add one useful detail of your own to an answer, no more' : ''}; `
+    + 'never invent facts beyond what is above; when Otto sums up what was agreed and it matches what you said, agree in a few words; when he gets it wrong, correct him briefly; when Otto ends the call, say a short goodbye and stop.');
+  return lines.join(' ');
+}
+
+/* Seven yes/no prompts (eight for the suspicious person), each
+ * self-contained: the evaluator sees one at a time. Purpose first —
+ * an outbound call that does not say who is calling and why is the
+ * whole failure — and the close last, because what was agreed is
+ * what the office acts on. */
+function callConditions({ row, d, persona }) {
+  const callee = callOf(row).callee;
+  const who = calleeWord(row);
+  const name = d.consignee ? surnameOf(d.consignee) : 'the customer';
+  const purpose = noStop(row.purpose || row.title);
+  const previous = String(row.previous_call || '').trim();
+  const must = listOf(row.must_establish);
+  const offTopic = listOf(row.off_topic);
+  const c = [];
+  c.push(`PURPOSE — Otto rang ${who}, so within his first two turns he says who he is (Otto, from the delivery office) and what the call is about (${purpose})${callee === 'driver' ? ', and talks to the driver as a colleague' : `, and checks that he is speaking to ${name} — by name, or by asking for them`}. Opening like an inbound helpline (“how can I help you?”), or leaving ${who} to guess why they were called, fails.`);
+  c.push(`RELEVANCE — Otto's questions establish what this call is for: ${must.join('; ')}. A question about something else (for example ${offTopic.join(', ')}), or a generic question that could be asked on any call (“anything else?”, “how are things?”), fails.`);
+  c.push(`NO REPETITION — Otto never asks ${who} for something they have already said in this conversation; every question adds something they have not given yet. Asking again for a detail that was already in their own words — reworded, or as a check — fails.`);
+  c.push(`NATURAL — Otto sounds like a person from the office on the phone: a short, natural acknowledgement of what ${who} just said before the next question, plain spoken language, one thing at a time, polite without being stiff. Reading from a script, form-filling phrasing (“please confirm the following”), lecturing ${who} about the rules, or reading the whole call back in the middle of the conversation fails.`);
+  c.push(`NO INVENTION — Otto states no fact that ${who} did not say and the office did not already know. What the office knows: ${purpose}${previous ? ` What the office learned before this call: ${noStop(previous)}.` : ''} Telling ${who} something from that is fine; an invented time, name, reason, address or promise is not. Asking about something is fine; asserting it is not.`);
+  c.push(`LENGTH — after saying why he is calling, Otto asks at most three questions in total, one at a time (two questions in one turn count as two), and then he closes. One question is enough when ${who} has already said the rest. Four or more questions fails.`);
+  const outcomeBody = noStop(row.outcome);
+  c.push(`CLOSE — Otto ends by confirming in one line what was agreed and what happens next, consistent with what ${who} said. For this call that is something like: “${outcomeBody}”; equivalent wording is fine. Judge it only on what ${who} said in this conversation: a fact they never mentioned is not missing, and the address need not be said. What fails: no summary at all, a summary that contradicts ${who}, or a closing that is only thanks. Then he lets ${who} go with a short goodbye.`);
+  if (persona.id === 'suspicious') {
+    c.push(`IDENTIFIES HIMSELF — when ${who} asks who is calling or how Otto got their number, Otto says plainly who he is and which delivery this is about before going on, without getting defensive and without pressing his own question first. Brushing the ask aside, or answering it with a question, fails.`);
+  }
+  return withVerdict(c);
+}
+
+export function buildCallTest({ row, persona, stops, index = 0 }) {
+  const d = destinationOf(situationStop(row, stops, index));
+  const num = row.num != null && row.num !== '' ? Number(row.num) : null;
+  const short = scenarioShort(row) || 'untitled';
+  const name = `Otto · call ${num != null ? '#' + num + ' ' : ''}${short} · ${persona.id}`;
+  const file = `call-${pad2(num != null ? num : 0)}-${slug(num != null ? short : row.title) || 'untitled'}--${persona.id}.json`;
+  const v = callVarsAll(row, d);
+  const opener = callOpener(row, d, { lang: 'en' });
+  const body = {
+    name,
+    type: 'simulation',
+    dynamic_variables: callVars(v),
+    /* the first agent turn is the line the phone overrides the first
+     * message with: the row's own opener, or the app's line for the
+     * person rung — never the platform's "how can I help you?", which
+     * is a greeting for somebody who called in */
+    chat_history: [{ role: 'agent', time_in_call_secs: 0, message: opener }],
+    simulation_scenario: callScenario({ row, d, persona }),
+    simulation_max_turns: callTurns(persona),
+    ...SIMULATION_MODELS,
+    success_conditions: callConditions({ row, d, persona }),
+    _otto: {
+      kind: 'call',
+      call_num: num,
+      call_title: String(row.title || ''),
+      call_to: callOf(row).callee,
+      persona: persona.id,
+      language: 'en',
+      scenario_num: null,
+      scenario_title: null,
+      situation_num: null,
+      situation_title: null,
+      briefing: callBriefing(v, 'en'),
+    },
+  };
+  return { file, body };
+}
+
+/* every call test for a list of rows — pure, so the tests can call it
+ * twice and compare */
+export function buildCallTests(rows, { only = null, personas = CALL_PERSONAS, stops = null } = {}) {
+  stops = stops || loadRoute('route-kollwitz.js').stops;
+  const chosen = (rows || [])
+    .filter(r => r && String(r.title || '').trim() && r.active !== false)
+    .filter(r => only == null || Number(r.num) === Number(only))
+    .slice()
+    .sort((a, b) => (a.num == null) - (b.num == null) || (Number(a.num) || 0) - (Number(b.num) || 0) || String(a.title).localeCompare(String(b.title)));
+  const out = [];
+  chosen.forEach((row, i) => personas.forEach(persona => out.push(buildCallTest({ row, persona, stops, index: i }))));
+  return out;
+}
+
 function parseArgs(argv) {
-  const o = { situations: false, source: null, url: null, key: null, file: null, out: null, langs: ['en', 'it'], only: null, help: false };
+  const o = { situations: false, calls: false, source: null, url: null, key: null, file: null, out: null, langs: ['en', 'it'], only: null, help: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => { if (i + 1 >= argv.length) throw new Error(`${a} needs a value`); return argv[++i]; };
     if (a === '--situations') o.situations = true;
+    else if (a === '--calls') o.calls = true;
     else if (a === '--sheet') o.source = 'sheet';
     else if (a === '--supabase') {
       o.source = 'supabase';
@@ -559,38 +713,51 @@ function parseArgs(argv) {
     else if (a === '--lang') { o.langs = next().split(',').map(s => s.trim().toLowerCase()).filter(Boolean); o.langGiven = true; }
     else if (a === '--scenario') { o.only = Number(next()); o.onlyFlag = a; if (!Number.isFinite(o.only)) throw new Error('--scenario needs a number'); }
     else if (a === '--situation') { o.only = Number(next()); o.onlyFlag = a; if (!Number.isFinite(o.only)) throw new Error('--situation needs a number'); }
+    else if (a === '--call') { o.only = Number(next()); o.onlyFlag = a; if (!Number.isFinite(o.only)) throw new Error('--call needs a number'); }
     else if (a === '-h' || a === '--help') o.help = true;
     else throw new Error(`unknown argument ${a}`);
   }
   const bad = o.langs.find(l => l !== 'en' && l !== 'it');
   if (bad) throw new Error(`--lang takes en and/or it, not ${bad}`);
-  /* the two suites take different rows from different places; a flag
-   * from the other one is a mistake worth naming, not one to guess at */
+  /* the three suites take different rows from different places; a flag
+   * from another one is a mistake worth naming, not one to guess at */
+  if (o.situations && o.calls) throw new Error('--situations and --calls are two suites — one at a time');
   if (o.situations && o.langGiven) throw new Error('the situation suite is English only — the pilot is; drop --lang');
+  if (o.calls && o.langGiven) throw new Error('the call suite is English only — the pilot is; drop --lang');
   if (o.situations && o.onlyFlag === '--scenario') throw new Error('--scenario picks a trigger row; with --situations use --situation N');
-  if (!o.situations && o.onlyFlag === '--situation') throw new Error('--situation picks a situation row; without --situations use --scenario N');
-  if (!o.situations && o.source === 'file') throw new Error('--file is the situation suite\'s (a JSON list of rows); the trigger suite reads --sheet or --supabase');
+  if (o.calls && o.onlyFlag === '--scenario') throw new Error('--scenario picks a trigger row; with --calls use --call N');
+  if (o.calls && o.onlyFlag === '--situation') throw new Error('--situation picks a situation row; with --calls use --call N');
+  if (o.situations && o.onlyFlag === '--call') throw new Error('--call picks a call row; with --situations use --situation N');
+  if (!o.situations && !o.calls && o.onlyFlag === '--situation') throw new Error('--situation picks a situation row; without --situations use --scenario N');
+  if (!o.situations && !o.calls && o.onlyFlag === '--call') throw new Error('--call picks a call row; without --calls use --scenario N');
+  if (!o.situations && !o.calls && o.source === 'file') throw new Error('--file is the situation and call suites\' (a JSON list of rows); the trigger suite reads --sheet or --supabase');
   /* triggers come from the committed sheet unless asked otherwise;
-   * situations come from the live rows the dashboard edits, because
-   * the sheet is only their starting twenty */
-  o.source = o.source || (o.situations ? 'supabase' : 'sheet');
-  o.out = o.out || (o.situations ? DEFAULT_SITUATION_OUT : DEFAULT_OUT);
+   * situations and calls come from the live rows the dashboard edits,
+   * because the sheets are only their starting rows */
+  o.source = o.source || (o.situations || o.calls ? 'supabase' : 'sheet');
+  o.out = o.out || (o.situations ? DEFAULT_SITUATION_OUT : o.calls ? DEFAULT_CALL_OUT : DEFAULT_OUT);
   return o;
 }
 
 const USAGE = `usage: node generate-tests.mjs [--sheet | --supabase [URL KEY]] [--out DIR] [--lang en,it] [--scenario N]
        node generate-tests.mjs --situations [--supabase [URL KEY] | --sheet | --file JSON] [--out DIR] [--situation N]
+       node generate-tests.mjs --calls [--supabase [URL KEY] | --sheet | --file JSON] [--out DIR] [--call N]
 
   --situations    the SITUATION suite: what a driver reports after pressing REPORT, ${SITUATION_PERSONAS.length} personas per row.
                   Its rows come from the situations table (default), falling back to situations-starter.js
                   when that project has no such table yet or no active row in it
-  --sheet         the starter sheet: trigger-scenarios.js (the trigger default), situations-starter.js with --situations
+  --calls         the CALL suite: Otto rings the customer or the driver — a home check for a fresh-food box, a late
+                  notice, a stop to skip — ${CALL_PERSONAS.length} personas per row. Its rows come from the calls table (default),
+                  falling back to calls-starter.js the same way
+  --sheet         the starter sheet: trigger-scenarios.js (the trigger default), situations-starter.js with --situations,
+                  calls-starter.js with --calls
   --supabase      a designer's own rows; URL KEY, else SUPABASE_URL / SUPABASE_ANON_KEY, else the kit's project
-  --file JSON     situation rows from a file: a list, or {"situations": [ … ]}
-  --out DIR       where the test files go (default: elevenlabs/test_configs, …/situations with --situations)
+  --file JSON     situation or call rows from a file: a list, or {"situations": [ … ]} / {"calls": [ … ]}
+  --out DIR       where the test files go (default: elevenlabs/test_configs, …/situations with --situations, …/calls with --calls)
   --lang en,it    languages to generate (triggers only; Italian variants exist for row #${[...IT_ROWS].join(', #')})
   --scenario N    one trigger row only
   --situation N   one situation row only
+  --call N        one call row only
 `;
 
 const col = (s, w) => (String(s).length > w ? String(s).slice(0, w - 1) + '…' : String(s).padEnd(w));
@@ -661,10 +828,53 @@ async function generateSituations(o) {
   return 0;
 }
 
+/* Where the call rows come from — the same three sources, the same
+ * fallback: the calls table, else calls-starter.js, and the run says
+ * which. */
+async function callRows(o) {
+  if (o.source === 'sheet') return { rows: loadCallsSheet(), from: 'the starter sheet' };
+  if (o.source === 'file') {
+    const raw = JSON.parse(readFileSync(o.file, 'utf8'));
+    const rows = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.calls) ? raw.calls : null);
+    if (!rows) throw new Error(`${o.file} carries no call rows (a list, or {"calls": [ … ]})`);
+    return { rows, from: o.file };
+  }
+  try {
+    const rows = await loadCallsSupabase(o.url, o.key);
+    if (rows.length) return { rows, from: supabaseName(o) };
+    console.log(`the calls table on ${supabaseName(o)} has no active row — generating from calls-starter.js instead`);
+  } catch (e) {
+    if (e.status !== 404) throw e;
+    console.log(`${supabaseName(o)} has no calls table yet — generating from calls-starter.js instead (run supabase/schema.sql there to get one)`);
+  }
+  return { rows: loadCallsSheet(), from: 'the starter sheet' };
+}
+
+async function generateCalls(o) {
+  const { rows, from } = await callRows(o);
+  const tests = buildCallTests(rows, { only: o.only });
+  const { written, removed } = writeTests(tests, o.out, { only: o.only, kind: 'call' });
+  const count = new Set(tests.map(t => t.body._otto.call_title)).size;
+  console.log(`\nGENERATE — ${count} call(s) from ${from} × ${CALL_PERSONAS.length} persona(s) → ${tests.length} test(s)\n`);
+  printTests(tests);
+  /* a row that is followed by another call is tested on its own here —
+   * the chain is the phone's; the next row carries what the office
+   * learned as its previous_call, which is easy to leave empty */
+  const byNum = new Map(rows.filter(r => r && r.num != null).map(r => [Number(r.num), r]));
+  for (const r of rows) {
+    if (!r || r.active === false || r.next_call == null || r.next_call === '') continue;
+    const next = byNum.get(Number(r.next_call));
+    if (!next) console.log(`note: "${r.title}" names call #${r.next_call} as the call that follows it, and there is no such row — on the phone nothing rings after it`);
+    else if (!String(next.previous_call || '').trim()) console.log(`note: "${next.title}" follows "${r.title}" but has no previous_call — its tests tell Otto nothing about the call before`);
+  }
+  printWrote(o.out, written, removed);
+  return 0;
+}
+
 export async function main(argv = process.argv.slice(2)) {
   const o = parseArgs(argv);
   if (o.help) { process.stdout.write(USAGE); return 0; }
-  return o.situations ? generateSituations(o) : generateScenarios(o);
+  return o.situations ? generateSituations(o) : o.calls ? generateCalls(o) : generateScenarios(o);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
