@@ -35,7 +35,7 @@ let destinations = [];
 const messagesByDest = {};
 const reportedIds = new Set();
 let current = null; // destination in the open card / Otto session
-/* The big REPORT button opened this debrief (openReport below), so it is
+/* A press on Otto opened this debrief (openReport below), so it is
  * a driver saying what they found — not a tester acting out a trigger
  * scenario. Everything that talks to Otto reads this: no scenario, no
  * run measurements, no first message of ours, and a briefing that says
@@ -1441,7 +1441,7 @@ const voiceOpts = () => {
       if (!res.demo && !res.spoken && res.reply) speakThen(String(res.reply), () => {});
       const d = current; // null when a report was filed on the road
       if (!d && !reporting) return;
-      recordMessage(d ? d.id : NO_STOP, {
+      const row = {
         ...res.row,
         /* the scripted demo bypasses extra() — stamp position and the
          * observed activity here too */
@@ -1449,14 +1449,16 @@ const voiceOpts = () => {
         destination_id: d ? d.id : null,
         demo: !!res.demo,
         created_at: (res.row && res.row.created_at) || new Date().toISOString(),
-      });
+      };
+      recordMessage(d ? d.id : NO_STOP, row);
+      recordMyReport(row, d); // the tally under Otto ticks up
       persistLocal();
       map.refresh(); // the pin flips to reported (a report with no pin flips nothing)
       /* debrief delivered for a fired trigger — that test run is complete */
       if (d && tracking && tracking.fired && tracking.d.id === d.id) stopTracking();
-      /* A report is made from the map and goes back to it: the driver is
-       * standing in a doorway, not reading a card. Long enough to see
-       * Otto's "saved", short enough not to have to tap anything. */
+      /* A report is made from Otto's screen and goes back to it: the
+       * driver is standing in a doorway, not reading a card. Long enough
+       * to see Otto's "saved", short enough not to have to tap anything. */
       if (reporting) { setTimeout(() => { if (reporting && !el('otto-screen').hidden) closeOtto(); }, 1800); return; }
       if (d && !el('card').hidden) openCard(d); // the debrief lands in the card's list
     },
@@ -1639,7 +1641,6 @@ function openOtto(d, asReport) {
     + (d ? (d.stop != null ? 'Stop ' + d.stop + ' · ' : '') + scenarioNumPrefix(d) + d.title
          : 'no stop nearby');
   el('otto-screen').hidden = false;
-  renderReport(); // the button stands down while Otto has the screen
   /* a manual "Report to Otto" tap never went through startTracking —
    * kick the translation off now; the connect handshake usually gives
    * it enough of a head start, and English is the harmless fallback */
@@ -1660,24 +1661,27 @@ function closeOtto() {
     if ('speechSynthesis' in window) speechSynthesis.cancel();
   } catch { /* optional */ }
   el('otto-screen').hidden = true;
-  /* back where the debrief came from: the card that opened it, or — for
-   * a REPORT — the map, which is where the button lives. `reporting` is
-   * left standing: the agent files what was said AFTER this returns. */
+  /* back where the debrief came from: the card that opened it (on the
+   * map), or — for a report — Otto's own screen, where he was pressed.
+   * `reporting` is left standing: the agent files what was said AFTER
+   * this returns. */
   if (current && !reporting) openCard(current); // the card, now with the new message
-  renderReport();
   if (reporting) offerDartThrow(); // the report was the chore; this is the reward
 }
 
-/* ---------- the REPORT button ----------
- * The pilot ships without triggers: the driver presses one big button
- * and tells Otto what they found. So this is the map screen's whole
- * job, and the tap itself is the user gesture the microphone and the
- * audio output need — which is why the agent is mounted straight from
- * it rather than from anything that happens later.
+/* ---------- pressing Otto (the report) ----------
+ * The pilot ships without triggers: the driver presses Otto — the big
+ * face in the middle of his screen, what used to be a REPORT button
+ * over the map — and tells him what they found. So this is the home
+ * screen's whole job, and the tap itself is the user gesture the
+ * microphone and the audio output need — which is why the agent is
+ * mounted straight from it rather than from anything that happens
+ * later.
  *
- * What the report is ABOUT, in order: the stop the phone is standing
- * at, the stop whose card is open, or nothing at all (a report made on
- * the road, filed against no pin). */
+ * What the report is ABOUT: the stop the phone is standing at, or
+ * nothing at all (a report made on the road, filed against no pin). A
+ * report meant for one particular pin starts from that pin's card on
+ * the map ("Report to Otto"), which names the pin outright. */
 const REPORT_RADIUS = 150; // m — beyond this you are not at that door
 
 function reportContext() {
@@ -1691,8 +1695,7 @@ function reportContext() {
       if (m <= REPORT_RADIUS && (!near || m < near.m)) near = { d, m };
     }
   }
-  if (near) return near.d;
-  return !el('card').hidden && current ? current : null;
+  return near ? near.d : null;
 }
 
 function openReport() {
@@ -1702,9 +1705,100 @@ function openReport() {
   openOtto(reportContext(), true);
 }
 
+/* ---------- the two screens ----------
+ * Otto's screen is home: Otto in the middle, the tally of reports under
+ * him, and the header's four taps — the tests dashboard (←), the map,
+ * the debrief language, the settings. The map — pins, GPS, activity
+ * recognition, the route, the cards — is behind the map icon with the
+ * tester's chips on it, and its ← OTTO chip comes back here. Whatever
+ * opens a card lands on the map, because the card is the map's; coming
+ * home closes it, so a press on Otto here is filed against the stop
+ * the phone is standing at, never against something the driver cannot
+ * see. The conversation screen covers either. (Every lookup is guarded:
+ * a phone still holding yesterday's index.html has none of this, and
+ * app.js must still boot.) */
+const show = (id, on) => { const n = el(id); if (n) n.hidden = !on; };
+function showMap() {
+  show('home', false);
+  show('settings', false);
+  show('reports', false);
+}
+function showHome() {
+  show('card', false);
+  show('home', true);
+}
+
+/* ---------- reports filed from this phone ----------
+ * The tally under Otto counts the debriefs THIS phone filed — Otto was
+ * pressed, something was said, Otto saved it — and the sheet behind it
+ * lists them, newest first. Per phone, in localStorage, like the
+ * settings and the language: the shared store holds every tester's
+ * reports, and a driver's own count is the feedback that the report
+ * landed. A scripted demo debrief counts too, marked DEMO, exactly as
+ * the card lists it. */
+const LS_MINE = 'od_my_reports';
+const MINE_CAP = 200; // enough history, bounded storage
+let myReports = [];
+try {
+  const v = JSON.parse(localStorage.getItem(LS_MINE) || '[]');
+  if (Array.isArray(v)) myReports = v;
+} catch { /* private mode */ }
+function recordMyReport(row, d) {
+  myReports.unshift({
+    id: row.id || null,
+    at: row.created_at || new Date().toISOString(),
+    stop: d ? (d.stop != null ? 'Stop ' + d.stop + ' · ' : '') + d.title : '',
+    title: String(row.title || row.transcript || '').slice(0, 160),
+    category: row.category || 'other',
+    demo: !!row.demo,
+  });
+  if (myReports.length > MINE_CAP) myReports.length = MINE_CAP;
+  try { localStorage.setItem(LS_MINE, JSON.stringify(myReports)); } catch { /* private mode */ }
+  renderTally();
+  if (el('reports') && !el('reports').hidden) renderReportsSheet();
+}
+function renderTally() {
+  if (!el('reports-count')) return;
+  const n = myReports.length;
+  el('reports-count').textContent = String(n);
+  el('reports-label').textContent = (n === 1 ? 'report filed' : 'reports filed') + ' · tap for details';
+}
+/* "TODAY 14:02", "30 SEP 09:41" — the phone's own clock and locale */
+function fmtWhen(iso) {
+  const t = new Date(iso);
+  if (isNaN(t)) return '';
+  const hhmm = t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const day = t.toDateString() === new Date().toDateString()
+    ? 'TODAY'
+    : t.toLocaleDateString([], { day: 'numeric', month: 'short' }).toUpperCase();
+  return day + ' ' + hhmm;
+}
+function renderReportsSheet() {
+  const box = el('reports-list');
+  if (!box) return;
+  box.innerHTML = '';
+  el('reports-empty').hidden = myReports.length > 0;
+  myReports.forEach(r => {
+    const row = document.createElement('div');
+    row.className = 'rp-row';
+    const when = document.createElement('span');
+    when.className = 'rp-when';
+    when.textContent = [fmtWhen(r.at), String(r.category || 'other').toUpperCase(), r.demo ? 'DEMO' : '']
+      .filter(Boolean).join(' · ');
+    const txt = document.createElement('span');
+    txt.className = 'rp-text';
+    txt.textContent = r.title || '—';
+    const stop = document.createElement('small');
+    stop.className = 'rp-stop';
+    stop.textContent = r.stop || 'On the road — no stop nearby';
+    row.append(when, txt, stop);
+    box.appendChild(row);
+  });
+}
+
 /* ---------- the dart game (darts.js) ----------
  * A report is a chore, so the reward comes right after it: when the
- * REPORT call's screen closes, a dartboard slides up for one flick of
+ * report call's screen closes, a dartboard slides up for one flick of
  * the thumb — three seconds, then the route again. What is decided
  * here is only WHETHER a throw is offered: the game is on in settings,
  * and the report belonged to a stop. One throw per STOP is the rule,
@@ -1721,13 +1815,6 @@ function offerDartThrow() {
   Darts.offer({ stop: d, visit: visitsByDest[d.id] || null, player: playerName(), voice: settings.voice !== false, pace: paceMs() });
 }
 
-/* Always on the map, never over Otto — the one thing on this screen
- * that must not be hidden. */
-function renderReport() {
-  const btn = el('report');
-  if (btn) btn.hidden = !el('otto-screen').hidden;
-}
-
 /* ---------- destination card ---------- */
 function setScTab(t) {
   el('sc-tab-story').classList.toggle('on', t === 'story');
@@ -1738,7 +1825,7 @@ function setScTab(t) {
 
 function openCard(d) {
   current = d;
-  if (el('settings')) el('settings').hidden = true; // same slot
+  showMap(); // the card is the map's — whatever opened it lands there; the sheets close with it
   OttoAgent.prefetchUrl(); // a card open is a report getting likely: the agent's line, signed ahead
   el('card-title').textContent = (d.stop != null ? 'Stop ' + d.stop + ' · ' : '') + scenarioNumPrefix(d) + d.title;
   el('card-addr').textContent = d.addr || `${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}`;
@@ -1922,10 +2009,10 @@ el('build').onclick = async () => {
     : 'not configured — recorded debrief'));
   /* the flow the pilot actually runs: one button, Otto's own opening
    * line, filed against the stop the phone is standing at */
-  out.push('REPORT button: ' + (OttoAgent.available()
+  out.push('pressing Otto: ' + (OttoAgent.available()
     ? 'the agent opens in his OWN words (no first-message override)'
     : 'the recorded debrief asks "' + LANG_TEXT[testLang].ask + '"')
-    + ' · filed against the stop within ' + REPORT_RADIUS + ' m, else the open card, else no stop');
+    + ' · filed against the stop within ' + REPORT_RADIUS + ' m, else no stop');
   /* the card's 🇬🇧/🇮🇹 pick — an Italian debrief that comes out English
    * usually means the agent declined the language override */
   out.push('debrief language: ' + (testLang === 'it'
@@ -1991,9 +2078,24 @@ el('sc-tab-story').onclick = () => setScTab('story');
 el('sc-tab-steps').onclick = () => setScTab('steps');
 el('card-otto').onclick = () => current && openOtto(current);
 el('card-remove').onclick = removeCurrent;
-/* the big one. Same index.html caveat as the block below: a phone still
- * holding yesterday's page has no button, and app.js must still boot. */
-if (el('report')) { el('report').onclick = openReport; renderReport(); }
+/* the big one: Otto himself. Same index.html caveat as the block below:
+ * a phone still holding yesterday's page has none of this, and app.js
+ * must still boot. */
+if (el('report')) el('report').onclick = openReport;
+if (el('home')) {
+  el('open-map').onclick = showMap;
+  el('map-back').onclick = showHome;
+  renderTally();
+  /* the tally's details — a sheet in the settings' slot, so one closes the other */
+  el('reports-tally').onclick = () => {
+    const sheet = el('reports');
+    if (!sheet.hidden) { sheet.hidden = true; return; }
+    show('settings', false);
+    renderReportsSheet();
+    sheet.hidden = false;
+  };
+  el('reports-close').onclick = () => { el('reports').hidden = true; };
+}
 /* A phone can hold yesterday's index.html next to today's app.js (a WebView
  * that skipped revalidation): the block may not exist yet. Never let that
  * stop the script — boot() still has to run below. */
@@ -2012,7 +2114,7 @@ if (el('settings-chip') && el('settings')) {
     el('st-darts').checked = settings.darts !== false;
     if (el('st-voice')) el('st-voice').checked = settings.voice !== false;
     renderPace();
-    el('card').hidden = true; // same slot
+    show('reports', false); // same slot
     sheet.hidden = false;
   };
   el('st-close').onclick = () => { el('settings').hidden = true; };
@@ -2081,6 +2183,12 @@ el('card-sc-start').onclick = () => {
 function renderLang() {
   el('lang-en').classList.toggle('on', testLang !== 'it');
   el('lang-it').classList.toggle('on', testLang === 'it');
+  /* the flag in Otto's header shows the pick; a tap there flips it */
+  const flag = el('lang-flag');
+  if (flag) {
+    flag.textContent = testLang === 'it' ? '🇮🇹' : '🇬🇧';
+    flag.title = (testLang === 'it' ? 'Otto debriefs in Italian' : 'Otto debriefs in English') + ' — tap to switch';
+  }
 }
 function setLang(l) {
   testLang = l;
@@ -2094,6 +2202,7 @@ function setLang(l) {
 }
 el('lang-en').onclick = () => setLang('en');
 el('lang-it').onclick = () => setLang('it');
+if (el('lang-flag')) el('lang-flag').onclick = () => setLang(testLang === 'it' ? 'en' : 'it');
 renderLang();
 el('trigger-banner').onclick = () => {
   el('trigger-banner').hidden = true;
