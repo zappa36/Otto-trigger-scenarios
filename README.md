@@ -679,9 +679,12 @@ where Otto must tell a stranger nothing — loadable in one tap,
 idempotent by title, editable in place. The suite and the phone read
 the *rows*, not the file.
 
-**Taking the call yourself.** On the phone, ⚙ → **TAKE A CALL FROM
-OTTO**: pick a call, pick *now*, *in 30 s* or *in 2 min*, and put the
-phone down. It rings — a real ring, the vibration motor too — with the
+**Taking the call yourself.** On the phone, press **📞 TEST CALL**
+under Otto: he rings at once with the next call on the list (#1 the
+first time, then #2, and so on round the list). For a particular call,
+or a ring in 30 s or 2 min so you can put the phone down, ⚙ → **TAKE A
+CALL FROM OTTO**: pick when, then tap the call. Either way it rings — a
+real ring, the vibration motor too — with the
 screen of an incoming call: who is calling (Otto, back office), what
 about, and who you are answering as ("You answer as the customer, F.
 Brandt · Kollwitzstraße 48"). **Answer** opens the line: Otto speaks

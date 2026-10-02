@@ -79,7 +79,8 @@ const playerName = () => String(settings.name || '').trim().slice(0, 24) || 'som
  * fresh-food box (will somebody be home), or the driver about a stop
  * (running late, skip it), and the person called says what they say.
  * The rows are the dashboard's CALLS tab (calls-starter.js to begin
- * with); on this phone the designer takes the call — ⚙ → TAKE A CALL
+ * with); on this phone the designer takes the call — TEST CALL under
+ * Otto, or ⚙ → TAKE A CALL
  * rings, Answer opens the agent with the call's opener, variables and
  * briefing, exactly as the suite tests it — and plays the customer or
  * the driver. `calling` is the call on the open screen, kept standing
@@ -88,6 +89,7 @@ const playerName = () => String(settings.name || '').trim().slice(0, 24) || 'som
  * rings again when this one ends, carrying what Otto learned. */
 let calls = [];
 let callsFrom = '';   // where the list came from, for the self-test
+let lastRung = null;  // the num of the call that rang last — TEST CALL rings the one after it
 let calling = null;   // { row, d, previous } while a call is on the screen (and until it is filed)
 let ringing = null;   // { row, previous, at, timer } while the phone rings or counts down to it
 const LS_CALLS = 'od_calls';
@@ -1922,6 +1924,25 @@ function callOutcome(turns, row) {
   return out.replace(/\s+/g, ' ').trim().slice(0, 700);
 }
 
+/* ---- the TEST CALL button under Otto ----
+ * One tap, Otto rings now, with the call after the one that rang last
+ * (#1 the first time, round the list from there); the ⚙ sheet is for
+ * picking a call, or a ring in 30 s or 2 min. */
+function nextTestCall() {
+  if (!calls.length) return null;
+  const i = lastRung == null ? -1 : calls.findIndex(c => c.num != null && +c.num === +lastRung);
+  return calls[(i + 1) % calls.length];
+}
+function renderHomeCall() {
+  const b = el('home-call');
+  if (!b) return;
+  const row = nextTestCall();
+  b.hidden = !row;
+  if (!row) return;
+  const d = callStop(row);
+  el('home-call-sub').textContent = `${row.num != null && row.num !== '' ? '#' + row.num + ' ' : ''}${String(row.title || '').trim()} · you answer as ${calleeWord(row)}${d ? ' · ' + d.title : ''}`;
+}
+
 /* ---- the ⚙ sheet's list ---- */
 function renderCallList() {
   const box = el('st-call-list');
@@ -1996,6 +2017,7 @@ function armCall(row, delaySec, previous) {
   cancelRing();
   const sec = Math.max(0, Math.round(+delaySec || 0));
   ringing = { row, previous: String(previous || '').trim(), at: Date.now() + sec * 1000, timer: null };
+  if (row.num != null && row.num !== '') { lastRung = +row.num; renderHomeCall(); }
   ringContext(); // born in the tap, when there is one
   OttoAgent.prefetchUrl(callAgentId()); // the back-office agent's line, signed ahead of the Answer tap
   if (!sec) { showRing(); return; }
@@ -2531,6 +2553,8 @@ el('otto-back').onclick = closeOtto;
 if (el('ring-answer')) el('ring-answer').onclick = answerCall;
 if (el('ring-decline')) el('ring-decline').onclick = declineCall;
 if (el('ring-wait')) el('ring-wait').onclick = cancelRing;
+/* TEST CALL under Otto: rings now, with the next call on the list */
+if (el('home-call')) el('home-call').onclick = () => { const row = nextTestCall(); if (row) armCall(row, 0, ''); };
 /* the ⚙ sheet — guarded like the blocks above: an index.html from
  * before the sheet has none of these, and app.js must still boot */
 if (el('settings-chip') && el('settings')) {
@@ -2751,6 +2775,7 @@ async function boot() {
   map.refresh();
   /* the calls Otto makes — the ⚙ sheet's list, and a call the URL asks for */
   await loadCalls();
+  renderHomeCall();
   renderCallList();
   ringFromUrl();
 }
@@ -2760,7 +2785,7 @@ async function boot() {
 if (!Backend.enabled) {
   window.addEventListener('storage', e => {
     /* the dashboard's CALLS tab, edited in another tab of this browser */
-    if (e.key === LS_CALLS) { loadCalls().then(renderCallList); return; }
+    if (e.key === LS_CALLS) { loadCalls().then(() => { renderCallList(); renderHomeCall(); }); return; }
     if (e.key && ![LS_DEST, LS_SCEN].includes(e.key)) return;
     try { destinations = JSON.parse(localStorage.getItem(LS_DEST) || '[]'); } catch { return; }
     try { scenarios = JSON.parse(localStorage.getItem(LS_SCEN) || '[]'); } catch { /* keep old */ }

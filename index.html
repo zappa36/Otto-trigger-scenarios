@@ -932,8 +932,29 @@
   }
   #ring-wait[hidden] { display: none; }
 
+  /* the TEST CALL button under Otto: one tap and he rings, with the
+     next call on the list — the ⚙ sheet has the pick and the delay */
+  .home-call {
+    flex: none;
+    width: min(360px, 100%);
+    margin: 0 0 14px;
+    padding: 13px 16px;
+    border-radius: 18px;
+    border: 1px solid rgba(70,211,154,.5);
+    background: rgba(70,211,154,.12);
+    color: #eef2f7;
+    text-align: center;
+    font: inherit;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  .home-call[hidden] { display: none; }
+  .home-call:active { transform: scale(.985); }
+  .home-call b { display: block; font-size: 17px; letter-spacing: .05em; color: #7ce0b8; }
+  .home-call small { display: block; margin-top: 3px; font-size: 13px; color: #94a1b2; line-height: 1.35; }
   /* the TAKE A CALL section of the ⚙ sheet: one button per call */
-  .st-calls { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(140,165,200,.14); }
+  .st-calls { margin: 0 0 12px; padding-bottom: 12px; border-bottom: 1px solid rgba(140,165,200,.14); }
   .st-sub { margin: 6px 0 2px; font-size: 12px; color: #94a1b2; line-height: 1.45; }
   #st-call-list { display: flex; flex-direction: column; gap: 7px; margin-top: 8px; }
   .st-call {
@@ -1067,6 +1088,17 @@
       <b class="st-title">SETTINGS · THIS PHONE</b>
       <button id="st-close" type="button" aria-label="Close">×</button>
     </div>
+    <div class="st-calls" id="st-calls">
+      <b class="st-title">📞 TAKE A CALL FROM OTTO</b>
+      <p class="st-sub">Tap a call below and Otto rings you from the back office. You answer as the person called — the customer, or the driver — and say what you like: not home before six, running late, fine. The call is saved like a report; the dashboard's CALLS tab lists it under the call.</p>
+      <label class="st-row">
+        <span class="st-label">When you tap a call, Otto rings<small>pick 30 s or 2 min to put the phone down and wait for it</small></span>
+        <span class="st-seg" id="st-ring" role="group" aria-label="When Otto rings">
+          <button type="button" data-ring="0">now</button><button type="button" data-ring="30">in 30 s</button><button type="button" data-ring="120">in 2 min</button>
+        </span>
+      </label>
+      <div id="st-call-list"></div>
+    </div>
     <label class="st-row">
       <span class="st-label">Your first name<small>on the dart scoreboard — "someone" if empty</small></span>
       <input id="st-name" type="text" maxlength="24" autocomplete="given-name" placeholder="e.g. Ali">
@@ -1085,17 +1117,6 @@
         <button type="button" data-pace="slow">slow</button><button type="button" data-pace="normal">normal</button><button type="button" data-pace="fast">fast</button>
       </span>
     </label>
-    <div class="st-calls" id="st-calls">
-      <b class="st-title">📞 TAKE A CALL FROM OTTO</b>
-      <p class="st-sub">Otto rings you from the back office. You answer as the person called — the customer, or the driver — and say what you like: not home before six, running late, fine. The call is saved like a report; the dashboard's CALLS tab lists it under the call.</p>
-      <label class="st-row">
-        <span class="st-label">Ring me<small>now, or in a moment — put the phone down and wait for it</small></span>
-        <span class="st-seg" id="st-ring" role="group" aria-label="When Otto rings">
-          <button type="button" data-ring="0">now</button><button type="button" data-ring="30">in 30 s</button><button type="button" data-ring="120">in 2 min</button>
-        </span>
-      </label>
-      <div id="st-call-list"></div>
-    </div>
     <button id="st-practice" type="button" class="st-btn">🎯 Practice throw — not counted</button>
     <p class="st-foot">How to play: three times, Otto says "two", keeps a silent beat, then says "four" — and you say "stop". Side: on two for left, in the silence for the middle, on four for right. Height: two is the top, the silence the middle, four the bottom. Strength: the silence is just right; two falls short, four flies over. Say nothing and he takes four. Stop in the silence three times for a bullseye; a miss is nothing. Otto explains this himself the first three times.</p>
     <button id="st-rules" type="button" class="st-btn">🔊 Hear the rules</button>
@@ -1125,6 +1146,10 @@
         <span class="otto-face"><span class="otto-eyes"><span class="otto-eye"><i></i></span><span class="otto-eye"><i></i></span></span></span>
       </button>
       <p id="home-hint">Press Otto to report something…</p>
+      <button id="home-call" class="home-call" type="button" hidden title="Otto rings you from the back office — answer as the customer or the driver">
+        <b>📞 TEST CALL</b>
+        <small id="home-call-sub">Otto rings you now</small>
+      </button>
       <button id="reports-tally" class="tally" type="button" title="The reports filed from this phone — tap for the list">
         <b id="reports-count">0</b>
         <span id="reports-label">reports filed · tap for details</span>
