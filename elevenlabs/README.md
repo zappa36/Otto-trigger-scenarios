@@ -390,8 +390,9 @@ send as a contextual update rides under `_otto.briefing`.
    brackets (`[happy]`, `[neutral]`) is a direction to the voice, not
    speech, and the judge is told to leave it out.
 5. **NO INVENTION** — no fact the person did not say and the office did
-   not know. The purpose and the previous call's outcome are what the
-   office knows: telling the person those is fine, and so is a
+   not know. The purpose, the previous call's outcome and the notes on
+   file for the address (`destination_notes`, which the agent gets too)
+   are what the office knows: telling the person those is fine, and so is a
    conclusion drawn from them and what the person said (home from six,
    window until seven: "between six and seven"); the delivery's address
    and the customer's name are known too. A promise nobody made is not.

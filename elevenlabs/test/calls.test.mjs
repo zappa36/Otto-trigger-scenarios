@@ -183,6 +183,11 @@ test('the conditions are the row\'s: purpose, what to establish, what is off top
   assert.match(c[3], /A word in square brackets such as \[happy\] or \[neutral\] is a direction to the voice, not something said: leave it out of the judgement\./, 'the voice tags are not speech');
   assert.match(c[4], /so “between six and seven” is a conclusion, not an invention\); the delivery's own address and the customer's name are known to the office too\. An invented time, name, reason or address is not fine, and neither is a promise nobody made/);
   assert.match(c[4], /^NO INVENTION — Otto states no fact that the customer did not say and the office did not already know\. What the office knows: A fresh-food box for R\. Fischer/);
+  /* the agent gets the notes on file as destination_notes, so the judge must know them too — the third baseline failed every run of one driver call for a note Otto read out ("the bell panel is inside the gateway") */
+  assert.match(c[4], /Notes on file for this address, which the office knows too: No lift — 5th floor\. If nobody answers, neighbour Kern on the 4th takes it\. Telling the customer something from that is fine/);
+  const okafor = built.find(t => t.file === 'call-06-running-late--terse.json').body;
+  assert.equal(okafor.dynamic_variables.destination_notes, undefined, 'stop 3 has no notes');
+  assert.doesNotMatch(okafor.success_conditions[4], /Notes on file/, 'no clause when the stop has none');
   assert.match(c[5], /^LENGTH — after saying why he is calling, Otto asks at most three questions in total/);
   assert.ok(c[6].includes(fillCall(row.outcome, stops.find(st => st.stop === 8)).replace(/\.$/, '')), 'the close names the outcome, with the stop\'s words filled in');
   assert.match(c[6], /Judge it only on what the customer said in this conversation: a fact they never mentioned is not missing, and the address need not be said\./);

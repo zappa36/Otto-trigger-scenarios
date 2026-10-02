@@ -2105,7 +2105,7 @@ function renderCall(c) {
       ${ringHref ? `
       <div class="call-ring">
         <a href="${esc(ringHref)}" target="_blank" rel="noopener">📞 Ring this call on the phone ↗</a>
-        <span>Opens the phone page with this call ringing. Answer as ${esc(calleeWord(c))}${next ? `; when it ends, Otto rings ${esc(calleeWord(next))} with call #${esc(next.num)}` : ''}. Or on the phone itself: ⚙ → TAKE A CALL.</span>
+        <span>Opens the phone page with this call ringing. Answer as ${esc(calleeWord(c))}${next ? `; when it ends, Otto rings ${esc(calleeWord(next))} with call #${esc(next.num)}` : ''}. Or on the phone itself: TEST CALL under Otto, or ⚙ → TAKE A CALL.</span>
       </div>` : ''}
       ${renderCallField(c)}
       ${renderAgentBlock(c, 'call')}
