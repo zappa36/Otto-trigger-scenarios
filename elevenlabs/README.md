@@ -345,7 +345,7 @@ where they are edited from then on. Each row carries:
 | `off_topic` | what would not fit here (this row's wrong questions) |
 | `outcome` | the one line Otto should end the call confirming — what was agreed and what happens next |
 | `next_call` | the `num` of the call that follows on the phone; the suite tests each row on its own |
-| `active` | false = kept on the tab, left out of the suite and off the phone's list |
+| `active` | false = kept on the tab, left out of the suite and off the phone's list. A row that is in the suite but has no `purpose` or no `they_say` yet (a fresh + NEW CALL) gets no test either, with a `note:` in the log |
 
 The texts may leave the stop's words to the stop: `{address}`
 (`Kollwitzstraße 71`), `{customer}` (`Fischer`), `{name}` (`R.

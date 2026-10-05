@@ -704,10 +704,17 @@ export function buildCallTest({ row: raw, persona, stops, index = 0 }) {
 
 /* every call test for a list of rows — pure, so the tests can call it
  * twice and compare */
+/* A call row the suite can act out: it has a brief for Otto and
+ * something for the person to say. A row pressed into being with
+ * + NEW CALL and left as it is ("New call", every box empty) is in
+ * the suite by default, and four tests of Otto ringing nobody about
+ * nothing would say nothing about him — so it gets no test and a note. */
+export const callRowReady = row => !!(row && String(row.purpose || '').trim() && String(row.they_say || '').trim());
+
 export function buildCallTests(rows, { only = null, personas = CALL_PERSONAS, stops = null } = {}) {
   stops = stops || loadRoute('route-kollwitz.js').stops;
   const chosen = (rows || [])
-    .filter(r => r && String(r.title || '').trim() && r.active !== false)
+    .filter(r => r && String(r.title || '').trim() && r.active !== false && callRowReady(r))
     .filter(r => only == null || Number(r.num) === Number(only))
     .slice()
     .sort((a, b) => (a.num == null) - (b.num == null) || (Number(a.num) || 0) - (Number(b.num) || 0) || String(a.title).localeCompare(String(b.title)));
@@ -877,6 +884,11 @@ async function generateCalls(o) {
   const count = new Set(tests.map(t => t.body._otto.call_title)).size;
   console.log(`\nGENERATE — ${count} call(s) from ${from} × ${CALL_PERSONAS.length} persona(s) → ${tests.length} test(s)\n`);
   printTests(tests);
+  /* a row in the suite with no brief, or nothing for the person to say */
+  for (const r of rows) {
+    if (!r || r.active === false || !String(r.title || '').trim() || callRowReady(r)) continue;
+    console.log(`note: "${r.title}" is in the suite but has ${String(r.purpose || '').trim() ? 'nothing for the person to say' : 'no brief for Otto'} — no test for it; fill the row in on the dashboard's CALLS tab, or take it out of the suite`);
+  }
   /* a row with nothing to agree grades the other way round (Otto must
    * end the call, not sum anything up), which is easy to miss in a sheet */
   const hangUps = [...new Set(tests.filter(t => endsWithNothingAgreed(rows.find(r => String(r.title || '') === t.body._otto.call_title) || {})).map(t => t.body._otto.call_title))];

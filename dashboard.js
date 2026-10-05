@@ -2117,7 +2117,7 @@ function renderCall(c) {
         <span class="sc-num">${c.num != null && c.num !== '' ? '#' + esc(c.num) : '·'}</span>
         <div class="sc-head">
           <h3>${esc(c.title || 'Untitled call')}</h3>
-          ${says ? `<div class="sc-addr-line sit-says">${esc(calleeWord(c))}: &ldquo;${esc(says)}&rdquo;</div>` : '<div class="sc-addr-line warn">⚠ Nothing for the person to say yet — open the row and write what they say</div>'}
+          ${says ? `<div class="sc-addr-line sit-says">${esc(calleeWord(c))}: &ldquo;${esc(says)}&rdquo;</div>` : '<div class="sc-addr-line warn">⚠ Nothing for the person to say yet — open the row and write what they say; until the row has a brief and that line, the suite and the phone skip it</div>'}
         </div>
         <span class="call-to${to === 'driver' ? ' driver' : ''}" title="Who Otto rings">→ ${to === 'driver' ? 'driver' : 'customer'}</span>
         ${next ? `<span class="call-then" title="The call that follows this one on the phone">then #${esc(next.num)}</span>` : ''}

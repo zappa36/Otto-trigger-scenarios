@@ -1821,7 +1821,8 @@ async function loadCalls() {
     try { rows = JSON.parse(localStorage.getItem(LS_CALLS) || '[]'); } catch { rows = []; }
     callsFrom = 'the dashboard, in this browser';
   }
-  let active = (rows || []).filter(c => c && c.active !== false && String(c.title || '').trim());
+  /* a row with no brief yet (+ NEW CALL, left as it is) is nothing to ring about */
+  let active = (rows || []).filter(c => c && c.active !== false && String(c.title || '').trim() && String(c.purpose || '').trim());
   if (!active.length && window.CALLS_SHEET && Array.isArray(window.CALLS_SHEET.calls)) {
     active = window.CALLS_SHEET.calls.map(c => ({ ...c }));
     callsFrom = 'the starter sheet';
