@@ -19,7 +19,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { execFile, execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -28,7 +28,7 @@ import { promisify } from 'node:util';
 import { startMock } from './mock-elevenlabs.mjs';
 import { loadCallsSheet, loadRoute } from '../lib/sheet.mjs';
 import { callOf, callOpener, callBriefing, surnameOf, fillCall, fillCallRow, LANG_TEXT, agentVars, initDynamicVariables } from '../lib/scenario-vars.mjs';
-import { buildCallTests, buildCallTest, CALL_PERSONAS, CALL_VARS, SITUATION_VARS, SITUATION_PERSONAS, TRIGGER_PERSONAS, PERSONAS, endsWithNothingAgreed } from '../generate-tests.mjs';
+import { buildCallTests, buildCallTest, callRowReady, CALL_PERSONAS, CALL_VARS, SITUATION_VARS, SITUATION_PERSONAS, TRIGGER_PERSONAS, PERSONAS, endsWithNothingAgreed } from '../generate-tests.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
@@ -510,4 +510,25 @@ test('app.js and dashboard.js carry fillCall word for word', () => {
   const lib = grab(readFileSync(path.join(HERE, '..', 'lib', 'scenario-vars.mjs'), 'utf8'), 'lib');
   assert.equal(grab(readFileSync(path.join(REPO, 'app.js'), 'utf8'), 'app.js'), lib, 'app.js drifted from lib/scenario-vars.mjs');
   assert.equal(grab(readFileSync(path.join(REPO, 'dashboard.js'), 'utf8'), 'dashboard.js'), lib, 'dashboard.js drifted from lib/scenario-vars.mjs');
+});
+
+/* ---- a row with nothing in it yet ---- */
+test('a fresh "New call" row gets no test: no brief, or nothing for the person to say', () => {
+  const blank = { num: 11, title: 'New call', callee: 'consignee', stop: null, purpose: null, they_say: null, must_establish: [], off_topic: [], active: true };
+  assert.equal(callRowReady(blank), false);
+  assert.equal(callRowReady({ ...blank, purpose: 'Find out whether somebody is home.' }), false, 'a brief alone is not enough');
+  assert.equal(callRowReady({ ...blank, they_say: 'Not before six.' }), false, 'a line alone is not enough');
+  assert.equal(callRowReady({ ...blank, purpose: 'Find out whether somebody is home.', they_say: 'Not before six.' }), true);
+  assert.ok(rows.every(callRowReady), 'every starter row is ready');
+  assert.equal(buildCallTests([...rows, blank], { stops }).length, 40, 'the blank row adds no test');
+  /* the CLI says so, and still writes the tests for the rows that are ready */
+  const dir = mkdtempSync(path.join(tmpdir(), 'otto-calls-blank-'));
+  try {
+    const file = path.join(dir, 'rows.json');
+    writeFileSync(file, JSON.stringify([rows[2], blank, { ...blank, num: 12, title: 'Half a call', purpose: 'Find out whether somebody is home.' }]));
+    const out = execFileSync(process.execPath, [GEN, '--calls', '--file', file, '--out', path.join(dir, 'out')], { encoding: 'utf8' });
+    assert.match(out, /GENERATE — 1 call\(s\) from .* × 4 persona\(s\) → 4 test\(s\)/);
+    assert.match(out, /^note: "New call" is in the suite but has no brief for Otto — no test for it; fill the row in on the dashboard's CALLS tab, or take it out of the suite$/m);
+    assert.match(out, /^note: "Half a call" is in the suite but has nothing for the person to say — no test for it/m);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

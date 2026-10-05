@@ -2117,7 +2117,7 @@ function renderCall(c) {
         <span class="sc-num">${c.num != null && c.num !== '' ? '#' + esc(c.num) : '·'}</span>
         <div class="sc-head">
           <h3>${esc(c.title || 'Untitled call')}</h3>
-          ${says ? `<div class="sc-addr-line sit-says">${esc(calleeWord(c))}: &ldquo;${esc(says)}&rdquo;</div>` : '<div class="sc-addr-line warn">⚠ Nothing for the person to say yet — open the row and write what they say</div>'}
+          ${says ? `<div class="sc-addr-line sit-says">${esc(calleeWord(c))}: &ldquo;${esc(says)}&rdquo;</div>` : '<div class="sc-addr-line warn">⚠ Nothing for the person to say yet — open the row and write what they say; until the row has a brief and that line, the suite and the phone skip it</div>'}
         </div>
         <span class="call-to${to === 'driver' ? ' driver' : ''}" title="Who Otto rings">→ ${to === 'driver' ? 'driver' : 'customer'}</span>
         ${next ? `<span class="call-then" title="The call that follows this one on the phone">then #${esc(next.num)}</span>` : ''}
@@ -3543,6 +3543,15 @@ function render() {
   const runs = runsTabOn();
   el('new-situation').hidden = !sit;
   if (el('new-call')) el('new-call').hidden = !callsTab;
+  /* the starter calls' reload: on the CALLS tab, whenever a starter row
+   * is in the list; lit when the file has other words than the rows */
+  if (el('reload-calls')) {
+    const have = callsTab && CALL_SHEET ? CALL_SHEET.calls.length - callSheetMissing().length : 0;
+    const stale = have ? callSheetStale().length : 0;
+    el('reload-calls').hidden = !callsTab || !have;
+    el('reload-calls').textContent = stale ? `⇩ RELOAD STARTER CALLS · ${stale} CHANGED IN THE FILE` : '⇩ RELOAD STARTER CALLS';
+    el('reload-calls').classList.toggle('primary', !!stale);
+  }
   el('new-open').hidden = sit || callsTab || runs;
   el('import-open').hidden = sit || callsTab || runs;
   el('spec-all').hidden = sit || callsTab || runs;
@@ -4818,33 +4827,56 @@ function renderCallSheetLink() {
     <p class="sit-restore"><button class="link-btn" type="button" data-call-restore>…or restore the ${n} starter call${n === 1 ? '' : 's'} not in the list</button></p>` : ''}${have ? `
     <p class="sit-restore"><button class="link-btn" type="button" data-call-reload title="Writes the starter file's words back over the ${have} row${have === 1 ? '' : 's'} with the same name — your own edits to those rows are lost; your other rows, the numbers and the chain stay as they are">…or reload the ${have} starter call${have === 1 ? '' : 's'} in the list from the file</button></p>` : ''}`;
 }
-/* The starter file moved on (its rows now say {address} and {customer}
- * instead of one door's words): write its words back over the rows
- * that came from it, found by name, keeping each row's number, its
- * place in the chain and whether it is in the suite. */
-async function reloadCallSheet() {
-  if (!CALL_SHEET) return;
+/* The starter rows in the list whose words differ from the file's: each
+ * with the patch that would bring it back — the file's columns, the
+ * row's own number, its place in the chain (by name, so a renumbered
+ * list keeps its links) and whether it is in the suite. Empty and null
+ * read the same, so a blank "call before" never counts as a change. */
+function callSheetStale() {
+  if (!CALL_SHEET) return [];
   const byTitle = new Map(calls.map(c => [normTitle(c.title), c]));
   const numOf = title => { const c = byTitle.get(normTitle(title)); return c && c.num != null && c.num !== '' ? c.num : null; };
-  let n = 0;
-  const touched = new Set();
+  const norm = v => (v == null || v === '' ? null : v);
+  const out = [];
   for (const r of CALL_SHEET.calls) {
     const mine = byTitle.get(normTitle(r.title));
     if (!mine) continue;
-    touched.add(mine.id);
     const follows = r.next_call == null || r.next_call === '' ? null : CALL_SHEET.calls.find(x => +x.num === +r.next_call);
     const fresh = callRow({ ...r, num: mine.num, next_call: follows ? numOf(follows.title) : null, active: mine.active !== false });
     const patch = {};
-    CALL_COLS.forEach(k => { if (k !== 'num' && k !== 'active' && JSON.stringify(fresh[k]) !== JSON.stringify(mine[k] === undefined ? null : mine[k])) patch[k] = fresh[k]; });
-    if (!Object.keys(patch).length) continue;
-    Object.assign(mine, patch);
-    if (Backend.enabled) { try { await Backend.updateCall(mine.id, patch); } catch (e) { schemaHint(e); } }
-    n++;
+    CALL_COLS.forEach(k => { if (k !== 'num' && k !== 'active' && JSON.stringify(norm(fresh[k])) !== JSON.stringify(norm(mine[k]))) patch[k] = fresh[k]; });
+    if (Object.keys(patch).length) out.push({ mine, patch });
   }
+  return out;
+}
+/* The starter file moved on (its rows now say {address} and {customer}
+ * instead of one door's words): write its words back over the rows
+ * that came from it, and add the starter rows not in the list. The
+ * top bar's ⇩ RELOAD STARTER CALLS button says what happened; the
+ * link under the list does the same quietly. */
+async function reloadCallSheet(announce = false) {
+  if (!CALL_SHEET) return;
+  const stale = callSheetStale();
+  const touched = new Set();
+  let failed = 0;
+  for (const { mine, patch } of stale) {
+    touched.add(mine.id);
+    Object.assign(mine, patch);
+    if (Backend.enabled) { try { await Backend.updateCall(mine.id, patch); } catch (e) { failed++; schemaHint(e); } }
+  }
+  const missing = callSheetMissing().length;
+  if (missing) await loadCallSheet();
   if (callEdit && touched.has(callEdit.id)) callEdit = null; // an open edit on a reloaded row is stale now; one on another row stays
   persistLocal();
   render();
-  console.info(n ? `${n} starter call(s) reloaded from the file` : 'the starter calls in the list already match the file');
+  const n = stale.length;
+  const msg = [
+    n ? `${n} starter call${n === 1 ? '' : 's'} reloaded from the file.` : 'The starter calls in the list already match the file.',
+    missing ? `${missing} added.` : '',
+    failed ? `${failed} could not be saved to the backend — the list shows the new words until the page is reloaded.` : '',
+  ].filter(Boolean).join(' ');
+  console.info(msg);
+  if (announce) alert(msg);
 }
 async function loadCallSheet() {
   const missing = callSheetMissing();
@@ -5477,6 +5509,13 @@ el('list').addEventListener('keydown', e => {
 el('new-open').onclick = () => openForm(null);
 el('new-situation').onclick = newSituation;
 if (el('new-call')) el('new-call').onclick = newCall;
+if (el('reload-calls')) {
+  el('reload-calls').onclick = () => {
+    const n = CALL_SHEET ? CALL_SHEET.calls.length : 0;
+    if (!confirm(`Reload the ${n} starter calls from the file?\n\nTheir words are replaced with the file's. Your own calls, the numbers and the chain between calls stay. Edits you made to the starter rows themselves are lost.`)) return;
+    reloadCallSheet(true);
+  };
+}
 el('form-cancel').onclick = () => { el('form-sheet').hidden = true; };
 el('form-save').onclick = submitForm;
 el('f-draft').onclick = runDraft;
