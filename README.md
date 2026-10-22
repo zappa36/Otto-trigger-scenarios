@@ -1038,7 +1038,15 @@ address appears back to back exactly as a courier works it — and 40
 stops carry notes on file: **delivery info from dispatch** ("ring
 GOODS-IN, not the front bell") and **what drivers reported on earlier
 tours** ("the stair light is on a short timer — you climb the last
-floor in the dark"). The addresses and coordinates are real, geocoded
+floor in the dark"). Every stop names **its consignee, its floor and
+its entrance** — Vorderhaus, Hinterhaus, Seitenflügel, the staircase,
+the courtyard door — the way a Berlin bell panel does, so the driver
+knows which door before the van stops; the entrance is read out with
+the name and the floor, shown on every card and row, and edited in the
+stop sheet like the rest (the `entrance` column — re-run
+`supabase/schema.sql` once on a store from before it; a route loaded
+onto an older store loads without the entrances and says so). The
+addresses and coordinates are real, geocoded
 building by building via OpenStreetMap Nominatim; every consignee,
 business and note is invented.
 
@@ -1073,7 +1081,7 @@ stamped with its route id and stop number, so the phone shows
 numbered pins ("7 · GOLTZSTRASSE 13"), the card opens as "Stop 7 ·
 Goltzstraße 13", and the approach reading names the stop it is about.
 Notes say who left them — `by: 'dispatch'` or `by: 'driver'` — and
-the briefing keeps the voices apart: consignee and floor first, then
+the briefing keeps the voices apart: consignee, entrance and floor first, then
 "From dispatch: …", then "A driver reported: …" (a driver-left note
 on file reads exactly like a real debrief filed against the pin, and
 the card shows the split as DISPATCH / DRIVER tags). Which stops
@@ -1169,7 +1177,7 @@ What the driver sees:
   on the van, so the chips stay away there. The white pill at the top
   left says where the phone thinks it is.
 - **A stop's sheet**, from any row or pin: what is on file for that
-  door — consignee, floor, the notes from dispatch, what drivers
+  door — consignee, entrance and floor, the notes from dispatch, what drivers
   reported — with **Hear the briefing** (the reading Otto gives on
   approach, in his voice), the other parcels at the same door,
   Delivered / Not delivered (or the time it was done, with undo), and
@@ -1637,5 +1645,5 @@ The composition happens entirely through the kits' public seams:
 | `scripts/migrate_supabase.py` | Moves the rows to another Supabase project, ids intact (`schema.sql` does the tables) |
 | `voice-note.js/.css` | from voice-notes-kit + hands-free pause-to-send |
 | `geolocate.js`, `field-map.js/.css` | verbatim from field-map-kit |
-| `supabase/schema.sql` | `destinations` (incl. pre-arrival notes: consignee / floor / notes, and route / stop) + `messages` (incl. the agent conversation, its ElevenLabs `conversation_id` and the dashboard's `grade` of it) + `scenarios` (incl. params / versions / feedback) + `situations` + `calls` (the calls Otto makes: who is rung, why, what they say, the outcome, the call that follows) + `runs` + `visits` (the Delivered tap) + `dart_throws` (one row per dart thrown after a report) + `agent_runs` (one row per suite run the agent loop published) + `accepted_findings`, RLS |
+| `supabase/schema.sql` | `destinations` (incl. pre-arrival notes: consignee / floor / entrance / notes, and route / stop) + `messages` (incl. the agent conversation, its ElevenLabs `conversation_id` and the dashboard's `grade` of it) + `scenarios` (incl. params / versions / feedback) + `situations` + `calls` (the calls Otto makes: who is rung, why, what they say, the outcome, the call that follows) + `runs` + `visits` (the Delivered tap) + `dart_throws` (one row per dart thrown after a report) + `agent_runs` (one row per suite run the agent loop published) + `accepted_findings`, RLS |
 | `supabase/functions/` | `voice-note` (kit + trailing-"stop" strip + a text path for agent conversations) + `geocode` (verbatim) + `scenario-ai` (draft, revise & the 🇮🇹 question translation) + `elevenlabs-token` (signed URLs for a private agent) + `elevenlabs-tts` (the pre-arrival notes read in Otto's real voice, streamed as they are made) |

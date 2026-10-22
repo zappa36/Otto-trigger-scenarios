@@ -162,8 +162,10 @@ const LANG_TEXT = {
     stop: n => `stop ${n}, `,
     floorNum: n => 'floor ' + n,
     floorRaw: f => f,
-    deliveryFor: (n, f) => `Delivery is for ${n}${f ? ', ' + f : ''}.`,
-    deliveryTo: f => `Delivery goes to ${f}.`,
+    /* consignee, then the entrance (which door), then the floor — the
+     * order a courier needs them in */
+    deliveryFor: (n, f, e) => `Delivery is for ${n}${e ? ', ' + e : ''}${f ? ', ' + f : ''}.`,
+    deliveryTo: (f, e) => `Delivery goes to ${[e, f].filter(Boolean).join(', ')}.`,
     fromDispatch: 'From dispatch: ',
     driverSaid: 'A driver reported: ',
     /* a call Otto makes, when the row has no opening line of its own:
@@ -181,8 +183,8 @@ const LANG_TEXT = {
     stop: n => `fermata ${n}, `,
     floorNum: n => 'al piano ' + n,
     floorRaw: f => 'a ' + f,
-    deliveryFor: (n, f) => `La consegna è per ${n}${f ? ', ' + f : ''}.`,
-    deliveryTo: f => `La consegna va ${f}.`,
+    deliveryFor: (n, f, e) => `La consegna è per ${n}${e ? ', ' + e : ''}${f ? ', ' + f : ''}.`,
+    deliveryTo: (f, e) => `La consegna va ${[e, f].filter(Boolean).join(', ')}.`,
     fromDispatch: 'Dalla centrale: ',
     driverSaid: 'Un autista ha segnalato: ',
     callConsignee: d => `Buongiorno, sono Otto dell'ufficio consegne. Chiamo per una consegna ${d && d.consignee ? 'per ' + surnameOf(d.consignee) : 'a ' + ((d && d.title) || 'questo indirizzo')} — parlo con la persona giusta?`,
@@ -996,8 +998,9 @@ function briefingLines(d) {
   const lines = [];
   const name = String(d.consignee || '').trim();
   const floor = String(d.floor || '').trim();
-  if (name) lines.push(T.deliveryFor(name, floor ? speakFloor(floor) : ''));
-  else if (floor) lines.push(T.deliveryTo(speakFloor(floor)));
+  const entrance = String(d.entrance || '').trim(); // which door — read as written
+  if (name) lines.push(T.deliveryFor(name, floor ? speakFloor(floor) : '', entrance));
+  else if (floor || entrance) lines.push(T.deliveryTo(floor ? speakFloor(floor) : '', entrance));
   notesOnFile(d).slice(0, NOTES.maxNotes).forEach(n =>
     lines.push((n.by === 'driver' ? T.driverSaid : T.fromDispatch) + sentence(inItalian(n.text) || n.text)));
   driverReportsOf(d).slice(0, NOTES.maxDriver).forEach(m =>
@@ -1137,14 +1140,16 @@ function renderCardNotes(d) {
   box.innerHTML = '';
   const name = String(d.consignee || '').trim();
   const floor = String(d.floor || '').trim();
+  const entrance = String(d.entrance || '').trim();
   const notes = notesOnFile(d);
   const reports = driverReportsOf(d).slice(0, NOTES.maxDriver).length;
-  el('card-notes').hidden = !name && !floor && !notes.length && !reports;
+  el('card-notes').hidden = !name && !floor && !entrance && !notes.length && !reports;
   if (el('card-notes').hidden) return;
-  if (name || floor) {
+  if (name || floor || entrance) {
     const line = document.createElement('div');
     line.className = 'cn-line';
-    line.textContent = name ? `Consignee: ${name}${floor ? ' · ' + floor : ''}` : `Floor: ${floor}`;
+    const where = [entrance, floor].filter(Boolean).join(' · ');
+    line.textContent = name ? `Consignee: ${name}${where ? ' · ' + where : ''}` : `Door: ${where}`;
     box.appendChild(line);
   }
   notes.slice(0, NOTES.maxNotes).forEach(n => {
