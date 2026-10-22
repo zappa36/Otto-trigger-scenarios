@@ -886,6 +886,9 @@
   #import-preview { font-size: 12.5px; color: #94a1b2; min-height: 1.2em; white-space: pre-wrap; }
   .link-btn { background: none; border: none; padding: 0; color: #7fd6ea; font-size: 12px; cursor: pointer; text-decoration: underline; }
   .link-btn:disabled { color: #8b97a8; text-decoration: none; cursor: default; }
+  .route-msg { margin: 10px 0 0; font-size: 12.5px; line-height: 1.5; color: #ffd95e; text-align: left; }
+  .route-msg.busy { color: #7fd6ea; }
+  .route-msg[hidden] { display: none; }
 
   /* ---------- describe → draft ---------- */
   .describe {
@@ -1641,6 +1644,9 @@
       <span class="spacer">
         <button class="link-btn" id="sheet-load" type="button" hidden></button>
         <span id="route-toggles"></span>
+        <!-- a route load that the store refused says so here, in plain
+             words, instead of closing the sheet in silence -->
+        <p class="route-msg" id="route-msg" hidden></p>
       </span>
       <button class="sheet-btn" id="import-cancel" type="button">Cancel</button>
       <button class="sheet-btn primary" id="import-go" type="button">Import</button>
