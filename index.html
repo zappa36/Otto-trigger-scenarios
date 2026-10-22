@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="field-map.css">
 <link rel="stylesheet" href="voice-note.css">
 <link rel="stylesheet" href="darts.css">
+<link rel="stylesheet" href="driver.css">
 <style>
   :root {
     color-scheme: dark;
@@ -1122,9 +1123,10 @@
     <button id="st-rules" type="button" class="st-btn">🔊 Hear the rules</button>
   </div>
 
-  <!-- Otto's screen: home. Otto is the report button; the header's four
-       taps are the tests dashboard (←), the map, the debrief language
-       and the settings; the tally at the bottom opens the reports sheet. -->
+  <!-- Otto's screen: home. Otto is the report button; the header's five
+       taps are the tests dashboard (←), the map, the driver's screen (the
+       van — today's deliveries, driver.js), the debrief language and the
+       settings; the tally at the bottom opens the reports sheet. -->
   <section id="home">
     <header class="top">
       <a id="home-back" class="icon-btn" href="dashboard.html" title="The tests dashboard" aria-label="Back to the tests dashboard">
@@ -1133,6 +1135,9 @@
       <h1>Companion</h1>
       <button id="open-map" class="icon-btn" type="button" title="The map — pins, GPS, test tracking" aria-label="Map">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM10 5.47l4 1.4v11.66l-4-1.4V5.47zm-5 .99l3-1.01v11.7l-3 1.16V6.46zm14 11.08l-3 1.01V6.86l3-1.16v11.84z"/></svg>
+      </button>
+      <button id="open-driver" class="icon-btn" type="button" title="The driver's screen — today's deliveries, in the van" aria-label="Deliveries — the driver's screen">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>
       </button>
       <button id="lang-flag" class="icon-btn" type="button" title="Debrief language — tap to switch" aria-label="Debrief language">🇬🇧</button>
       <button id="settings-chip" class="icon-btn" type="button" title="Settings — your name and the dart game" aria-label="Settings">
@@ -1192,6 +1197,77 @@
     </div>
   </section>
 
+  <!-- The driver's screen (driver.js): today's deliveries, in the van —
+       the route the dashboard loaded, as a list and on a map, in the
+       PostNord app's design language (driver.css). Over Otto's screen
+       like the map; the conversation screen and the banners show over it. -->
+  <section id="driver" hidden>
+    <header class="dv-top">
+      <div class="dv-top-row">
+        <button id="dv-back" class="dv-icon" type="button" title="Back to Otto" aria-label="Back to Otto's screen">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+        </button>
+        <button id="dv-title" class="dv-title" type="button" title="Which route — tap to pick when more than one is on file">
+          <h1 id="dv-route-name">Deliveries</h1>
+          <small id="dv-route-sub"></small>
+        </button>
+        <button id="dv-reload" class="dv-icon" type="button" title="Reload the route and the stops from the dashboard" aria-label="Reload">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+        </button>
+        <button id="dv-otto" class="dv-icon" type="button" title="Report to Otto — filed against the stop you are at" aria-label="Report to Otto">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm7-3a1 1 0 1 0-2 0 5 5 0 0 1-10 0 1 1 0 1 0-2 0 7 7 0 0 0 6 6.93V21a1 1 0 1 0 2 0v-3.07A7 7 0 0 0 19 11Z"/></svg>
+        </button>
+      </div>
+      <div class="dv-tabs" role="tablist">
+        <button id="dv-tab-todo" class="dv-tab on" type="button" role="tab">To do</button>
+        <button id="dv-tab-done" class="dv-tab" type="button" role="tab">Done</button>
+      </div>
+    </header>
+    <div class="dv-map-wrap">
+      <div id="dv-map"></div>
+      <div class="dv-map-chips">
+        <button id="dv-gps" class="dv-chip white" type="button" title="Where the phone thinks it is — tap to locate again">Finding you…</button>
+        <span class="dv-spacer"></span>
+        <button id="dv-fit-next" class="dv-chip" type="button" title="Frame you and the next stop">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>Next stop
+        </button>
+        <button id="dv-fit-all" class="dv-chip navy" type="button" title="Frame the whole route">Whole route</button>
+      </div>
+    </div>
+    <button id="dv-handle" class="dv-handle" type="button" title="Tap for a bigger map"><i></i></button>
+    <div id="dv-list-wrap" class="dv-list-wrap">
+      <div class="dv-progress"><i id="dv-progress-bar"></i></div>
+      <div id="dv-list"></div>
+    </div>
+    <p id="dv-flash" class="dv-hint warn" hidden style="position:absolute;left:12px;right:12px;bottom:14px;margin:0;padding:12px 14px;border-radius:12px;background:#fff;box-shadow:0 4px 16px rgba(18,44,90,.25);z-index:21;"></p>
+    <!-- one stop: the notes Otto reads on approach, the other parcels at
+         this door, the scan moment, Report to Otto -->
+    <div id="dv-sheet" class="dv-scrim" hidden>
+      <div class="dv-sheet" role="dialog" aria-modal="true" aria-labelledby="dv-sheet-cap">
+        <div class="dv-sheet-top">
+          <button id="dv-sheet-x" class="dv-icon" type="button" aria-label="Close">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+          </button>
+          <b id="dv-sheet-cap">Stop</b>
+          <span id="dv-sheet-dist" class="dv-dist"></span>
+        </div>
+        <div id="dv-sheet-body" class="dv-sheet-body"></div>
+      </div>
+    </div>
+    <!-- which route, when the dashboard has more than one on file -->
+    <div id="dv-routes" class="dv-scrim" hidden>
+      <div class="dv-sheet" role="dialog" aria-modal="true" aria-labelledby="dv-routes-cap">
+        <div class="dv-sheet-top">
+          <button id="dv-routes-x" class="dv-icon" type="button" aria-label="Close">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+          </button>
+          <b id="dv-routes-cap">Today's route</b>
+        </div>
+        <div id="dv-routes-body" class="dv-sheet-body"></div>
+      </div>
+    </div>
+  </section>
+
   <div id="darts" hidden></div>
 </div>
 
@@ -1209,6 +1285,8 @@
 <script src="route-kollwitz.js"></script>
 <script src="calls-starter.js"></script>
 <script src="app.js"></script>
+<!-- the driver's screen — built on app.js's seams, so it loads after it -->
+<script src="driver.js"></script>
 
 </body>
 </html>
