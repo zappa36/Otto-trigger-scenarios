@@ -110,7 +110,12 @@ const schemaHint = e => {
   warn(e);
   if (!Backend.enabled) return;
   const msg = String((e && e.message) || '');
-  if (/\bcalls\b/i.test(msg) && /\b404\b|PGRST205|42P01|schema cache/i.test(msg)) {
+  /* a missing COLUMN (PGRST204 — "could not find the 'route' column …
+   * in the schema cache") is not a missing table, and used to be read
+   * as one because of the words "schema cache" */
+  if (/PGRST204|could not find the '[^']+' column/i.test(msg)) {
+    schemaMsg = 'Save failed — a table is missing newer columns. Re-run supabase/schema.sql, then ↻ REFRESH.';
+  } else if (/\bcalls\b/i.test(msg) && /\b404\b|PGRST205|42P01|schema cache/i.test(msg)) {
     schemaMsg = 'That row could not be saved — the backend has no calls table yet. Re-run supabase/schema.sql once, then ↻ REFRESH. Until then rows stay in this browser only.';
   } else if (/situations/i.test(msg) || /PGRST205|42P01|schema cache/i.test(msg)) {
     schemaMsg = 'That row could not be saved — the backend has no situations table yet. Re-run supabase/schema.sql once, then ↻ REFRESH. Until then rows stay in this browser only.';
@@ -5057,9 +5062,41 @@ function toggleRouteShown() {
   if (routeShown) { centerOnScenarios(); map.center(); } // switching it on means "show me"
 }
 
+/* What the sheet says while a route is being saved, and when the store
+ * refuses it — the refusal used to close the sheet in silence, which
+ * reads as "the link does nothing" to the person who pressed it. */
+function routeMsg(text, busy) {
+  const n = el('route-msg');
+  if (!n) return;
+  n.textContent = text || '';
+  n.hidden = !text;
+  n.classList.toggle('busy', !!busy);
+}
+function routeFailText(r, e) {
+  const said = e ? String((e && e.message) || e).replace(/^supabase\s*/i, '') : '';
+  let why, fix;
+  if (!e) {
+    why = 'The store answered, but saved none of the stops — its policies on the destinations table are blocking writes.';
+    fix = 'Paste supabase/schema.sql into the Supabase project\'s SQL editor and run it once (it is safe to re-run), then press the link again.';
+  } else if (/column|PGRST204|schema cache/i.test(said)) {
+    why = 'The destinations table in the store is missing the route columns (route, stop).';
+    fix = 'Paste supabase/schema.sql into the Supabase project\'s SQL editor and run it once (it is safe to re-run), then press the link again.';
+  } else if (/42501|row-level security|\b401\b|\b403\b|permission/i.test(said)) {
+    why = 'The store refused the write — the destinations table\'s policies do not allow it.';
+    fix = 'Paste supabase/schema.sql into the Supabase project\'s SQL editor and run it once (it sets the policies), then press the link again.';
+  } else if (/Failed to fetch|NetworkError|Load failed|network/i.test(said)) {
+    why = 'No connection to the store.';
+    fix = 'Check the internet connection and press the link again.';
+  } else {
+    why = 'The store refused it.';
+    fix = 'Press the link again in a moment; if it keeps failing, the words below say why.';
+  }
+  return `The “${r.name}” route could not be saved. ${why} ${fix}${said ? ' The store said: ' + said : ''}`;
+}
+
 async function loadRoute(r) {
   if (!r || routeStops(r).length) return;
-  el('import-sheet').hidden = true;
+  routeMsg('');
   const now = Date.now();
   const rows = r.stops.map(s => ({
     title: s.title, addr: s.addr, lat: s.lat, lng: s.lng,
@@ -5075,12 +5112,19 @@ async function loadRoute(r) {
   let added = [];
   if (Backend.enabled) {
     /* live: one bulk insert or nothing — a schema without the route
-     * columns fails whole, and schemaHint names the fix */
-    try { added = (await Backend.insertDestinations(rows)) || []; } catch (e) { schemaHint(e); return; }
+     * columns fails whole; the sheet stays open and says why, in the
+     * store's own words, and schemaHint names the fix in the header */
+    routeMsg(`Saving the “${r.name}” route — ${rows.length} stops…`, true);
+    try { added = (await Backend.insertDestinations(rows)) || []; }
+    catch (e) { schemaHint(e); routeMsg(routeFailText(r, e)); return; }
+    /* a policy that silently drops the rows answers with an empty list */
+    if (!Array.isArray(added) || !added.length) { routeMsg(routeFailText(r, null)); return; }
   } else {
     const at = new Date().toISOString();
     added = rows.map(r => ({ ...r, id: localId('d'), created_at: at }));
   }
+  routeMsg('');
+  el('import-sheet').hidden = true;
   destinations.push(...added);
   routeShown = true; // loading means "show me"
   try { localStorage.setItem(LS_ROUTE_SHOW, '1'); } catch { /* private mode */ }
@@ -5535,7 +5579,7 @@ el('f-params').addEventListener('click', e => {
 });
 el('spec-all').onclick = exportAllSpecs;
 el('import-open').onclick = openImport;
-el('import-cancel').onclick = () => { el('import-sheet').hidden = true; };
+el('import-cancel').onclick = () => { el('import-sheet').hidden = true; routeMsg(''); };
 el('import-go').onclick = runImport;
 el('sheet-load').onclick = loadSheet;
 el('route-toggles').onclick = e => {
