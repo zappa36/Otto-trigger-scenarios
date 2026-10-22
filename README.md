@@ -1119,6 +1119,78 @@ it is one bulk insert — re-run
 [`supabase/schema.sql`](supabase/schema.sql) once first for the two
 route columns (`route`, `stop`) and the `visits` table.
 
+## The driver's screen — the route in the van
+
+Everything above is built for the people who test Otto. The driver who
+actually drives the route needs one screen of their own, and it is the
+**van icon** in Otto's header (or `index.html#driver`, which the
+dashboard's **DRIVER ↗** chip opens): today's deliveries, in driving
+order, as a list and on a map. It is drawn in the PostNord app's
+design language — a PostNord-blue bar with TO DO / DONE tabs, white
+cards on a light page, a dotted timeline down the list, numbered blue
+pins, pill chips over the map — so it looks like the app a parcel
+driver already holds. The files are [`driver.js`](driver.js) and
+[`driver.css`](driver.css); the look is scoped to the screen, so
+Otto's screen and the tester's map keep their own.
+
+The route is whatever the dashboard loaded: every stop the **⇪
+ROUTE** chip put on file (a route id and a stop number on the
+destination row) is a stop here. So **the route is built on the
+dashboard and driven on the phone** — nothing is typed in the van, and
+a route loaded while the screen is up shows up at the next ↻ (keyless,
+the dashboard in the next tab shows up by itself). With two routes on
+file the title opens a picker; the choice sticks per phone, and a
+phone that never chose shows the one loaded last.
+
+What the driver sees:
+
+- **The next stop**, as the top card: number and address, consignee
+  and floor, the first note on file, and the three big buttons.
+  **▲ Navigate** opens the real Google Maps app with driving
+  directions. **✓ Delivered** and **✕ Not delivered** are the same tap
+  as the tester's card — one row in `visits`, with the phone's position
+  and the door's dwell — so the dispatcher dashboard's tours are
+  rebuilt from the driver's taps exactly as before. The next stop then
+  moves on, and the line that confirms the tap carries **Undo** for a
+  few seconds, so a slip is taken back where it was made (a bounced
+  double tap files one stop, not two).
+- **Then**: the stops still to do, in order, each with the consignee
+  and floor, the distance from the van, and a "1 note" tag where Otto
+  has something to read on approach. **DONE** lists what is finished,
+  newest first, with the time — the PostNord parcel timeline.
+- **The map** above the list: the whole tour as a faint line, the
+  stops still open in blue from where the van is, one numbered pin per
+  door (several parcels behind one bell are one pin with a count), the
+  next stop bigger with its address, ✓ green and ✕ amber once done.
+  The handle between map and list flips between a bigger map, the
+  split, and the list alone. On the live Google map two chips frame
+  the view — **Next stop** (the van and the next door) and **Whole
+  route** (the tour); the keyless grid has no framing and stays centred
+  on the van, so the chips stay away there. The white pill at the top
+  left says where the phone thinks it is.
+- **A stop's sheet**, from any row or pin: what is on file for that
+  door — consignee, floor, the notes from dispatch, what drivers
+  reported — with **Hear the briefing** (the reading Otto gives on
+  approach, in his voice), the other parcels at the same door,
+  Delivered / Not delivered (or the time it was done, with undo), and
+  **Report to Otto**.
+- **Otto** is one tap away either way. The mic in the header is the
+  same press as Otto's own screen — filed against the stop the van is
+  at, within 150 m, or against no stop — and Report to Otto on a sheet
+  is filed against that stop. The conversation covers the screen and
+  hands it back after; the dart throw still follows a report. The
+  pre-arrival readings keep working while this screen is up — the
+  banner wears this screen's white, a tap on it opens the stop here,
+  and it leaves by itself a while after the reading, so it never sits
+  over the map for the whole drive.
+
+The screen keeps the display awake while it is up and lets go when the
+driver goes back to Otto. Nothing else changed: the Companion, the
+tester's map and its ROUTE switch, the cards, the dashboard — all as
+before. The driver's screen reads the same rows (`destinations`,
+`visits`, `messages`) and writes only through the taps that already
+existed.
+
 ## The dart game — one throw after a report
 
 A report is a small chore, and drivers are on their own all day. So
@@ -1318,9 +1390,11 @@ at the bottom.
   Otto's category and title, the stop. Per phone, like the settings;
   the dashboard still holds everyone's.
 - **The header**, left to right: **←** to the tests dashboard, the
-  **map**, the **flag** (🇬🇧/🇮🇹 — the debrief language, tap to
-  switch; the scenario card's picker is the same setting), and **⚙**
-  settings.
+  **map**, the **van** ([the driver's
+  screen](#the-drivers-screen--the-route-in-the-van) — the route as
+  today's deliveries), the **flag** (🇬🇧/🇮🇹 — the debrief language,
+  tap to switch; the scenario card's picker is the same setting), and
+  **⚙** settings.
 - **The map** is the tester's screen: the pins, the GPS and backend
   chips, ↻ reload, activity recognition, the ROUTE switch, the build
   chip, the cards with their test tracking and "Report to Otto" — all
@@ -1492,6 +1566,7 @@ word). Everything else is the kit as extracted:
 | new | `dashboard.html`, `dashboard.js`, `supabase/functions/scenario-ai/` | Trigger scenarios: define, pin, compare, verdict — and the tuning loop (draft, sliders, feedback, versions, spec export) |
 | new | `otto-agent.js`, `supabase/functions/elevenlabs-token/` | Otto as your own ElevenLabs agent: the same debrief as a live conversation, with the scenario as its context |
 | new | `otto-stream.js`, `supabase/functions/elevenlabs-tts/` | The pre-arrival reading in Otto's ElevenLabs voice, played from its first chunk while the rest is still being made |
+| new | `driver.js`, `driver.css` | The driver's screen — the route in the van: the dashboard's route as today's deliveries, list and map, in the PostNord app's look, on the seams above (destinations, visits, the kit's map, Otto) |
 | new | `elevenlabs/`, `.github/workflows/agent-suite.yml` | The tuning loop for the agent's prompt: scenario tests from the sheet, field conversations joined to their dashboard grades, proposed prompt diffs on an agent branch — Node, no dependencies |
 
 The dashboard composes through the same seams: `FieldMap.mount` draws the
@@ -1534,8 +1609,10 @@ The composition happens entirely through the kits' public seams:
 
 | File | Purpose |
 |---|---|
-| `index.html` | Phone shell: Otto's screen (the Companion — Otto as the report button, the tally, the header), the map screen with its HUD, card and controls, the settings and reports sheets, the conversation screen, the incoming-call screen (pins come from the dashboard) |
-| `app.js` | Destinations, messages, the card (incl. the Delivered tap on route stops), the report flow (pressing Otto), the two screens, the per-phone report tally, Otto wiring, the ⚙ settings sheet — and the calls Otto makes: TAKE A CALL on the sheet, the ring, Answer / Decline, the chain to the next call |
+| `index.html` | Phone shell: Otto's screen (the Companion — Otto as the report button, the tally, the header), the map screen with its HUD, card and controls, the driver's screen (the route in the van), the settings and reports sheets, the conversation screen, the incoming-call screen (pins come from the dashboard) |
+| `app.js` | Destinations, messages, the card (incl. the Delivered tap on route stops), the report flow (pressing Otto), the two screens (and the seams the driver's screen hangs on), the per-phone report tally, Otto wiring, the ⚙ settings sheet — and the calls Otto makes: TAKE A CALL on the sheet, the ring, Answer / Decline, the chain to the next call |
+| `driver.js` | The driver's screen: the loaded route as today's deliveries — the next-stop card, the TO DO / DONE timeline, the daylight map with numbered pins and the route line, the stop sheet (notes, the other parcels at the door, Navigate, Delivered / Not delivered, Report to Otto, Hear the briefing), the route picker, the wake lock, the `#driver` link — built on app.js's own seams |
+| `driver.css` | Its look: the PostNord app's design language, scoped to the screen, plus the daylight palette for the kit's map there |
 | `darts.js/.css` | The dart game after a report: the card, the flick, the rings, one throw per stop, only while still, the depot's best today |
 | `otto-agent.js` | Otto as a live ElevenLabs agent conversation — the kit's mount seams over a WebSocket, with the scenario as its context |
 | `otto-stream.js` | The reading voice's player: an ElevenLabs mp3 played from its first chunk while the rest is still being made (Media Source Extensions), whole where the browser cannot stream mp3 — `test/` holds its node tests, run by `agent-suite.yml` |

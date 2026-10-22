@@ -45,6 +45,10 @@ let current = null; // destination in the open card / Otto session
  * screen, and by then the screen has closed. The next openOtto clears
  * it. */
 let reporting = false;
+/* Where the conversation screen hands back to when it closes, when
+ * that is not the card: the driver's screen (driver.js) sets it before
+ * it opens Otto on a stop, closeOtto calls it once and clears it. */
+let ottoReturn = null;
 /* …and that report's row still has to land somewhere locally. No
  * destination id can equal this, so the bucket stays out of every pin's
  * message list while persistLocal still writes the row out. */
@@ -1117,7 +1121,12 @@ function speakPreArrival(d, dist) {
    * a silent fallback never masquerades as the real thing — and says
    * when the clip had been fetched ahead, so a test drive shows whether
    * the reading started from the cache or from a live fetch */
-  speakOtto(text, () => { notesSpeaking = false; },
+  speakOtto(text, () => {
+    notesSpeaking = false;
+    /* on the driver's screen the banner goes by itself a while later —
+     * it would otherwise sit over the map for the whole drive */
+    if (window.DriverScreen && DriverScreen.opened) DriverScreen.readingDone();
+  },
     (voice, ahead) => { el('nb-title').textContent = 'OTTO · PRE-ARRIVAL NOTES · ◆ ELEVENLABS' + (ahead ? ' · FETCHED AHEAD' : ''); },
     speechLangOf());
 }
@@ -1327,7 +1336,11 @@ const LS_ROUTE_ON = 'od_route_on';
 let routeOn = true;
 try { routeOn = localStorage.getItem(LS_ROUTE_ON) !== '0'; } catch { /* private mode */ }
 function visibleDestinations() {
-  return routeOn ? destinations : destinations.filter(d => !d.route);
+  /* the driver's screen shows the route whatever the tester's chip says
+   * — while it is up, the approach readings, the arrival ring and the
+   * nearest-stop lookup see the route too */
+  const driver = !!(window.DriverScreen && DriverScreen.opened);
+  return routeOn || driver ? destinations : destinations.filter(d => !d.route);
 }
 function renderRouteChip() {
   const chip = el('route');
@@ -1493,6 +1506,7 @@ const voiceOpts = () => {
         });
         persistLocal();
         map.refresh();
+        if (window.DriverScreen) DriverScreen.refresh();
         const turns = Array.isArray(res.conversation) && res.conversation.length ? res.conversation
           : [{ from: 'me', text: String(res.transcript || '') }, ...(res.reply ? [{ from: 'ai', text: String(res.reply) }] : [])];
         const outcome = callOutcome(turns, row);
@@ -1517,6 +1531,7 @@ const voiceOpts = () => {
       recordMyReport(row, d); // the tally under Otto ticks up
       persistLocal();
       map.refresh(); // the pin flips to reported (a report with no pin flips nothing)
+      if (window.DriverScreen) DriverScreen.refresh(); // …and the row gets its Reported tag
       /* debrief delivered for a fired trigger — that test run is complete */
       if (d && tracking && tracking.fired && tracking.d.id === d.id) stopTracking();
       /* A report is made from Otto's screen and goes back to it: the
@@ -1748,7 +1763,13 @@ function closeOtto() {
    * map), or — for a report or a call — the screen it was made from,
    * Otto's own. `reporting` and `calling` are left standing: the agent
    * files what was said AFTER this returns. */
-  if (current && !reporting && !calling) openCard(current); // the card, now with the new message
+  if (ottoReturn) {
+    /* the driver's screen opened Otto on one of its stops — back there,
+     * never to the card (which is the map's) */
+    const back = ottoReturn;
+    ottoReturn = null;
+    try { back(); } catch (e) { console.error(e); }
+  } else if (current && !reporting && !calling) openCard(current); // the card, now with the new message
   if (reporting) offerDartThrow(); // the report was the chore; this is the reward
 }
 
@@ -2159,11 +2180,15 @@ function openReport() {
 const show = (id, on) => { const n = el(id); if (n) n.hidden = !on; };
 function showMap() {
   show('home', false);
+  /* the driver's screen (driver.js) sits over the map like home does —
+   * told, so its flag and its wake lock follow */
+  if (window.DriverScreen) DriverScreen.hide(); else show('driver', false);
   show('settings', false);
   show('reports', false);
 }
 function showHome() {
   show('card', false);
+  if (window.DriverScreen) DriverScreen.hide(); else show('driver', false);
   show('home', true);
 }
 
@@ -2347,9 +2372,9 @@ function renderCardVisit(d) {
   el('card-visit-text').classList.toggle('failed', v.outcome === 'failed');
 }
 
-async function markVisit(outcome) {
-  const d = current;
-  if (!d || !d.route || visitsByDest[d.id]) return;
+async function markVisit(outcome, dest) {
+  const d = dest && dest.id ? dest : current; // the card's stop, or the one the driver's screen names
+  if (!d || !d.route || visitsByDest[d.id]) return false;
   const p = LiveGeo.stale ? null : LiveGeo.position;
   const since = nearSince.get(d.id);
   let row = {
@@ -2369,7 +2394,7 @@ async function markVisit(outcome) {
     } catch (e) {
       console.warn('visit not saved — re-run schema.sql for the visits table?', e.message);
       el('card-visit-btns').hidden = false;
-      return;
+      return false;
     }
   }
   if (!row.id) row = { ...row, id: localId('v') };
@@ -2378,17 +2403,20 @@ async function markVisit(outcome) {
   persistLocal();
   if (current && current.id === d.id) renderCardVisit(current);
   map.refresh();
+  if (window.DriverScreen) DriverScreen.refresh(); // the driver's screen shows the same tap
+  return true;
 }
 
-async function undoVisit() {
-  const d = current;
+async function undoVisit(dest) {
+  const d = dest && dest.id ? dest : current; // a click event is not a stop
   const v = d && visitsByDest[d.id];
   if (!v) return;
   delete visitsByDest[d.id];
   if (Backend.enabled && v.id) Backend.deleteVisit(v.id).catch(e => console.warn('undo failed', e.message));
   persistLocal();
-  renderCardVisit(d);
+  if (current && current.id === d.id) renderCardVisit(current);
   map.refresh();
+  if (window.DriverScreen) DriverScreen.refresh();
 }
 
 function removeCurrent() {
@@ -2545,7 +2573,7 @@ if (el('home')) {
 /* A phone can hold yesterday's index.html next to today's app.js (a WebView
  * that skipped revalidation): the block may not exist yet. Never let that
  * stop the script — boot() still has to run below. */
-for (const [id, fn] of [['card-deliver', () => markVisit('delivered')], ['card-fail', () => markVisit('failed')], ['card-visit-undo', undoVisit]]) {
+for (const [id, fn] of [['card-deliver', () => markVisit('delivered')], ['card-fail', () => markVisit('failed')], ['card-visit-undo', () => undoVisit()]]) {
   const node = el(id);
   if (node) node.onclick = fn;
 }
@@ -2695,7 +2723,11 @@ el('tb-close').onclick = e => {
 };
 el('notes-banner').onclick = () => {
   el('notes-banner').hidden = true;
-  if (notesBannerDest) openCard(notesBannerDest);
+  if (!notesBannerDest) return;
+  /* on the driver's screen the stop opens there (its sheet), not as the
+   * map's card — the driver never leaves the route */
+  if (window.DriverScreen && DriverScreen.opened) DriverScreen.openStop(notesBannerDest);
+  else openCard(notesBannerDest);
 };
 el('nb-close').onclick = e => {
   e.stopPropagation();
@@ -2774,6 +2806,7 @@ async function boot() {
   renderRouteChip();
   renderEmpty();
   map.refresh();
+  if (window.DriverScreen) DriverScreen.refresh(); // the driver's screen reads the same rows
   /* the calls Otto makes — the ⚙ sheet's list, and a call the URL asks for */
   await loadCalls();
   renderHomeCall();
@@ -2794,6 +2827,7 @@ if (!Backend.enabled) {
     renderRouteChip();
     renderEmpty();
     map.refresh();
+    if (window.DriverScreen) DriverScreen.refresh();
     if (current && !el('otto-screen').hidden) return; // don't yank an open debrief
     if (current) {
       const d = destinations.find(x => x.id === current.id);

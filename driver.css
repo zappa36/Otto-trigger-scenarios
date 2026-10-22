@@ -1,0 +1,789 @@
+/* ============================================================
+ * The driver's screen — the route in the van.
+ *
+ * A third screen on the phone, next to Otto's own (home) and the
+ * tester's map: today's deliveries as a list and on a map, in the
+ * PostNord app's design language — a PostNord-blue header bar, white
+ * cards on a light grey page, dark navy headlines, soft blue and
+ * green icon circles, a dotted timeline down the list, blue pill
+ * chips over the map, and one big primary button at a time.
+ *
+ * Everything here is scoped under #driver, so the Companion screen
+ * and the map keep their own dark look untouched. The map on this
+ * screen is the same field-map kit as everywhere else; the light
+ * palette comes from the kit's own CSS variables plus a few
+ * overrides below (the kit's files stay verbatim).
+ * ============================================================ */
+
+#driver {
+  /* the palette, from the PostNord app: brand blue for the bars and
+     the primary action, a deeper navy for headlines, soft tints for
+     the icon circles, green for done and amber for not delivered */
+  --pn-blue: #005d92;
+  --pn-blue-deep: #004b77;
+  --pn-navy: #122c5a;
+  --pn-ink: #1c2430;
+  --pn-muted: #66717f;
+  --pn-bg: #f3f5f8;
+  --pn-card: #ffffff;
+  --pn-line: #e4e8ee;
+  --pn-sky: #e3f1fb;
+  --pn-sky-ink: #005d92;
+  --pn-green: #1a7f3d;
+  --pn-green-soft: #e4f4ea;
+  --pn-amber: #a35500;
+  --pn-amber-soft: #fff1dc;
+  --pn-link: #1d78c1;
+  --pn-shadow: 0 2px 10px rgba(18, 44, 90, .08);
+  --pn-radius: 16px;
+  --dv-font: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+
+  color-scheme: light;
+  position: absolute;
+  inset: 0;
+  z-index: 11; /* like Otto's screen: the banners (12+) and the conversation (14) show over it */
+  display: flex;
+  flex-direction: column;
+  background: var(--pn-bg);
+  color: var(--pn-ink);
+  font-family: var(--dv-font);
+  -webkit-font-smoothing: antialiased;
+}
+#driver[hidden] { display: none; }
+#driver * { box-sizing: border-box; }
+#driver button { font-family: inherit; -webkit-tap-highlight-color: transparent; }
+
+/* ---------- the header bar ---------- */
+.dv-top {
+  flex: none;
+  background: var(--pn-blue);
+  color: #fff;
+  padding-top: env(safe-area-inset-top, 0px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .12);
+  z-index: 2;
+}
+.dv-top-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 6px 2px;
+}
+.dv-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px; height: 44px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+}
+.dv-icon:active { background: rgba(255, 255, 255, .16); }
+.dv-icon svg { width: 24px; height: 24px; display: block; fill: currentColor; }
+.dv-icon[hidden] { display: none; }
+.dv-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 2px 6px;
+  border: none;
+  background: transparent;
+  color: #fff;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 10px;
+}
+.dv-title:active { background: rgba(255, 255, 255, .12); }
+.dv-title h1 {
+  margin: 0;
+  max-width: 100%;
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: .005em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dv-title h1 .dv-caret { font-size: 12px; opacity: .8; margin-left: 4px; }
+.dv-title small {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  max-width: 100%;
+  margin-top: 2px;
+  font-size: 12.5px;
+  line-height: 1.25;
+  color: rgba(255, 255, 255, .82);
+  overflow: hidden;
+}
+/* the two tabs, like the PostNord tracking screen's TO ME / FROM ME */
+.dv-tabs { display: flex; padding: 0 6px; }
+.dv-tab {
+  flex: 1;
+  padding: 10px 4px 9px;
+  border: none;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: rgba(255, 255, 255, .72);
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: .01em;
+  cursor: pointer;
+}
+.dv-tab.on { color: #fff; border-bottom-color: #fff; }
+
+/* ---------- the map ---------- */
+.dv-map-wrap {
+  position: relative;
+  flex: none;
+  height: 42%;
+  min-height: 0;
+  overflow: hidden;
+  background: #e8edf2;
+}
+#driver[data-view="map"] .dv-map-wrap { flex: 1; height: auto; }
+#driver[data-view="list"] .dv-map-wrap { height: 0; }
+#dv-map { position: absolute; inset: 0; --fm-ctl-right: 12px; --fm-ctl-bottom: 12px; }
+
+/* the field-map kit in daylight: the same layers, a light palette */
+#driver .fm {
+  --fm-accent: #005d92;
+  --fm-ink: #122c5a;
+  --fm-dim: #66717f;
+  --fm-land: #e8edf2;
+  --fm-line: rgba(18, 44, 90, .09);
+  --fm-font: var(--dv-font);
+}
+#driver .fm-grid {
+  background:
+    linear-gradient(var(--fm-line) 1px, transparent 1px) 0 0 / 48px 48px,
+    linear-gradient(90deg, var(--fm-line) 1px, transparent 1px) 0 0 / 48px 48px,
+    radial-gradient(120% 80% at 50% 0%, #f1f4f7 0%, var(--fm-land) 70%);
+}
+#driver .fm-gmap { background: #e8edf2; }
+#driver .fm-veil { background: rgba(243, 245, 248, .78); }
+#driver .fm-veil-text { color: var(--pn-blue); font-family: var(--dv-font); font-size: 12px; letter-spacing: .12em; }
+#driver .fm-recenter {
+  border: 1px solid rgba(18, 44, 90, .12);
+  background: #fff;
+  color: var(--pn-blue);
+  box-shadow: 0 2px 8px rgba(18, 44, 90, .18);
+}
+#driver .fm-recenter:hover { background: #fff; }
+#driver .fm-me-dot { background: var(--pn-blue); border-color: #fff; box-shadow: 0 2px 8px rgba(18, 44, 90, .35); }
+#driver .fm-pin-inner { animation: none; }
+/* the page-level rule in index.html hands taps to .fm-icon / .fm-label
+   only — this map's own pin and label take them too */
+#driver .fm-pin .dv-pin, #driver .fm-pin .dv-lbl { pointer-events: auto; cursor: pointer; }
+
+/* the route line, drawn under the pins: the whole tour faint, the
+   stops still to do — from where the van is — in PostNord blue */
+.dv-route {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+.dv-route polyline { fill: none; stroke-linejoin: round; stroke-linecap: round; }
+.dv-rt-all { stroke: rgba(18, 44, 90, .18); stroke-width: 3; }
+.dv-rt-rest { stroke: var(--pn-blue); stroke-width: 4; opacity: .85; }
+.dv-rt-me { stroke: var(--pn-blue); stroke-width: 3; stroke-dasharray: 2 8; opacity: .9; }
+
+/* the pins: a numbered PostNord-blue circle per door; green ✓ once
+   delivered, amber ✕ when it failed; the next stop bigger, with a
+   pulsing ring; a small ✎ when notes wait behind that door, a count
+   when several parcels share it */
+.dv-mk { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.dv-pin {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 2.5px solid #fff;
+  background: var(--pn-blue);
+  color: #fff;
+  font-family: var(--dv-font);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 3px 8px rgba(18, 44, 90, .35);
+}
+.dv-pin.done { background: var(--pn-green); font-size: 16px; }
+.dv-pin.failed { background: var(--pn-amber); font-size: 15px; }
+.dv-pin.next { font-size: 17px; background: var(--pn-navy); }
+.dv-pin.next::after {
+  content: '';
+  position: absolute;
+  inset: -9px;
+  border-radius: 50%;
+  border: 3px solid rgba(18, 44, 90, .35);
+  animation: dv-ping 1.8s ease-out infinite;
+  pointer-events: none;
+}
+.dv-pin.sel { box-shadow: 0 0 0 3px #fff, 0 0 0 5.5px var(--pn-navy), 0 3px 8px rgba(18, 44, 90, .35); }
+.dv-pin-notes {
+  position: absolute;
+  top: -5px; right: -6px;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  color: var(--pn-blue);
+  font-size: 9px;
+  font-style: normal;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(18, 44, 90, .35);
+}
+.dv-pin-count {
+  position: absolute;
+  bottom: -5px; right: -7px;
+  min-width: 17px; height: 17px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: #fff;
+  color: var(--pn-navy);
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(18, 44, 90, .35);
+}
+.dv-lbl {
+  display: inline-block;
+  max-width: 180px;
+  padding: 4px 9px;
+  border-radius: 8px;
+  border: 1.5px solid var(--pn-blue);
+  background: #fff;
+  color: var(--pn-navy);
+  font-family: var(--dv-font);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 2px 6px rgba(18, 44, 90, .18);
+}
+@keyframes dv-ping {
+  0% { transform: scale(.6); opacity: .9; }
+  100% { transform: scale(1.25); opacity: 0; }
+}
+
+/* the chips over the map — the PostNord map's blue pills */
+.dv-map-chips {
+  position: absolute;
+  left: 10px; right: 10px; top: 10px;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  pointer-events: none;
+}
+.dv-chip {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 6px 13px;
+  border: none;
+  border-radius: 999px;
+  background: var(--pn-blue);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(18, 44, 90, .22);
+  cursor: pointer;
+}
+.dv-chip:active { background: var(--pn-blue-deep); }
+.dv-chip svg { width: 16px; height: 16px; fill: currentColor; }
+.dv-chip.navy { background: var(--pn-navy); }
+.dv-chip.white { background: #fff; color: var(--pn-navy); }
+.dv-chip.white.warn { color: var(--pn-amber); }
+.dv-chip[hidden] { display: none; }
+#dv-gps {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  font-weight: 500;
+  text-align: left;
+}
+.dv-map-chips .dv-spacer { flex: 1; }
+
+/* the handle between map and list: a tap cycles map / split / list */
+.dv-handle {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 36px;
+  border: none;
+  border-top: 1px solid var(--pn-line);
+  background: var(--pn-card);
+  color: var(--pn-muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.dv-handle i {
+  display: block;
+  width: 38px; height: 5px;
+  border-radius: 3px;
+  background: #cfd6df;
+}
+.dv-handle svg { width: 18px; height: 18px; fill: currentColor; }
+.dv-handle:active { background: #f7f9fb; }
+
+/* ---------- the list ---------- */
+.dv-list-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  background: var(--pn-bg);
+}
+#driver[data-view="map"] .dv-list-wrap { display: none; }
+.dv-progress {
+  height: 4px;
+  background: #d5e4f0;
+}
+.dv-progress i { display: block; height: 100%; width: 0; background: var(--pn-blue); transition: width .3s; }
+
+/* the next stop: one card, the biggest thing on the screen */
+.dv-next {
+  margin: 12px 12px 10px;
+  padding: 14px 16px 16px;
+  border-radius: var(--pn-radius);
+  background: var(--pn-card);
+  box-shadow: var(--pn-shadow);
+}
+.dv-next-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dv-cap {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--pn-blue);
+}
+.dv-cap.green { color: var(--pn-green); }
+.dv-dist { font-size: 13.5px; font-weight: 600; color: var(--pn-navy); white-space: nowrap; }
+.dv-dist:empty { display: none; }
+.dv-next-title {
+  display: block;
+  width: 100%;
+  margin: 6px 0 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--pn-navy);
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: left;
+  cursor: pointer;
+  text-wrap: pretty;
+}
+.dv-next-title .dv-n { color: var(--pn-blue); }
+.dv-next-title .dv-more {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--pn-link);
+  white-space: nowrap;
+}
+.dv-next-sub { margin: 3px 0 0; font-size: 15px; color: var(--pn-muted); }
+.dv-next-sub:empty { display: none; }
+.dv-note {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  margin: 10px 0 0;
+  padding: 9px 11px;
+  border-radius: 11px;
+  background: var(--pn-sky);
+  color: var(--pn-navy);
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+.dv-note.driver { background: var(--pn-green-soft); }
+.dv-note b {
+  flex: none;
+  margin-top: 1px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .09em;
+  color: var(--pn-blue);
+}
+.dv-note.driver b { color: var(--pn-green); }
+.dv-note small { color: var(--pn-muted); }
+.dv-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 48px;
+  margin-top: 10px;
+  padding: 11px 12px;
+  border-radius: 12px;
+  border: 1.5px solid transparent;
+  background: var(--pn-card);
+  color: var(--pn-navy);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-decoration: none;
+  cursor: pointer;
+}
+.dv-btn svg { width: 20px; height: 20px; fill: currentColor; flex: none; }
+.dv-btn:active { transform: scale(.985); }
+.dv-btn.primary { background: var(--pn-blue); color: #fff; }
+.dv-btn.primary:active { background: var(--pn-blue-deep); }
+.dv-btn.ok { background: var(--pn-green); color: #fff; }
+.dv-btn.bad { border-color: var(--pn-amber); color: var(--pn-amber); background: #fff; }
+.dv-btn.outline { border-color: var(--pn-blue); color: var(--pn-blue); background: #fff; }
+.dv-btn.quiet { min-height: 40px; margin-top: 4px; color: var(--pn-link); font-weight: 600; }
+.dv-btn[hidden] { display: none; }
+.dv-btn-row { display: flex; gap: 8px; }
+.dv-btn-row .dv-btn { flex: 1; min-width: 0; }
+
+/* a group of rows is one white card; each row a stop, the dotted
+   line down the left the tour's order — the PostNord parcel timeline */
+.dv-group {
+  margin: 0 12px 10px;
+  border-radius: var(--pn-radius);
+  background: var(--pn-card);
+  box-shadow: var(--pn-shadow);
+  overflow: hidden;
+}
+.dv-group-title {
+  margin: 0;
+  padding: 12px 16px 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--pn-muted);
+}
+.dv-row {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 16px;
+  border: none;
+  border-top: 1px solid var(--pn-line);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.dv-row:first-child, .dv-group-title + .dv-row { border-top: none; }
+.dv-row:active { background: #f7f9fb; }
+/* the dotted connector, circle to circle */
+.dv-row::before {
+  content: '';
+  position: absolute;
+  left: 35px;
+  top: 54px;
+  bottom: -14px;
+  border-left: 2px dotted #c3cdd8;
+}
+.dv-row:last-child::before { display: none; }
+.dv-ic {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  background: var(--pn-sky);
+  color: var(--pn-sky-ink);
+  font-size: 15px;
+  font-weight: 700;
+}
+.dv-ic svg { width: 20px; height: 20px; fill: currentColor; }
+.dv-row.next .dv-ic { background: var(--pn-navy); color: #fff; }
+.dv-row.done .dv-ic { background: var(--pn-green-soft); color: var(--pn-green); }
+.dv-row.failed .dv-ic { background: var(--pn-amber-soft); color: var(--pn-amber); }
+.dv-ic-notes {
+  position: absolute;
+  top: -3px; right: -4px;
+  width: 15px; height: 15px;
+  border-radius: 50%;
+  background: #fff;
+  color: var(--pn-blue);
+  box-shadow: 0 1px 3px rgba(18, 44, 90, .25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dv-ic-notes svg { width: 9px; height: 9px; }
+.dv-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dv-t { font-size: 16px; font-weight: 700; color: var(--pn-navy); line-height: 1.3; }
+.dv-s { font-size: 14px; color: var(--pn-muted); line-height: 1.3; }
+.dv-s:empty { display: none; }
+.dv-st { margin-top: 2px; font-size: 13px; font-weight: 600; color: var(--pn-muted); line-height: 1.3; }
+.dv-st.next { color: var(--pn-link); }
+.dv-st.done { color: var(--pn-green); }
+.dv-st.failed { color: var(--pn-amber); }
+.dv-st .dv-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--pn-sky);
+  color: var(--pn-blue);
+  font-size: 11px;
+  font-weight: 700;
+}
+.dv-r { flex: none; margin-top: 2px; font-size: 14px; font-weight: 700; color: var(--pn-navy); white-space: nowrap; }
+.dv-r:empty { display: none; }
+.dv-row.done .dv-t, .dv-row.failed .dv-t { color: var(--pn-ink); }
+
+/* the empty states: no route on file / everything done */
+.dv-empty {
+  margin: 28px 24px;
+  text-align: center;
+}
+.dv-empty .dv-big {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px; height: 64px;
+  margin: 0 auto 14px;
+  border-radius: 50%;
+  background: var(--pn-sky);
+  color: var(--pn-blue);
+}
+.dv-empty .dv-big.green { background: var(--pn-green-soft); color: var(--pn-green); }
+.dv-empty .dv-big svg { width: 32px; height: 32px; fill: currentColor; }
+.dv-empty h2 { margin: 0; font-size: 20px; font-weight: 700; color: var(--pn-navy); }
+.dv-empty p { margin: 8px 0 0; font-size: 14.5px; line-height: 1.45; color: var(--pn-muted); text-wrap: pretty; }
+.dv-empty .dv-btn { width: auto; min-width: 180px; margin: 16px auto 0; }
+.dv-foot { margin: 6px 20px 0; text-align: center; font-size: 12.5px; color: var(--pn-muted); }
+
+/* ---------- sheets: the stop, the route pick ---------- */
+.dv-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  background: rgba(18, 44, 90, .42);
+}
+.dv-scrim[hidden] { display: none; }
+.dv-sheet {
+  display: flex;
+  flex-direction: column;
+  max-height: 88%;
+  border-radius: 18px 18px 0 0;
+  background: var(--pn-card);
+  box-shadow: 0 -6px 30px rgba(18, 44, 90, .25);
+  overflow: hidden;
+  animation: dv-up .22s ease-out;
+}
+@keyframes dv-up { from { transform: translateY(24px); opacity: .6; } to { transform: none; opacity: 1; } }
+.dv-sheet-top {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px 4px 4px;
+  background: var(--pn-blue);
+  color: #fff;
+}
+.dv-sheet-top b { flex: 1; min-width: 0; font-size: 16px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dv-sheet-top .dv-dist { color: #fff; }
+.dv-sheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 14px 16px calc(18px + env(safe-area-inset-bottom, 0px));
+}
+.dv-sheet-body h2 { margin: 0; font-size: 22px; font-weight: 700; line-height: 1.25; color: var(--pn-navy); text-wrap: pretty; }
+.dv-sheet-body h2 .dv-n { color: var(--pn-blue); }
+.dv-addr { margin: 3px 0 0; font-size: 14px; color: var(--pn-muted); }
+.dv-sec {
+  margin: 16px 0 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--pn-muted);
+}
+/* a line with an icon circle on the left — the PostNord list row */
+.dv-kv {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+}
+.dv-kv + .dv-kv { border-top: 1px solid var(--pn-line); }
+button.dv-kv { cursor: pointer; }
+button.dv-kv:active { background: #f7f9fb; }
+.dv-kv .dv-ic { width: 40px; height: 40px; }
+.dv-kv .dv-ic.green { background: var(--pn-green-soft); color: var(--pn-green); }
+.dv-kv .dv-ic.amber { background: var(--pn-amber-soft); color: var(--pn-amber); }
+.dv-kv .dv-ic.navy { background: var(--pn-navy); color: #fff; }
+.dv-kv .dv-body { padding-top: 2px; }
+.dv-kv .dv-t { font-size: 15.5px; }
+.dv-kv .dv-s { font-size: 14px; line-height: 1.4; color: var(--pn-ink); }
+.dv-kv .dv-s.muted { color: var(--pn-muted); }
+.dv-kv .dv-chev { flex: none; align-self: center; color: #b4bfcb; }
+.dv-kv .dv-chev svg { width: 22px; height: 22px; fill: currentColor; }
+.dv-done-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--pn-green-soft);
+  color: var(--pn-green);
+  font-size: 15px;
+  font-weight: 700;
+}
+.dv-done-line.failed { background: var(--pn-amber-soft); color: var(--pn-amber); }
+.dv-done-line svg { width: 22px; height: 22px; fill: currentColor; flex: none; }
+.dv-done-line span { flex: 1; }
+.dv-done-line button {
+  min-height: 44px;
+  margin: -8px -6px -8px 0;
+  border: none;
+  background: transparent;
+  padding: 8px 12px;
+  color: var(--pn-link);
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.dv-hint { margin: 8px 0 0; font-size: 13px; line-height: 1.45; color: var(--pn-muted); }
+.dv-hint.warn { color: var(--pn-amber); font-weight: 600; }
+.dv-hint[hidden] { display: none; }
+
+/* the line at the foot of the screen: the tap just made, and its undo */
+.dv-flash {
+  position: absolute;
+  left: 12px; right: 12px;
+  bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  z-index: 21;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px 8px 16px;
+  border-radius: 14px;
+  background: var(--pn-navy);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  box-shadow: 0 6px 20px rgba(18, 44, 90, .35);
+  animation: dv-up .2s ease-out;
+}
+.dv-flash[hidden] { display: none; }
+.dv-flash span { flex: 1; min-width: 0; }
+.dv-flash button {
+  flex: none;
+  min-height: 44px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 10px;
+  background: #fff;
+  color: var(--pn-navy);
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.dv-flash button[hidden] { display: none; }
+
+/* the route pick: one row per route on file */
+.dv-route-row .dv-s { color: var(--pn-muted); }
+.dv-route-row .dv-check { flex: none; align-self: center; color: var(--pn-blue); }
+.dv-route-row .dv-check svg { width: 24px; height: 24px; fill: currentColor; }
+
+/* Otto's banners (the pre-arrival reading, a fired trigger, the verdict
+   bar, the ring countdown) are placed for the other two screens, at
+   100px from the top; here that is the map's chip row and, with the map
+   folded away, the list's head. While this screen is up they sit just
+   under its header instead — over the top of the map, under the chips'
+   slot, where a glance finds them. (A browser without :has() keeps the
+   old slot; nothing breaks, the banner only sits higher.) */
+.phone:has(#driver:not([hidden])) #notes-banner,
+.phone:has(#driver:not([hidden])) #trigger-banner,
+.phone:has(#driver:not([hidden])) #verdict-banner {
+  top: calc(156px + env(safe-area-inset-top, 0px));
+}
+.phone:has(#driver:not([hidden])) #ring-wait {
+  top: calc(160px + env(safe-area-inset-top, 0px));
+}
+/* …and the reading banner wears this screen's clothes while it is up:
+   white, navy, the page's type, a thumb-sized × (literal values — the
+   tokens live on #driver, the banner is its sibling) */
+.phone:has(#driver:not([hidden])) #notes-banner {
+  border: 1px solid #d5e4f0;
+  background: #fff;
+  box-shadow: 0 6px 20px rgba(18, 44, 90, .2);
+  animation: none;
+}
+.phone:has(#driver:not([hidden])) #nb-title {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .09em;
+  color: #005d92;
+}
+.phone:has(#driver:not([hidden])) #nb-text {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  font-size: 14.5px;
+  line-height: 1.4;
+  color: #1c2430;
+}
+.phone:has(#driver:not([hidden])) #nb-close {
+  width: 40px; height: 40px;
+  border-color: #d5e4f0;
+  color: #005d92;
+  font-size: 18px;
+}
+
+/* a narrow phone: the header's taps still fit beside the title */
+@media (max-width: 380px) {
+  .dv-icon { width: 40px; height: 40px; }
+  .dv-title h1 { font-size: 17px; }
+  .dv-next-title { font-size: 19px; }
+}
+@media (max-height: 640px) {
+  .dv-map-wrap { height: 36%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dv-pin.next::after, .dv-sheet { animation: none; }
+}
