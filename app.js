@@ -1121,7 +1121,12 @@ function speakPreArrival(d, dist) {
    * a silent fallback never masquerades as the real thing — and says
    * when the clip had been fetched ahead, so a test drive shows whether
    * the reading started from the cache or from a live fetch */
-  speakOtto(text, () => { notesSpeaking = false; },
+  speakOtto(text, () => {
+    notesSpeaking = false;
+    /* on the driver's screen the banner goes by itself a while later —
+     * it would otherwise sit over the map for the whole drive */
+    if (window.DriverScreen && DriverScreen.opened) DriverScreen.readingDone();
+  },
     (voice, ahead) => { el('nb-title').textContent = 'OTTO · PRE-ARRIVAL NOTES · ◆ ELEVENLABS' + (ahead ? ' · FETCHED AHEAD' : ''); },
     speechLangOf());
 }
@@ -1331,7 +1336,11 @@ const LS_ROUTE_ON = 'od_route_on';
 let routeOn = true;
 try { routeOn = localStorage.getItem(LS_ROUTE_ON) !== '0'; } catch { /* private mode */ }
 function visibleDestinations() {
-  return routeOn ? destinations : destinations.filter(d => !d.route);
+  /* the driver's screen shows the route whatever the tester's chip says
+   * — while it is up, the approach readings, the arrival ring and the
+   * nearest-stop lookup see the route too */
+  const driver = !!(window.DriverScreen && DriverScreen.opened);
+  return routeOn || driver ? destinations : destinations.filter(d => !d.route);
 }
 function renderRouteChip() {
   const chip = el('route');
@@ -1497,6 +1506,7 @@ const voiceOpts = () => {
         });
         persistLocal();
         map.refresh();
+        if (window.DriverScreen) DriverScreen.refresh();
         const turns = Array.isArray(res.conversation) && res.conversation.length ? res.conversation
           : [{ from: 'me', text: String(res.transcript || '') }, ...(res.reply ? [{ from: 'ai', text: String(res.reply) }] : [])];
         const outcome = callOutcome(turns, row);
@@ -1521,6 +1531,7 @@ const voiceOpts = () => {
       recordMyReport(row, d); // the tally under Otto ticks up
       persistLocal();
       map.refresh(); // the pin flips to reported (a report with no pin flips nothing)
+      if (window.DriverScreen) DriverScreen.refresh(); // …and the row gets its Reported tag
       /* debrief delivered for a fired trigger — that test run is complete */
       if (d && tracking && tracking.fired && tracking.d.id === d.id) stopTracking();
       /* A report is made from Otto's screen and goes back to it: the
@@ -2169,13 +2180,15 @@ function openReport() {
 const show = (id, on) => { const n = el(id); if (n) n.hidden = !on; };
 function showMap() {
   show('home', false);
-  show('driver', false); // the driver's screen (driver.js) sits over the map like home does
+  /* the driver's screen (driver.js) sits over the map like home does —
+   * told, so its flag and its wake lock follow */
+  if (window.DriverScreen) DriverScreen.hide(); else show('driver', false);
   show('settings', false);
   show('reports', false);
 }
 function showHome() {
   show('card', false);
-  show('driver', false);
+  if (window.DriverScreen) DriverScreen.hide(); else show('driver', false);
   show('home', true);
 }
 
@@ -2360,7 +2373,7 @@ function renderCardVisit(d) {
 }
 
 async function markVisit(outcome, dest) {
-  const d = dest || current; // the card's stop, or the one the driver's screen names
+  const d = dest && dest.id ? dest : current; // the card's stop, or the one the driver's screen names
   if (!d || !d.route || visitsByDest[d.id]) return false;
   const p = LiveGeo.stale ? null : LiveGeo.position;
   const since = nearSince.get(d.id);
@@ -2395,7 +2408,7 @@ async function markVisit(outcome, dest) {
 }
 
 async function undoVisit(dest) {
-  const d = dest || current;
+  const d = dest && dest.id ? dest : current; // a click event is not a stop
   const v = d && visitsByDest[d.id];
   if (!v) return;
   delete visitsByDest[d.id];
@@ -2560,7 +2573,7 @@ if (el('home')) {
 /* A phone can hold yesterday's index.html next to today's app.js (a WebView
  * that skipped revalidation): the block may not exist yet. Never let that
  * stop the script — boot() still has to run below. */
-for (const [id, fn] of [['card-deliver', () => markVisit('delivered')], ['card-fail', () => markVisit('failed')], ['card-visit-undo', undoVisit]]) {
+for (const [id, fn] of [['card-deliver', () => markVisit('delivered')], ['card-fail', () => markVisit('failed')], ['card-visit-undo', () => undoVisit()]]) {
   const node = el(id);
   if (node) node.onclick = fn;
 }

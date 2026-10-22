@@ -641,7 +641,7 @@
     flex: none;
     display: flex;
     align-items: center;
-    gap: 2px;
+    gap: 0;
     padding: calc(10px + env(safe-area-inset-top, 0px)) 10px 6px;
   }
   .top h1 {
@@ -656,13 +656,15 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  /* the header's taps: an icon each, no chrome, a 44px target */
+  /* the header's taps: an icon each, no chrome, a 40 × 44 target — five
+     of them (the van came last) and "Companion" still share one line
+     on a 393 px phone */
   .icon-btn {
     flex: none;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 44px; height: 44px;
+    width: 40px; height: 44px;
     padding: 0;
     border: none;
     border-radius: 50%;
@@ -797,7 +799,7 @@
   /* a narrow phone: the header's five taps and the title still fit on one line */
   @media (max-width: 380px) {
     .icon-btn { width: 40px; height: 40px; }
-    .top h1 { font-size: 23px; margin-left: 8px; }
+    .top h1 { font-size: 22px; margin-left: 8px; }
   }
   /* a short phone: Otto and the number give way before the words do */
   @media (max-height: 640px) {
@@ -1228,10 +1230,10 @@
       <div class="dv-map-chips">
         <button id="dv-gps" class="dv-chip white" type="button" title="Where the phone thinks it is — tap to locate again">Finding you…</button>
         <span class="dv-spacer"></span>
-        <button id="dv-fit-next" class="dv-chip" type="button" title="Frame you and the next stop">
+        <button id="dv-fit-next" class="dv-chip" type="button" title="Frame you and the next stop" hidden>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>Next stop
         </button>
-        <button id="dv-fit-all" class="dv-chip navy" type="button" title="Frame the whole route">Whole route</button>
+        <button id="dv-fit-all" class="dv-chip navy" type="button" title="Frame the whole route" hidden>Whole route</button>
       </div>
     </div>
     <button id="dv-handle" class="dv-handle" type="button" title="Tap for a bigger map"><i></i></button>
@@ -1239,7 +1241,10 @@
       <div class="dv-progress"><i id="dv-progress-bar"></i></div>
       <div id="dv-list"></div>
     </div>
-    <p id="dv-flash" class="dv-hint warn" hidden style="position:absolute;left:12px;right:12px;bottom:14px;margin:0;padding:12px 14px;border-radius:12px;background:#fff;box-shadow:0 4px 16px rgba(18,44,90,.25);z-index:21;"></p>
+    <div id="dv-flash" class="dv-flash" hidden role="status">
+      <span id="dv-flash-text"></span>
+      <button id="dv-flash-undo" type="button" hidden>Undo</button>
+    </div>
     <!-- one stop: the notes Otto reads on approach, the other parcels at
          this door, the scan moment, Report to Otto -->
     <div id="dv-sheet" class="dv-scrim" hidden>

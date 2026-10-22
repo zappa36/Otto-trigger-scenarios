@@ -35,7 +35,7 @@
 window.DriverScreen = (() => {
   const $ = id => document.getElementById(id);
   const root = $('driver');
-  const stub = { open() {}, back() {}, refresh() {}, openStop() {}, get opened() { return false; } };
+  const stub = { open() {}, back() {}, hide() {}, refresh() {}, openStop() {}, readingDone() {}, get opened() { return false; } };
   /* a phone can hold yesterday's app.js next to today's page (a WebView
    * that skipped revalidation) — without the app's seams, this screen
    * stays out of the way and the rest of the page boots as before */
@@ -47,6 +47,9 @@ window.DriverScreen = (() => {
   const DIR_URL = d => `https://www.google.com/maps/dir/?api=1&destination=${d.lat},${d.lng}&travelmode=driving`;
 
   let opened = false;
+  /* app.js hides this section itself when the card or Otto's own screen
+   * takes over — "showing" is the flag AND the DOM */
+  const showing = () => opened && !root.hidden;
   let routeId = null;
   let tab = 'todo';
   let view = 'split';
@@ -108,7 +111,9 @@ window.DriverScreen = (() => {
     destinations.forEach(d => { if (d.route && !seen.includes(d.route)) seen.push(d.route); });
     return seen;
   };
-  const stops = r => destinations.filter(d => d.route === (r || routeId)).sort(byStop);
+  /* no route picked means no stops: a plain pin's route is null on a
+   * live row, and null === null would adopt every tester pin */
+  const stops = r => { const id = r || routeId; return id ? destinations.filter(d => d.route === id).sort(byStop) : []; };
   const demoRoutes = () => (window.DEMO_ROUTES || []).concat(window.DEMO_ROUTE ? [window.DEMO_ROUTE] : []);
   /* the route's name: the data file's when it is on this page, else the
    * route's own scenario row's title ("Kollwitzkiez 01 route — …"),
@@ -251,7 +256,12 @@ window.DriverScreen = (() => {
       markers: markerList,
       renderMarker: renderPin,
       onMarkerClick: m => { const d = byId(m.id); if (d) openSheet(d); },
-      onBackendChange: b => { if (b === 'gmap') styleGmap(); },
+      onBackendChange: b => {
+        /* framing is the live map's; on the keyless grid — centred on the
+         * van by the kit — the two chips would only disappoint */
+        $('dv-fit-next').hidden = $('dv-fit-all').hidden = b !== 'gmap';
+        if (b === 'gmap') styleGmap();
+      },
     });
     svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('class', 'dv-route');
@@ -340,11 +350,14 @@ window.DriverScreen = (() => {
     if (!chip) return;
     const s = snap || LiveGeo.snapshot;
     const street = s.address && (s.address.street || s.address.area);
-    chip.textContent = s.state === 'fix' && street && !s.stale ? street
+    /* anything but a fresh fix wears the kit's own words (last known
+     * position, location off, denied…), in sentence case */
+    const label = typeof Geo !== 'undefined' && Geo.label ? String(Geo.label) : '';
+    const plain = label ? label.charAt(0) + label.slice(1).toLowerCase() : '';
+    chip.textContent = s.state === 'fix' && !s.stale ? (street || 'Located')
       : s.state === 'locating' ? 'Finding you…'
-        : s.stale && s.position ? 'Last known position'
-          : s.position ? 'Located' : 'Location off — tap';
-    chip.classList.toggle('warn', !!s.stale || s.state === 'off' || !s.position);
+        : plain || (s.position ? 'Last known position' : 'Location off — tap');
+    chip.classList.toggle('warn', !!s.stale || s.state !== 'fix' || !s.position);
   }
 
   /* ---------- the list ---------- */
@@ -491,6 +504,15 @@ window.DriverScreen = (() => {
       const m = d ? distTo(d) : null;
       els.forEach(n => { n.textContent = m == null ? '' : fmtDist(m); });
     });
+    if (selected && !$('dv-sheet').hidden) updateSheetDistance(byId(selected));
+  }
+  /* the sheet's one distance element serves every stop in turn, so it is
+   * the open stop's — never a list entry a previous stop still holds */
+  function updateSheetDistance(d) {
+    const n = $('dv-sheet-dist');
+    if (!n) return;
+    const m = d ? distTo(d) : null;
+    n.textContent = m == null ? '' : fmtDist(m);
   }
 
   /* ---------- the Delivered tap ----------
@@ -498,15 +520,29 @@ window.DriverScreen = (() => {
    * `visits`, with the phone's position and the door's dwell); the
    * screen re-renders itself from the result, so the next stop moves
    * on and the pin turns. */
+  let settling = false; // the moment after a tap, while the next stop's button takes the same place
   async function visit(d, outcome) {
-    if (busy) return;
+    if (busy || settling) return;
     busy = true;
     let ok = false;
-    try { ok = await markVisit(outcome, d); } finally { busy = false; }
+    try { ok = await markVisit(outcome, d); } finally {
+      busy = false;
+      /* the card re-renders with the NEXT stop's button under the same
+       * thumb — a bounced double tap must not file that one too */
+      settling = true;
+      setTimeout(() => { settling = false; }, 700);
+    }
     render();
-    if (ok === false && !visitOf(d)) flash('Not saved — no connection to the store. Try again in a moment.');
-    else if (selected === d.id) { /* the sheet shows the done line now */ }
-    if (ok !== false && !selected && nextOf(stops())) needFit = true, fitNext();
+    if (!visitOf(d)) {
+      if (ok === false) flash('Not saved — no connection to the store. Try again in a moment.');
+      return;
+    }
+    /* the new next stop is at the top of the list — show it there */
+    if (!selected && $('dv-list-wrap')) $('dv-list-wrap').scrollTop = 0;
+    /* the tap, named, with the way back right there */
+    const name = d.stop != null ? 'Stop ' + d.stop : String(d.title || 'Stop');
+    flash(name + ' · ' + (outcome === 'failed' ? 'Not delivered' : 'Delivered'), () => unvisit(d));
+    if (!selected && nextOf(stops())) { needFit = true; fitNext(); }
   }
   async function unvisit(d) {
     if (busy) return;
@@ -514,13 +550,18 @@ window.DriverScreen = (() => {
     try { await undoVisit(d); } finally { busy = false; }
     render();
   }
-  function flash(text) {
+  /* a line at the foot of the screen, gone by itself; with an undo, the
+   * tap that takes the last Delivered back stays a while longer */
+  function flash(text, undo) {
     const n = $('dv-flash');
     if (!n) return;
-    n.textContent = text;
+    $('dv-flash-text').textContent = text;
+    const b = $('dv-flash-undo');
+    b.hidden = !undo;
+    b.onclick = undo ? () => { n.hidden = true; undo(); } : null;
     n.hidden = false;
     clearTimeout(flash.t);
-    flash.t = setTimeout(() => { n.hidden = true; }, 4000);
+    flash.t = setTimeout(() => { n.hidden = true; }, undo ? 7000 : 4000);
   }
 
   /* ---------- the stop sheet ---------- */
@@ -550,16 +591,10 @@ window.DriverScreen = (() => {
   }
   function renderSheet(d) {
     const list = stops();
-    const idx = list.findIndex(x => x.id === d.id);
     $('dv-sheet-cap').textContent = (d.stop != null ? `Stop ${d.stop}` : 'Stop') + (list.length ? ` of ${list.length}` : '');
-    const capDist = $('dv-sheet-dist');
-    capDist.textContent = '';
     const body = $('dv-sheet-body');
     body.innerHTML = '';
-    distEls.forEach((els, id) => { if (id === d.id) distEls.set(id, els.filter(n => n.closest('#dv-sheet') == null)); });
-    const m = distTo(d);
-    capDist.textContent = m == null ? '' : fmtDist(m);
-    distEls.set(d.id, (distEls.get(d.id) || []).concat(capDist));
+    updateSheetDistance(d);
 
     const title = h('h2');
     if (d.stop != null) title.appendChild(h('span', 'dv-n', d.stop + ' · '));
@@ -645,14 +680,14 @@ window.DriverScreen = (() => {
     otto.onclick = () => report(d);
     body.appendChild(otto);
     body.appendChild(h('p', 'dv-hint', 'A closed road, a dog at the door, a bell that does nothing — say it, Otto files it for the next driver.'));
-    if (idx >= 0 && idx < list.length - 1 && stateOf(d) !== 'open') {
-      const nxt = nextOf(list);
-      if (nxt) {
-        const go = withIcon(h('button', 'dv-btn quiet', `Next: ${nxt.stop != null ? nxt.stop + ' · ' : ''}${nxt.title}`), 'chevron');
-        go.type = 'button';
-        go.onclick = () => openSheet(nxt);
-        body.appendChild(go);
-      }
+    /* a finished stop points on to the next one still open, wherever
+     * that is on the route */
+    const nxt = stateOf(d) !== 'open' ? nextOf(list) : null;
+    if (nxt && nxt.id !== d.id) {
+      const go = withIcon(h('button', 'dv-btn quiet', `Next: ${nxt.stop != null ? nxt.stop + ' · ' : ''}${nxt.title}`), 'chevron');
+      go.type = 'button';
+      go.onclick = () => openSheet(nxt);
+      body.appendChild(go);
     }
   }
 
@@ -665,7 +700,11 @@ window.DriverScreen = (() => {
   function report(d) {
     if (typeof openOtto !== 'function') return;
     closeSheet();
-    window.ottoReturn = open;
+    /* the hand-back is app.js's own `let ottoReturn` — the global lexical
+     * scope classic scripts share; a window property would not reach it.
+     * An older app.js without the binding throws here, and the screen
+     * simply stays underneath Otto's, as before. */
+    try { ottoReturn = open; } catch { /* older app.js */ }
     openOtto(d || null, true);
   }
   function reportNearest() {
@@ -731,7 +770,7 @@ window.DriverScreen = (() => {
     wake = null;
   }
   document.addEventListener('visibilitychange', () => {
-    if (opened && document.visibilityState === 'visible') acquireWake();
+    if (showing() && document.visibilityState === 'visible') acquireWake();
   });
 
   function render() {
@@ -776,15 +815,38 @@ window.DriverScreen = (() => {
   /* app.js calls this after every load and every visit change */
   function refresh() {
     loaded = true;
-    if (!opened) { pickRoute(); return; }
+    if (!showing()) { pickRoute(); return; }
     render();
+    /* rows that arrived after the screen opened (live, the deep link;
+     * keyless, the dashboard in the next tab) get their framing now */
+    if (needFit) fitNext();
+  }
+  /* app.js hides this section itself when the card or Otto's own screen
+   * takes over (showMap / showHome) — the flag and the wake lock follow */
+  function hide() {
+    opened = false;
+    root.hidden = true;
+    releaseWake();
   }
   /* a tap on Otto's reading banner while this screen is up: the stop
    * opens here when it is on the route, on the map's card otherwise */
   function openStop(d) {
     if (!d) return;
-    if (d.route && stops().some(x => x.id === d.id)) openSheet(d);
+    if (d.route && stops().some(x => x.id === d.id)) { if (!showing()) open(); openSheet(d); }
     else if (typeof openCard === 'function') openCard(d);
+  }
+  /* Otto's reading banner is the other screens' record of what was said
+   * and stays until dismissed there; here it would sit over the map or
+   * the next stop for the whole drive, so it leaves by itself a while
+   * after the reading ends — never mid-reading, never a newer one */
+  let readingGen = 0;
+  function readingDone() {
+    const gen = ++readingGen;
+    setTimeout(() => {
+      const b = $('notes-banner');
+      const speaking = typeof notesSpeaking !== 'undefined' && notesSpeaking;
+      if (b && gen === readingGen && showing() && !speaking) b.hidden = true;
+    }, 10000);
   }
 
   /* ---------- wiring ---------- */
@@ -795,8 +857,8 @@ window.DriverScreen = (() => {
   $('dv-tab-todo').onclick = () => { tab = 'todo'; render(); $('dv-list-wrap').scrollTop = 0; };
   $('dv-tab-done').onclick = () => { tab = 'done'; render(); $('dv-list-wrap').scrollTop = 0; };
   $('dv-handle').onclick = cycleView;
-  $('dv-fit-next').onclick = () => { needFit = true; if (!fitNext()) flash('The live map needs a Maps key — the grid stays centred on you.'); };
-  $('dv-fit-all').onclick = () => { if (!fitAll()) flash('The live map needs a Maps key — the grid stays centred on you.'); };
+  $('dv-fit-next').onclick = () => { needFit = true; if (!fitNext()) flash('No live map on this phone — the grid stays centred on you; the list has the distances.'); };
+  $('dv-fit-all').onclick = () => { if (!fitAll()) flash('No live map on this phone — the grid stays centred on you; the list has the distances.'); };
   $('dv-gps').onclick = () => Geo.locate();
   $('dv-sheet-x').onclick = closeSheet;
   $('dv-sheet').onclick = e => { if (e.target === $('dv-sheet')) closeSheet(); };
@@ -804,11 +866,11 @@ window.DriverScreen = (() => {
   $('dv-routes').onclick = e => { if (e.target === $('dv-routes')) $('dv-routes').hidden = true; };
   const openBtn = $('open-driver');
   if (openBtn) openBtn.onclick = open;
-  LiveGeo.on(snap => { if (!opened) return; renderGps(snap); updateDistances(); });
+  LiveGeo.on(snap => { if (!showing()) return; renderGps(snap); updateDistances(); });
   root.dataset.view = view;
 
   /* the dashboard's DRIVER ↗ link lands straight on this screen */
   if (location.hash === '#driver') open();
 
-  return { open, back, refresh, openStop, get opened() { return opened; } };
+  return { open, back, hide, refresh, openStop, readingDone, get opened() { return showing(); } };
 })();

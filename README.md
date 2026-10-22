@@ -1151,7 +1151,9 @@ What the driver sees:
   as the tester's card — one row in `visits`, with the phone's position
   and the door's dwell — so the dispatcher dashboard's tours are
   rebuilt from the driver's taps exactly as before. The next stop then
-  moves on.
+  moves on, and the line that confirms the tap carries **Undo** for a
+  few seconds, so a slip is taken back where it was made (a bounced
+  double tap files one stop, not two).
 - **Then**: the stops still to do, in order, each with the consignee
   and floor, the distance from the van, and a "1 note" tag where Otto
   has something to read on approach. **DONE** lists what is finished,
@@ -1161,9 +1163,10 @@ What the driver sees:
   door (several parcels behind one bell are one pin with a count), the
   next stop bigger with its address, ✓ green and ✕ amber once done.
   The handle between map and list flips between a bigger map, the
-  split, and the list alone. **Next stop** frames the van and the next
-  door, **Whole route** frames the tour — both on the live Google map;
-  the keyless grid stays centred on the van. The white pill at the top
+  split, and the list alone. On the live Google map two chips frame
+  the view — **Next stop** (the van and the next door) and **Whole
+  route** (the tour); the keyless grid has no framing and stays centred
+  on the van, so the chips stay away there. The white pill at the top
   left says where the phone thinks it is.
 - **A stop's sheet**, from any row or pin: what is on file for that
   door — consignee, floor, the notes from dispatch, what drivers
@@ -1176,8 +1179,10 @@ What the driver sees:
   at, within 150 m, or against no stop — and Report to Otto on a sheet
   is filed against that stop. The conversation covers the screen and
   hands it back after; the dart throw still follows a report. The
-  pre-arrival readings keep working while this screen is up, and a tap
-  on Otto's banner opens the stop here.
+  pre-arrival readings keep working while this screen is up — the
+  banner wears this screen's white, a tap on it opens the stop here,
+  and it leaves by itself a while after the reading, so it never sits
+  over the map for the whole drive.
 
 The screen keeps the display awake while it is up and lets go when the
 driver goes back to Otto. Nothing else changed: the Companion, the
