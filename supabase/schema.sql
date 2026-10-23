@@ -13,6 +13,7 @@ create table if not exists public.destinations (
   consignee text,                   -- who the delivery is for ("Maria Weber")
   floor text,                       -- floor / unit ("4th floor", "Apt 12B")
   entrance text,                    -- which door: "rear building, staircase B", "courtyard door" — what the bell panel would tell you
+  kind text,                        -- what kind of delivery: 'parcel' (also null) | 'bulky' (furniture, large electronics) | 'food' (fresh, perishable)
   notes jsonb,                      -- notes on file, newest first: [{id,text,at,by}] — by: 'dispatch' | 'driver'
   route text,                       -- the delivery route this stop belongs to (e.g. the demo route id)
   stop integer,                     -- 1-based position on that route
@@ -31,6 +32,10 @@ alter table public.destinations add column if not exists notes jsonb;
 -- a side wing, a staircase, the courtyard gate) — read out with the
 -- consignee and the floor on approach. Safe to re-run.
 alter table public.destinations add column if not exists entrance text;
+-- What kind of delivery waits at the door — a parcel, a bulky item
+-- (furniture or large electronics), fresh food — drawn as an icon on
+-- the phone and said by Otto on approach. Null means a parcel. Safe to re-run.
+alter table public.destinations add column if not exists kind text;
 
 -- Route columns for databases created before them — a destination can be
 -- one stop on a delivery route (route-schoeneberg.js ships a 100-stop demo

@@ -166,6 +166,8 @@ const LANG_TEXT = {
      * order a courier needs them in */
     deliveryFor: (n, f, e) => `Delivery is for ${n}${e ? ', ' + e : ''}${f ? ', ' + f : ''}.`,
     deliveryTo: (f, e) => `Delivery goes to ${[e, f].filter(Boolean).join(', ')}.`,
+    /* what kind of delivery, when it is not a plain parcel */
+    kind: { bulky: 'It is a bulky one — furniture or large electronics.', food: 'It is fresh food.' },
     fromDispatch: 'From dispatch: ',
     driverSaid: 'A driver reported: ',
     /* a call Otto makes, when the row has no opening line of its own:
@@ -186,6 +188,7 @@ const LANG_TEXT = {
     floorRaw: f => (/^ground floor$/i.test(f) ? 'al piano terra' : /^top floor$/i.test(f) ? 'all\'ultimo piano' : 'a ' + f),
     deliveryFor: (n, f, e) => `La consegna è per ${n}${e ? ', ' + e : ''}${f ? ', ' + f : ''}.`,
     deliveryTo: (f, e) => `La consegna va ${[e, f].filter(Boolean).join(', ')}.`,
+    kind: { bulky: 'È un collo ingombrante — mobili o grandi elettrodomestici.', food: 'Sono alimenti freschi.' },
     fromDispatch: 'Dalla centrale: ',
     driverSaid: 'Un autista ha segnalato: ',
     callConsignee: d => `Buongiorno, sono Otto dell'ufficio consegne. Chiamo per una consegna ${d && d.consignee ? 'per ' + surnameOf(d.consignee) : 'a ' + ((d && d.title) || 'questo indirizzo')} — parlo con la persona giusta?`,
@@ -1002,6 +1005,9 @@ function briefingLines(d) {
   const entrance = String(d.entrance || '').trim(); // which door — read as written
   if (name) lines.push(T.deliveryFor(name, floor ? speakFloor(floor) : '', entrance));
   else if (floor || entrance) lines.push(T.deliveryTo(floor ? speakFloor(floor) : '', entrance));
+  /* a bulky item or fresh food is worth a word before the door; a parcel is the default and goes unsaid */
+  const kind = String(d.kind || '').trim().toLowerCase();
+  if (T.kind && T.kind[kind]) lines.push(T.kind[kind]);
   notesOnFile(d).slice(0, NOTES.maxNotes).forEach(n =>
     lines.push((n.by === 'driver' ? T.driverSaid : T.fromDispatch) + sentence(inItalian(n.text) || n.text)));
   driverReportsOf(d).slice(0, NOTES.maxDriver).forEach(m =>
@@ -1144,7 +1150,8 @@ function renderCardNotes(d) {
   const entrance = String(d.entrance || '').trim();
   const notes = notesOnFile(d);
   const reports = driverReportsOf(d).slice(0, NOTES.maxDriver).length;
-  el('card-notes').hidden = !name && !floor && !entrance && !notes.length && !reports;
+  const hasKind = /^(bulky|food)$/i.test(String(d.kind || '').trim());
+  el('card-notes').hidden = !name && !floor && !entrance && !hasKind && !notes.length && !reports;
   if (el('card-notes').hidden) return;
   if (name || floor || entrance) {
     const line = document.createElement('div');
@@ -1152,6 +1159,18 @@ function renderCardNotes(d) {
     const where = [entrance, floor].filter(Boolean).join(' · ');
     line.textContent = name ? `Consignee: ${name}${where ? ' · ' + where : ''}` : `Door: ${where}`;
     box.appendChild(line);
+  }
+  /* what kind of delivery, when it is not a plain parcel — the driver's
+   * screen draws the icon, this card says it in words */
+  const KIND_LINE = { bulky: ['BULKY', 'Furniture or large electronics — two people may be needed.'], food: ['FOOD', 'Fresh food — deliver early, keep it cool.'] };
+  const kl = KIND_LINE[String(d.kind || '').trim().toLowerCase()];
+  if (kl) {
+    const row = document.createElement('p');
+    row.className = 'cn-note';
+    const tag = document.createElement('b');
+    tag.textContent = kl[0];
+    row.append(tag, document.createTextNode(kl[1]));
+    box.appendChild(row);
   }
   notes.slice(0, NOTES.maxNotes).forEach(n => {
     const row = document.createElement('p');

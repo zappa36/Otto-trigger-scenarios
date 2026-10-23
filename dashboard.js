@@ -1453,6 +1453,8 @@ const DEMO_MAX_NOTES = 3;  // the phone's NOTES.maxNotes
 const DEMO_MAX_DRIVER = 2; // the phone's NOTES.maxDriver
 const spokenSentence = s => { const t = String(s || '').trim(); return /[.!?…]$/.test(t) ? t : t + '.'; };
 const spokenFloor = f => (/^\d+$/.test(String(f).trim()) ? 'floor ' + String(f).trim() : String(f).trim());
+/* the kind of delivery, as the stop sheet's tag line says it (a parcel goes unsaid) */
+const KIND_WORD = { bulky: 'BULKY', food: 'FRESH FOOD' };
 function demoSpokenLines(sc, d) {
   const lines = [];
   const name = String(d.consignee || '').trim();
@@ -1461,6 +1463,9 @@ function demoSpokenLines(sc, d) {
   const where = [entrance, floor ? spokenFloor(floor) : ''].filter(Boolean).join(', ');
   if (name) lines.push({ text: `Delivery is for ${name}${where ? ', ' + where : ''}.`, by: 'CONSIGNEE' });
   else if (where) lines.push({ text: `Delivery goes to ${where}.`, by: 'CONSIGNEE' });
+  /* the phone's LANG_TEXT.kind, word for word */
+  const kindLine = { bulky: 'It is a bulky one — furniture or large electronics.', food: 'It is fresh food.' }[String(d.kind || '').trim().toLowerCase()];
+  if (kindLine) lines.push({ text: kindLine, by: 'KIND' });
   dispatchNotesOf(d).slice(0, DEMO_MAX_NOTES).forEach(n => lines.push({
     text: (n.by === 'driver' ? 'A driver reported: ' : 'From dispatch: ') + spokenSentence(n.text),
     by: String(n.by || 'dispatch').toUpperCase(),
@@ -1594,6 +1599,14 @@ function renderScenario(sc) {
         <div>
           <label>Entrance</label>
           <input data-note-field="entrance" value="${esc(d.entrance || '')}" placeholder="Which door — &ldquo;rear building, staircase B&rdquo;, &ldquo;courtyard gate&rdquo;">
+        </div>
+        <div>
+          <label>Kind of delivery</label>
+          <select data-note-field="kind">
+            <option value=""${!d.kind || d.kind === 'parcel' ? ' selected' : ''}>Parcel</option>
+            <option value="bulky"${d.kind === 'bulky' ? ' selected' : ''}>Bulky — furniture or large electronics</option>
+            <option value="food"${d.kind === 'food' ? ' selected' : ''}>Fresh food</option>
+          </select>
         </div>
       </div>
       ${notes.map((n, i) => `
@@ -4287,6 +4300,7 @@ function specOf(sc) {
       consignee: d.consignee || null,
       floor: d.floor || null,
       entrance: d.entrance || null,
+      kind: d.kind || null,
       notes: dispatchNotesOf(d),
     } : null,
     verdict: sc.verdict || null,
@@ -5109,7 +5123,7 @@ async function loadRoute(r) {
   const rows = r.stops.map(s => ({
     title: s.title, addr: s.addr, lat: s.lat, lng: s.lng,
     route: r.id, stop: s.stop,
-    consignee: s.consignee || null, floor: s.floor || null, entrance: s.entrance || null,
+    consignee: s.consignee || null, floor: s.floor || null, entrance: s.entrance || null, kind: s.kind || null,
     /* array order in the data file IS the reading order (newest first)
      * — the stamped times, a day apart, just say so */
     notes: (s.notes || []).map((n, j) => ({
@@ -5127,11 +5141,17 @@ async function loadRoute(r) {
     catch (e) {
       /* a store from before the entrance column still gets the route —
        * without the entrances, and told so — rather than nothing */
-      if (/'entrance' column/i.test(String((e && e.message) || ''))) {
-        try { added = (await Backend.insertDestinations(rows.map(({ entrance, ...rest }) => rest))) || []; }
-        catch (e2) { schemaHint(e2); routeMsg(routeFailText(r, e2)); return; }
-        schemaMsg = 'Route loaded without its entrance info — the destinations table has no entrance column yet. Re-run supabase/schema.sql once; the next route load keeps it.';
-      } else { schemaHint(e); routeMsg(routeFailText(r, e)); return; }
+      /* …one newer column at a time: entrance, kind */
+      let rs = rows, err = e;
+      const missing = [];
+      while (err) {
+        const col = (String((err && err.message) || '').match(/'(entrance|kind)' column/i) || [])[1];
+        if (!col || missing.includes(col)) { schemaHint(err); routeMsg(routeFailText(r, err)); return; }
+        missing.push(col);
+        rs = rs.map(x => { const c = { ...x }; delete c[col]; return c; });
+        try { added = (await Backend.insertDestinations(rs)) || []; err = null; } catch (e2) { err = e2; }
+      }
+      schemaMsg = `Route loaded without its ${missing.join(' and ')} info — the destinations table has no ${missing.join(' / ')} column yet. Re-run supabase/schema.sql once; the next route load keeps it.`;
     }
     /* a policy that silently drops the rows answers with an empty list */
     if (!Array.isArray(added) || !added.length) { routeMsg(routeFailText(r, null)); return; }
@@ -5255,7 +5275,7 @@ function renderStopSheet() {
     const msgs = (messagesByDest[s.id] || []).filter(m => m && !m.demo && (m.title || m.transcript)).slice(0, 2);
     return `
     <div class="stop-sec" data-dest="${esc(s.id)}">
-      <span class="addr-tag">STOP ${esc(s.stop)}${s.consignee ? ' — ' + esc(s.consignee) : ''}${s.entrance ? ' · ' + esc(s.entrance) : ''}${s.floor ? ' · ' + esc(s.floor) : ''}</span>
+      <span class="addr-tag">STOP ${esc(s.stop)}${s.consignee ? ' — ' + esc(s.consignee) : ''}${s.entrance ? ' · ' + esc(s.entrance) : ''}${s.floor ? ' · ' + esc(s.floor) : ''}${KIND_WORD[String(s.kind || '').toLowerCase()] ? ' · ' + KIND_WORD[String(s.kind || '').toLowerCase()] : ''}</span>
       ${notes.map((n, i) => `
         <div class="note-item">
           <span class="note-text">${esc(n.text)}</span>
