@@ -314,7 +314,7 @@ const d_title = v => v.destination_title || 'this address';
 
 const destinationOf = stop => ({
   title: stop.title, addr: stop.addr, lat: stop.lat, lng: stop.lng,
-  consignee: stop.consignee, floor: stop.floor, notes: stop.notes,
+  consignee: stop.consignee, floor: stop.floor, entrance: stop.entrance, kind: stop.kind, notes: stop.notes,
 });
 
 export function buildTest({ sc, persona, lang, stops }) {
@@ -455,7 +455,7 @@ function situationStop(row, stops, index) {
  * suite that is meant to run without one. */
 export const SITUATION_VARS = [
   'destination_title', 'destination_address', 'destination_lat', 'destination_lng',
-  'destination_consignee', 'destination_floor', 'destination_notes', 'debrief_language', 'trigger_fired',
+  'destination_consignee', 'destination_floor', 'destination_entrance', 'destination_kind', 'destination_notes', 'debrief_language', 'trigger_fired',
 ];
 function situationVars(d) {
   const v = agentVars({ scenario: null, destination: d, run: null, activity: null, lang: 'en' });
@@ -581,7 +581,7 @@ const callTurns = persona => (persona.id === 'suspicious' ? 10 : 8);
  * the REPORT set — and the five call_* variables: which call, who was
  * rung, why, and what the office learned on the call before. Spelled
  * out like SITUATION_VARS, because it is the contract the test asserts. */
-export const CALL_VARS = [...SITUATION_VARS, 'call_num', 'call_title', 'call_to', 'call_purpose', 'call_previous'];
+export const CALL_VARS = [...SITUATION_VARS, 'call_num', 'call_title', 'call_to', 'call_purpose', 'call_previous', 'call_window'];
 function callVarsAll(row, d) {
   return agentVars({ scenario: null, destination: d, run: null, activity: null, lang: 'en', call: callOf(row) });
 }

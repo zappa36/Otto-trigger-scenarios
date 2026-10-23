@@ -643,6 +643,25 @@ three questions, and end by confirming what was agreed and what
 happens next — "nobody home before six, so the driver comes after six;
 I'll let him know".
 
+The driver's screen makes one such call from any stop — **Call the
+customer** — without a row on the dashboard: the row is built from the
+stop itself (consignee, address, entrance, floor, what is coming, the
+notes on file, and the window the van is heading for: six minutes a
+stop from the next one, two hours wide, on the hour). It rings a
+**third agent**, the customer-call agent (`ELEVENLABS_CUSTOMER_AGENT_ID`
+in `config.js`; the ParcelVox website's demo agent is the default, and
+`?customeragent=ID` tries another), handed the stop as dynamic
+variables (`destination_consignee`, `destination_address`,
+`destination_entrance`, `destination_floor`, `destination_kind`,
+`destination_notes`, `call_window`, `call_purpose`) and the same
+briefing as every call. That agent carries one **client tool**,
+`write_down(field, value)`, with the fields `home`, `time`, `handover`
+and `note`: each point the call settles comes back into the phone
+through it and lands on the stop as one dispatch note, grown as the
+call goes, so the driver's screen, the card, the dashboard's stop sheet
+and the next approach's reading all carry what was agreed. The call
+itself is filed against the stop like every other.
+
 So the dashboard grows a **CALLS** tab, and each row is one call:
 
 | Field | What it is for |
@@ -1192,6 +1211,17 @@ What the driver sees:
   approach, in his voice), the other parcels at the same door,
   Delivered / Not delivered (or the time it was done, with undo), and
   **Report to Otto**.
+- **Call the customer**, on the next stop's card and on every stop's
+  sheet: the phone rings, you answer as that stop's consignee, and Otto
+  — the customer-call agent, with the stop's own details in front of
+  him (name, address, entrance, floor, what is coming, the notes on
+  file, the window the van is heading for) — checks that someone is
+  home and agrees a time or a place. What is settled lands on the stop
+  as one note ("Customer call 10:42: home from six · driver comes today
+  18:00–19:00 · in person, the driver rings · elevator still out"),
+  tagged CUSTOMER on this screen, read on the next approach like any
+  other note, visible on the card and the dashboard's stop sheet. See
+  [the calls](#the-calls--otto-rings-the-customer-then-the-driver).
 - **Otto** is one tap away either way. The mic in the header is the
   same press as Otto's own screen — filed against the stop the van is
   at, within 150 m, or against no stop — and Report to Otto on a sheet

@@ -8,6 +8,7 @@
     "destination_lng": 13.41844,
     "destination_consignee": "Café Kolmar",
     "destination_floor": "ground floor",
+    "destination_kind": "food",
     "destination_notes": "Hand it over at the counter — they sign for the whole house.",
     "scenario_num": 3,
     "scenario_title": "Sprint stop — hazards on, dash to the door",

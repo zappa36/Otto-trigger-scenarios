@@ -1509,6 +1509,11 @@ const voiceOpts = () => {
         ? 'Saved — the dashboard now compares this with what the scenario expected.'
         : 'Saved to the destination — your note is on the record.',
     extra: debriefExtra,
+    /* the customer-call agent's write_down (field, value) — anything else is declined by name */
+    onTool(name, params) {
+      if (String(name) === 'write_down') return writeDown(params);
+      return `no such tool here: ${String(name).slice(0, 40)}`;
+    },
     onSaved(res) {
       /* Otto's reply gets the same voice as his question — text-only
        * feedback goes unnoticed by someone watching the road. Scripted
@@ -1590,6 +1595,13 @@ function agentVars() {
   const sc = !reporting && d && scenarioOf(d);
   const tr = !reporting && tracking && d && tracking.d.id === d.id ? tracking : null;
   const p = sc && sc.params;
+  /* a customer call (the driver's screen, a row about one loaded stop):
+   * its prompt names the entrance, the kind and the notes, so a stop with
+   * nothing on file still fills them — an unfilled variable would keep
+   * the line from opening */
+  const customerCall = !!(calling && calling.row && calling.row.destination_id);
+  const notesStr = d ? notesOnFile(d).slice(0, NOTES.maxNotes)
+    .map(n => (n.by === 'driver' ? 'a driver reported: ' : '') + n.text).join('; ') : '';
   const v = {
     destination_title: d ? d.title : '',
     destination_address: d ? (d.addr || `${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}`) : '',
@@ -1600,8 +1612,9 @@ function agentVars() {
      * out?") instead of hearing about it cold */
     destination_consignee: d ? String(d.consignee || '') : '',
     destination_floor: d ? String(d.floor || '') : '',
-    destination_notes: d ? notesOnFile(d).slice(0, NOTES.maxNotes)
-      .map(n => (n.by === 'driver' ? 'a driver reported: ' : '') + n.text).join('; ') : '',
+    destination_entrance: d ? String(d.entrance || (customerCall ? 'not on file' : '')) : '',
+    destination_kind: d ? String(d.kind || (customerCall ? 'parcel' : '')) : '',
+    destination_notes: d ? (notesStr || (customerCall ? 'none' : '')) : '',
     scenario_num: sc && sc.num != null ? sc.num : '',
     scenario_title: sc ? sc.title : '',
     scenario_version: sc ? (sc.version || 1) : '',
@@ -1635,6 +1648,8 @@ function agentVars() {
     call_to: calling ? calleeOf(calling.row) : '',
     call_purpose: calling ? String(calling.row.purpose || '') : '',
     call_previous: calling ? String(calling.previous || '') : '',
+    /* the delivery window a customer call is about ("between 11 am and 1 pm today") */
+    call_window: calling ? String(calling.row.window || '') : '',
   };
   const pos = LiveGeo.position;
   if (pos && d) v.distance_to_pin_m = Math.round(distM(pos, d));
@@ -1713,7 +1728,7 @@ function mountOtto(recorderOnly) {
   /* a call goes to the back-office agent — its own prompt, written for
    * calling — and everything else to Otto himself; the two are the same
    * agent only when no second id is configured */
-  const id = calling ? callAgentId() : OttoAgent.agentId();
+  const id = calling ? rowAgentId(calling.row) : OttoAgent.agentId();
   if (!recorderOnly && OttoAgent.available(id)) {
     return OttoAgent.mount({
       ...voiceOpts(),
@@ -1744,7 +1759,7 @@ function openOtto(d, asReport, call) {
    * openReport opens the destination's own; openCall hands over the
    * call Otto is making, which stands until the row is filed */
   reporting = !!asReport;
-  calling = call || null;
+  calling = call ? { ...call, startedAt: Date.now() } : null;
   current = d || null; // a REPORT made on the road has no pin
   /* a pre-arrival reading must not talk over the debrief — the keyless
    * path cancels it itself (speakThen), the agent path would not */
@@ -1810,6 +1825,12 @@ const escCall = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/
  * touched; Otto himself when no second id is configured. */
 const callAgentId = () =>
   String(new URLSearchParams(location.search).get('callagent') || window.ELEVENLABS_CALL_AGENT_ID || '').trim() || OttoAgent.agentId();
+/* …and the customer-call agent the driver's screen rings (config.js's
+ * ELEVENLABS_CUSTOMER_AGENT_ID; ?customeragent=ID for a quick test),
+ * falling back to the back-office agent. A call row may name its agent. */
+const customerAgentId = () =>
+  String(new URLSearchParams(location.search).get('customeragent') || window.ELEVENLABS_CUSTOMER_AGENT_ID || '').trim() || callAgentId();
+const rowAgentId = row => String((row && row.agent_id) || '').trim() || callAgentId();
 const calleeOf = row => (String((row && row.callee) || '').toLowerCase() === 'driver' ? 'driver' : 'consignee');
 const calleeWord = row => (calleeOf(row) === 'driver' ? 'the driver' : 'the customer');
 /* The words a call row may leave to its stop. A row names a stop
@@ -1883,6 +1904,11 @@ async function loadCalls() {
  * with no id, filed against no pin. A row without a stop lands on the
  * stop with its number, exactly as the suite's generator picks one. */
 function callStop(row) {
+  /* a row about one loaded stop (the driver's screen's customer call) names it by id */
+  if (row && row.destination_id) {
+    const own = destinations.find(x => x.id === row.destination_id);
+    if (own) return own;
+  }
   const route = (window.DEMO_ROUTES || []).find(r => r.id === 'kollwitz-01') || null;
   const stops = route ? route.stops : [];
   const want = row && row.stop != null && row.stop !== '' ? +row.stop : null;
@@ -1936,10 +1962,95 @@ function callBriefing(v) {
   if (v.call_title) lines.push(`The call${v.call_num !== '' && v.call_num != null ? ' #' + v.call_num : ''}: ${sentence(v.call_title)}`);
   if (v.call_purpose) lines.push(`Why you are calling: ${sentence(v.call_purpose)}`);
   if (v.call_previous) lines.push(`What the office learned before this call: ${sentence(v.call_previous)}`);
+  const what = kindWords(v.destination_kind);
+  if (v.call_window || what || v.destination_entrance) {
+    lines.push(`The delivery: ${what || 'a parcel'}${v.call_window ? ', coming ' + v.call_window : ''}${v.destination_entrance ? '; the door: ' + v.destination_entrance : ''}.`);
+  }
   if (v.destination_notes) lines.push(sentence(`Notes on file for this address: ${v.destination_notes}`));
   lines.push('Ask what you need to know, keep it to two or three short questions, confirm what was agreed in one line and say what happens next, then let them go.');
   if (testLang === 'it') lines.push('This call is in Italian: conduct the whole call in Italian — every question and reply.');
   return lines.join(' ');
+}
+/* what is being delivered, in words — '' for a plain parcel (mirrored) */
+const kindWords = k => ({ bulky: 'a bulky item — furniture or large electronics', food: 'fresh food' }[String(k || '').trim().toLowerCase()] || '');
+
+/* ---------- the customer call from the driver's screen ----------
+ * "Call the customer" on a stop: the phone rings, the person answers as
+ * that stop's consignee, and Otto — the customer-call agent, with the
+ * stop's own details — checks that someone is home for the delivery
+ * window and agrees a time or a place. The row is built here from the
+ * stop, like a row of the CALLS tab would be; the window is the slot
+ * the van is heading for, from the stop's place in what is still to do
+ * (six minutes a stop, two hours wide, on the hour). */
+function deliveryWindowFor(d) {
+  const open = destinations.filter(x => x.route === d.route && !visitsByDest[x.id])
+    .sort((a, b) => ((a.stop == null ? 1e9 : a.stop) - (b.stop == null ? 1e9 : b.stop)));
+  const idx = Math.max(0, open.findIndex(x => x.id === d.id));
+  const eta = new Date(Date.now() + idx * 6 * 60e3);
+  const start = eta.getHours();
+  const end = Math.min(23, start + 2);
+  const f = x => (x === 0 ? 'midnight' : x === 12 ? 'noon' : x < 12 ? x + ' am' : (x - 12) + ' pm');
+  return { text: `between ${f(start)} and ${f(end)} today`, start, end };
+}
+function customerCallRow(d) {
+  const who = String(d.consignee || '').trim();
+  const name = who ? surnameOf(who) : '';
+  const what = kindWords(d.kind) || 'a parcel';
+  const w = deliveryWindowFor(d);
+  const notes = notesOnFile(d).map(n => n.text).join('; ');
+  return {
+    id: 'customer:' + d.id,
+    num: null,
+    title: `Delivery check — ${who || d.title}`,
+    callee: 'consignee',
+    stop: d.stop,
+    destination_id: d.id,
+    agent_id: customerAgentId(),
+    window: w.text,
+    purpose: `${what.charAt(0).toUpperCase() + what.slice(1)} is coming to ${d.title} ${w.text}, handed over in person. Make sure someone is home in that window; if not, agree a time, or whether it may be left outside the door.`
+      + (notes ? ` Notes on file: ${notes}.` : ''),
+    otto_says: `Hello, this is Otto from the delivery office. Am I speaking with ${name || 'the right person'}? I'm calling about ${what} coming to ${d.title} ${w.text}.`,
+    must_establish: ['whether someone is home in the window, and from when', 'how the parcel is handed over — in person, or left outside the door', 'anything the driver should know about getting in'],
+    outcome: '',
+    next_call: null,
+  };
+}
+/* The agent's write_down tool, answered here: each settled point lands on
+ * the stop as ONE dispatch note — "Customer call 10:42: home from six ·
+ * driver comes today 18:00–19:00 · in person, the driver rings · elevator
+ * still out" — grown field by field as the call goes, read on the next
+ * approach like any other note, shown on the driver's screen, the card and
+ * the dashboard's stop sheet. */
+const CALL_FIELDS = ['home', 'time', 'handover', 'note'];
+function writeDown(params) {
+  if (!calling || !current) return 'no call on the line';
+  const field = String((params && params.field) || '').trim().toLowerCase();
+  const value = String((params && params.value) || '').trim().replace(/\s+/g, ' ').slice(0, 160);
+  if (!CALL_FIELDS.includes(field)) return 'unknown field — use home, time, handover or note';
+  calling.written = calling.written || {};
+  calling.written[field] = value;
+  upsertCallNote(current, calling);
+  return 'ok';
+}
+function upsertCallNote(d, call) {
+  if (!d || !d.id) return; // a stand-in stop with no row to write to
+  const w = call.written || {};
+  const parts = [];
+  if (w.home) parts.push('home: ' + w.home.charAt(0).toLowerCase() + w.home.slice(1));
+  if (w.time) parts.push('driver comes ' + w.time.charAt(0).toLowerCase() + w.time.slice(1));
+  if (w.handover) parts.push(w.handover.charAt(0).toLowerCase() + w.handover.slice(1));
+  if (w.note) parts.push(w.note);
+  if (!parts.length) return;
+  const at = new Date(call.startedAt || Date.now());
+  const hhmm = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+  call.noteId = call.noteId || localId('n');
+  const note = { id: call.noteId, text: `Customer call ${hhmm}: ${parts.join(' · ')}`, by: 'dispatch', call: true, at: new Date().toISOString() };
+  d.notes = [note, ...notesOnFile(d).filter(n => n.id !== note.id)]; // newest first, as the dashboard writes them
+  if (Backend.enabled) Backend.updateDestination(d.id, { notes: d.notes }).catch(e => console.warn('call note not saved', e.message));
+  persistLocal();
+  if (current && current.id === d.id && !el('card').hidden) renderCardNotes(d);
+  map.refresh();
+  if (window.DriverScreen) DriverScreen.refresh();
 }
 
 /* the keyless demo of a call: Otto's opener, a scripted answer, his summary */
@@ -2066,7 +2177,7 @@ function armCall(row, delaySec, previous) {
   ringing = { row, previous: String(previous || '').trim(), at: Date.now() + sec * 1000, timer: null };
   if (row.num != null && row.num !== '') { lastRung = +row.num; renderHomeCall(); }
   ringContext(); // born in the tap, when there is one
-  OttoAgent.prefetchUrl(callAgentId()); // the back-office agent's line, signed ahead of the Answer tap
+  OttoAgent.prefetchUrl(rowAgentId(row)); // the call's agent's line, signed ahead of the Answer tap
   if (!sec) { showRing(); return; }
   const chip = el('ring-wait');
   const tick = () => {
@@ -2102,7 +2213,7 @@ function showRing() {
   el('card').hidden = true;
   if (el('settings')) el('settings').hidden = true;
   el('ring-screen').hidden = false;
-  OttoAgent.prefetchUrl(callAgentId()); // a ring that waited a while: the URL fetched at arming may have aged
+  OttoAgent.prefetchUrl(rowAgentId(row)); // a ring that waited a while: the URL fetched at arming may have aged
   startRing();
 }
 function answerCall() {
@@ -2512,6 +2623,8 @@ el('build').onclick = async () => {
       ? 'the back-office agent ' + callAgentId() + (OttoAgent.available(callAgentId()) ? '' : ' (UNUSABLE here)')
       : 'the same agent as the reports (no ELEVENLABS_CALL_AGENT_ID)')
     + ' · the call\'s opener is his first line');
+  out.push('customer calls (the driver\'s screen): rung by ' + (customerAgentId() !== callAgentId() ? 'the customer-call agent ' + customerAgentId() : 'the same agent as the other calls')
+    + (OttoAgent.available(customerAgentId()) ? '' : ' (UNUSABLE here)') + ' · write_down lands on the stop as a note');
   /* the card's 🇬🇧/🇮🇹 pick — an Italian debrief that comes out English
    * usually means the agent declined the language override */
   out.push('debrief language: ' + (testLang === 'it'

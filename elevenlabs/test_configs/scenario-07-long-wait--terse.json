@@ -8,6 +8,7 @@
     "destination_lng": 13.41902,
     "destination_consignee": "J. Petrova",
     "destination_floor": "4",
+    "destination_kind": "parcel",
     "destination_notes": "Customer is hard of hearing — ring twice and give it a minute.",
     "scenario_num": 7,
     "scenario_title": "Long wait — the handover eats the schedule",

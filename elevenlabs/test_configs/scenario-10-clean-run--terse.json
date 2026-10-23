@@ -8,6 +8,7 @@
     "destination_lng": 13.41772,
     "destination_consignee": "M. Aydın",
     "destination_floor": "2",
+    "destination_kind": "parcel",
     "scenario_num": 10,
     "scenario_title": "Clean run — the control: Otto stays quiet",
     "scenario_version": 1,

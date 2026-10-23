@@ -99,12 +99,13 @@ test('a situation test sends what the phone sends with no scenario and no trigge
   /* a stop with notes on file sends them; one without sends the key at
    * all, the way initPayload drops an empty value */
   const withNotes = built.find(t => t.body._otto.situation_num === 1);  // stop 4, a driver's note
-  assert.deepEqual(Object.keys(withNotes.body.dynamic_variables), SITUATION_VARS);
+  /* every variable of the contract whose value the stop has — the Kollwitz stops carry no entrance, so the phone drops that one */
+  assert.deepEqual(Object.keys(withNotes.body.dynamic_variables), SITUATION_VARS.filter(k => k !== 'destination_entrance'));
   assert.match(withNotes.body.dynamic_variables.destination_notes, /^a driver reported: The front door is locked before 09:00/);
   const stop3 = stops.find(s => s.stop === 3);
   assert.equal(notesOnFile(stop3).length, 0, 'the fixture stop for #20 has no notes — that is the point of it');
   const noNotes = built.find(t => t.body._otto.situation_num === 20);   // stop 3, no notes
-  assert.deepEqual(Object.keys(noNotes.body.dynamic_variables), SITUATION_VARS.filter(k => k !== 'destination_notes'));
+  assert.deepEqual(Object.keys(noNotes.body.dynamic_variables), SITUATION_VARS.filter(k => k !== 'destination_notes' && k !== 'destination_entrance'));
 });
 
 test('a situation is set at its own stop, and the driver reports it in its own words', () => {

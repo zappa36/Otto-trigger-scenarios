@@ -87,6 +87,20 @@ window.OTTO_AGENT = 'auto'; /* 'off' pins every debrief to the recorder */
 window.ELEVENLABS_CALL_AGENT_ID = '__ELEVENLABS_CALL_AGENT_ID__';
 if (String(window.ELEVENLABS_CALL_AGENT_ID).slice(0, 2) === '__') window.ELEVENLABS_CALL_AGENT_ID = 'agent_2601m3vrqdcfe09axamt8bmn5g2b';
 
+/* The third agent: the CUSTOMER CALL from the driver's screen — "Call
+ * the customer" on a stop rings the phone, the person answers as that
+ * stop's consignee, and Otto checks that someone is home for the
+ * delivery window, with the stop's own details in front of him
+ * (consignee, address, entrance, floor, what is being delivered, the
+ * notes on file) and a write_down tool that puts what was agreed onto
+ * the stop as a note for the driver. Its own prompt, written for that
+ * one call. Injected at deploy time from the ELEVENLABS_CUSTOMER_AGENT_ID
+ * env var; not injected, the demo agent of the ParcelVox website is the
+ * default. Blank it to run these calls on the back-office agent above.
+ * Quick test without deploying: ?customeragent=AGENT_ID. */
+window.ELEVENLABS_CUSTOMER_AGENT_ID = '__ELEVENLABS_CUSTOMER_AGENT_ID__';
+if (String(window.ELEVENLABS_CUSTOMER_AGENT_ID).slice(0, 2) === '__') window.ELEVENLABS_CUSTOMER_AGENT_ID = 'agent_0001m4qwm0gjep1sqhyd3svbfzhf';
+
 /* Table Otto's structured messages are written to. */
 window.VOICE_TABLE = 'messages';
 

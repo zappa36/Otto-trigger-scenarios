@@ -8,6 +8,7 @@
     "destination_lng": 13.41622,
     "destination_consignee": "F. Brandt",
     "destination_floor": "3",
+    "destination_kind": "parcel",
     "destination_notes": "The bell panel is inside the gateway, not on the street — Brandt is the top button.",
     "scenario_num": 2,
     "scenario_title": "Park & walk — parked far out, walked the last stretch",

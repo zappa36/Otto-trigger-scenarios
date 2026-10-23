@@ -8,6 +8,7 @@
     "destination_lng": 13.42095,
     "destination_consignee": "Praxis Dr. Ehlers",
     "destination_floor": "1",
+    "destination_kind": "parcel",
     "destination_notes": "a driver reported: The front door is locked before 09:00 — the practice opens the courtyard door on the right.",
     "scenario_num": 4,
     "scenario_title": "Entrance hunt — at the address, but where is the way in?",

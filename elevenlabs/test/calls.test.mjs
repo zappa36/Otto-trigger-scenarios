@@ -108,7 +108,7 @@ test('the starter sheet yields ten calls × four personas, all valid', () => {
 });
 
 test('a call test sends what the phone sends on a call — the REPORT set plus the five call variables — and nothing else', () => {
-  assert.deepEqual(CALL_VARS, [...SITUATION_VARS, 'call_num', 'call_title', 'call_to', 'call_purpose', 'call_previous']);
+  assert.deepEqual(CALL_VARS, [...SITUATION_VARS, 'call_num', 'call_title', 'call_to', 'call_purpose', 'call_previous', 'call_window']);
   for (const t of built) {
     const keys = Object.keys(t.body.dynamic_variables);
     assert.ok(keys.every(k => CALL_VARS.includes(k)), `${t.file}: ${keys.filter(k => !CALL_VARS.includes(k)).join(', ')} is not sent on a call`);
@@ -243,7 +243,9 @@ test('the suspicious person gets an eighth condition: Otto says who he is when a
 
 test('callOf, the variables and the briefing — the phone\'s side, ported', () => {
   const row = rows.find(r => r.num === 2);
-  assert.deepEqual(callOf(row), { num: 2, title: row.title, callee: 'driver', purpose: row.purpose, previous: row.previous_call });
+  assert.deepEqual(callOf(row), { num: 2, title: row.title, callee: 'driver', purpose: row.purpose, previous: row.previous_call, window: '', customer: false });
+  /* the driver's screen's customer call names its stop by id and carries the delivery window */
+  assert.deepEqual(callOf({ title: 'x', destination_id: 'd1', window: 'between 2 pm and 4 pm today' }), { num: null, title: 'x', callee: 'consignee', purpose: '', previous: '', window: 'between 2 pm and 4 pm today', customer: true });
   /* the outcome of the call just taken wins over the row's fixture; an empty one does not */
   assert.equal(callOf(row, 'Brandt said: after six.').previous, 'Brandt said: after six.');
   assert.equal(callOf(row, '  ').previous, row.previous_call);
@@ -251,7 +253,10 @@ test('callOf, the variables and the briefing — the phone\'s side, ported', () 
   assert.equal(callOf({ title: 'x', callee: 'DRIVER' }).callee, 'driver');
   assert.equal(callOf(null), null);
   const v = agentVars({ scenario: null, destination: stops[0], call: callOf(fillCallRow(row, stops[0])) }); // the phone fills the row before agentVars reads it
-  assert.deepEqual(Object.keys(initDynamicVariables(v)), CALL_VARS);
+  /* every variable of the contract whose value the fixture has — the Kollwitz
+   * stops carry no entrance, and a row of the CALLS tab no delivery window
+   * (that one is the driver's screen's customer call), so the phone drops those */
+  assert.deepEqual(Object.keys(initDynamicVariables(v)), CALL_VARS.filter(k => k !== 'destination_entrance' && k !== 'call_window'));
   assert.equal(v.call_num, 2);
   assert.equal(v.scenario_title, '', 'no scenario on a call');
   /* a report and a trigger debrief send none of the five */
@@ -417,8 +422,17 @@ test('the back-office agent is wired through config, the deploy, the phone and t
   assert.match(readFileSync(path.join(REPO, 'scripts', 'vercel-build.sh'), 'utf8'), /^sub ELEVENLABS_CALL_AGENT_ID __ELEVENLABS_CALL_AGENT_ID__$/m, 'the deploy injects it');
   const app = readFileSync(path.join(REPO, 'app.js'), 'utf8');
   assert.match(app, /get\('callagent'\) \|\| window\.ELEVENLABS_CALL_AGENT_ID/, 'the phone reads the id, ?callagent= first');
-  assert.match(app, /const id = calling \? callAgentId\(\) : OttoAgent\.agentId\(\);/, 'a call goes to the back-office agent, a report to Otto');
-  assert.match(app, /OttoAgent\.prefetchUrl\(callAgentId\(\)\)/, 'the back-office agent\'s line is signed ahead of the Answer tap');
+  assert.match(app, /const id = calling \? rowAgentId\(calling\.row\) : OttoAgent\.agentId\(\);/, 'a call goes to its agent — the back-office one unless the row names another — a report to Otto');
+  assert.match(app, /const rowAgentId = row => String\(\(row && row\.agent_id\) \|\| ''\)\.trim\(\) \|\| callAgentId\(\);/, 'a row without an agent of its own goes to the back-office agent');
+  assert.match(app, /OttoAgent\.prefetchUrl\(rowAgentId\(row\)\)/, 'the call\'s agent\'s line is signed ahead of the Answer tap');
+  /* the third agent: the customer call from the driver's screen, carried the same way */
+  assert.match(config, /^window\.ELEVENLABS_CUSTOMER_AGENT_ID = '__ELEVENLABS_CUSTOMER_AGENT_ID__';$/m, 'the customer-call agent\'s placeholder');
+  const cdef = config.match(/^if \(String\(window\.ELEVENLABS_CUSTOMER_AGENT_ID\)\.slice\(0, 2\) === '__'\) window\.ELEVENLABS_CUSTOMER_AGENT_ID = '([^']*)';$/m);
+  assert.ok(cdef && /^agent_[a-z0-9]{20,}$/.test(cdef[1]), 'its default is an agent id');
+  assert.match(readFileSync(path.join(REPO, 'scripts', 'vercel-build.sh'), 'utf8'), /^sub ELEVENLABS_CUSTOMER_AGENT_ID __ELEVENLABS_CUSTOMER_AGENT_ID__$/m, 'the deploy injects it');
+  assert.match(app, /get\('customeragent'\) \|\| window\.ELEVENLABS_CUSTOMER_AGENT_ID/, 'the phone reads it, ?customeragent= first');
+  assert.match(app, /agent_id: customerAgentId\(\),/, 'the customer call\'s row names that agent');
+  assert.match(readFileSync(path.join(REPO, 'otto-agent.js'), 'utf8'), /case 'client_tool_call':/, 'the agent\'s tool call reaches the page');
   const agent = readFileSync(path.join(REPO, 'otto-agent.js'), 'utf8');
   assert.match(agent, /agent: null, chip: 'ELEVENLABS',/, 'mount takes the agent to open');
   assert.match(agent, /const freshUrl = id => \(signed\.url && signed\.id === id &&/, 'a signed URL is only reused for the agent it was signed for');

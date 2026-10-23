@@ -458,6 +458,8 @@
   line-height: 1.4;
 }
 .dv-note.driver { background: var(--pn-green-soft); }
+.dv-note.call { background: #e3e8f2; }
+.dv-note.call b { color: var(--pn-navy); }
 .dv-note b {
   flex: none;
   margin-top: 1px;
