@@ -87,6 +87,8 @@ window.DriverScreen = (() => {
     pencil: 'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.41-1.83z',
     route: 'M19 15.18V7c0-2.21-1.79-4-4-4s-4 1.79-4 4v10c0 1.1-.9 2-2 2s-2-.9-2-2V8.82C8.16 8.4 9 7.3 9 6c0-1.66-1.34-3-3-3S3 4.34 3 6c0 1.3.84 2.4 2 2.82V17c0 2.21 1.79 4 4 4s4-1.79 4-4V7c0-1.1.9-2 2-2s2 .9 2 2v8.18c-1.16.42-2 1.52-2 2.82 0 1.66 1.34 3 3 3s3-1.34 3-3c0-1.3-.84-2.4-2-2.82z',
     flag: 'M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z',
+    couch: 'M21 10c-1.1 0-2 .9-2 2v3H5v-3c0-1.1-.9-2-2-2s-2 .9-2 2v5c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2v-5c0-1.1-.9-2-2-2zm-3-5H6c-1.1 0-2 .9-2 2v2.15c1.16.41 2 1.51 2 2.85v1h12v-1c0-1.34.84-2.44 2-2.85V7c0-1.1-.9-2-2-2z',
+    food: 'M11 9H9V2H7v7H5V2H3v7c0 2.12 1.66 3.84 3.75 3.97V22h2.5v-9.03C11.34 12.84 13 11.12 13 9V2h-2v7zm5-3v8h2.5v8H21V2c-2.76 0-5 2.24-5 4z',
   };
   const svgIcon = name => `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="${ICON[name]}"/></svg>`;
   const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -155,6 +157,22 @@ window.DriverScreen = (() => {
   /* name · entrance · floor — the three things a bell panel answers */
   const whoLine = d => [String(d.consignee || '').trim(), String(d.entrance || '').trim(), floorText(d.floor)].filter(Boolean).join(' · ');
   const hhmm = iso => { const t = new Date(iso); return isNaN(t) ? '' : t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); };
+  /* what kind of delivery waits at the door — the icon on the row, the
+   * pin and the card; a parcel is the default (a row with no kind) */
+  const KIND = {
+    parcel: { icon: 'box', short: 'Parcel', label: 'Parcel' },
+    bulky: { icon: 'couch', short: 'Bulky', label: 'Bulky — furniture or large electronics' },
+    food: { icon: 'food', short: 'Food', label: 'Fresh food' },
+  };
+  const kindOf = d => { const k = String((d && d.kind) || '').trim().toLowerCase(); return KIND[k] ? k : 'parcel'; };
+  const kindPill = d => {
+    const k = kindOf(d);
+    const n = h('span', 'dv-kind kind-' + k);
+    n.innerHTML = svgIcon(KIND[k].icon) + '<span></span>';
+    n.lastChild.textContent = KIND[k].label;
+    n.title = 'What kind of delivery this is';
+    return n;
+  };
   const sameDoor = (a, b) => a.lat === b.lat && a.lng === b.lng;
   const doorMates = d => stops().filter(x => x.id !== d.id && sameDoor(x, d));
   const byId = id => destinations.find(x => x.id === id) || null;
@@ -211,6 +229,7 @@ window.DriverScreen = (() => {
         dv: {
           n: lead.stop, state: st, next: isNext, sel: isSel,
           notes: st === 'open' && notesOnFile(lead).length > 0,
+          kind: st === 'open' ? kindOf(lead) : 'parcel', // the icon badge — a parcel wears none
           count: door.length,
         },
       });
@@ -225,6 +244,7 @@ window.DriverScreen = (() => {
     return `<div class="dv-mk">${showLabel && m.label ? `<span class="dv-lbl">${esc(m.label)}</span>` : ''}`
       + `<div class="${cls}" style="width:${m.size}px;height:${m.size}px">${glyph}`
       + (v.notes ? '<i class="dv-pin-notes">✎</i>' : '')
+      + (v.kind && v.kind !== 'parcel' ? `<i class="dv-pin-kind kind-${v.kind}">${svgIcon(KIND[v.kind].icon)}</i>` : '')
       + (v.count > 1 ? `<b class="dv-pin-count">${v.count}</b>` : '')
       + '</div></div>';
   }
@@ -390,6 +410,7 @@ window.DriverScreen = (() => {
     title.onclick = () => openSheet(d);
     card.appendChild(title);
     card.appendChild(h('p', 'dv-next-sub', whoLine(d)));
+    card.appendChild(kindPill(d));
     const notes = notesOnFile(d);
     if (notes.length) {
       const first = noteEl(notes[0]);
@@ -419,14 +440,17 @@ window.DriverScreen = (() => {
     const row = h('button', 'dv-row ' + (isNext ? 'next' : st));
     row.type = 'button';
     row.dataset.id = d.id;
-    const ic = h('span', 'dv-ic');
+    /* the circle shows WHAT is being delivered — a box, a couch, a fork
+     * and knife — until the stop is done; the number leads the title */
+    const k = kindOf(d);
+    const ic = h('span', 'dv-ic kind-' + k);
     if (st === 'done') ic.innerHTML = svgIcon('check');
     else if (st === 'failed') ic.innerHTML = svgIcon('close');
-    else ic.textContent = d.stop != null ? d.stop : '•';
+    else { ic.innerHTML = svgIcon(KIND[k].icon); ic.title = KIND[k].label; }
     if (st === 'open' && notesOnFile(d).length) { const b = h('i', 'dv-ic-notes'); b.innerHTML = svgIcon('pencil'); ic.appendChild(b); }
     row.appendChild(ic);
     const body = h('span', 'dv-body');
-    body.appendChild(h('b', 'dv-t', String(d.title || 'Stop')));
+    body.appendChild(h('b', 'dv-t', (d.stop != null ? d.stop + ' · ' : '') + String(d.title || 'Stop')));
     body.appendChild(h('span', 'dv-s', whoLine(d)));
     const status = h('span', 'dv-st ' + (isNext ? 'next' : st), statusText(d, isNext));
     const n = notesOnFile(d).length;
@@ -602,6 +626,7 @@ window.DriverScreen = (() => {
     title.appendChild(document.createTextNode(String(d.title || 'Stop')));
     body.appendChild(title);
     body.appendChild(h('p', 'dv-addr', d.addr || `${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}`));
+    body.appendChild(kindPill(d));
 
     /* the scan moment, or its result */
     const v = visitOf(d);

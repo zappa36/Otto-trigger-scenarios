@@ -1044,7 +1044,12 @@ which staircase, the courtyard door — the way a Berlin bell panel does,
 in plain English, so the driver knows which door before the van stops;
 the entrance is read out with
 the name and the floor, shown on every card and row, and edited in the
-stop sheet like the rest (the `entrance` column — re-run
+stop sheet like the rest. Each stop also says **what kind of delivery**
+it is — a parcel, a bulky item (furniture or large electronics, 13
+stops) or fresh food (11 stops): an icon on every row, pin and card
+(box, couch, fork and knife), a word from Otto on approach ("It is a
+bulky one"), a pick-list in the stop sheet (the `kind` column; a
+parcel is the default). (The `entrance` column — re-run
 `supabase/schema.sql` once on a store from before it; a route loaded
 onto an older store loads without the entrances and says so). The
 addresses and coordinates are real, geocoded
@@ -1163,9 +1168,13 @@ What the driver sees:
   moves on, and the line that confirms the tap carries **Undo** for a
   few seconds, so a slip is taken back where it was made (a bounced
   double tap files one stop, not two).
-- **Then**: the stops still to do, in order, each with the consignee
-  and floor, the distance from the van, and a "1 note" tag where Otto
-  has something to read on approach. **DONE** lists what is finished,
+- **Then**: the stops still to do, in order, each with the consignee,
+  entrance and floor, the distance from the van, a "1 note" tag where
+  Otto has something to read on approach — and, in the circle on the
+  left, an icon for what is being delivered: a box for a parcel, a
+  couch for a bulky item, a fork and knife for fresh food. The next
+  stop's card and every stop's sheet carry the same as a pill, and
+  bulky and food pins wear a small badge on the map. **DONE** lists what is finished,
   newest first, with the time — the PostNord parcel timeline.
 - **The map** above the list: the whole tour as a faint line, the
   stops still open in blue from where the van is, one numbered pin per
@@ -1646,5 +1655,5 @@ The composition happens entirely through the kits' public seams:
 | `scripts/migrate_supabase.py` | Moves the rows to another Supabase project, ids intact (`schema.sql` does the tables) |
 | `voice-note.js/.css` | from voice-notes-kit + hands-free pause-to-send |
 | `geolocate.js`, `field-map.js/.css` | verbatim from field-map-kit |
-| `supabase/schema.sql` | `destinations` (incl. pre-arrival notes: consignee / floor / entrance / notes, and route / stop) + `messages` (incl. the agent conversation, its ElevenLabs `conversation_id` and the dashboard's `grade` of it) + `scenarios` (incl. params / versions / feedback) + `situations` + `calls` (the calls Otto makes: who is rung, why, what they say, the outcome, the call that follows) + `runs` + `visits` (the Delivered tap) + `dart_throws` (one row per dart thrown after a report) + `agent_runs` (one row per suite run the agent loop published) + `accepted_findings`, RLS |
+| `supabase/schema.sql` | `destinations` (incl. pre-arrival notes: consignee / floor / entrance / kind / notes, and route / stop) + `messages` (incl. the agent conversation, its ElevenLabs `conversation_id` and the dashboard's `grade` of it) + `scenarios` (incl. params / versions / feedback) + `situations` + `calls` (the calls Otto makes: who is rung, why, what they say, the outcome, the call that follows) + `runs` + `visits` (the Delivered tap) + `dart_throws` (one row per dart thrown after a report) + `agent_runs` (one row per suite run the agent loop published) + `accepted_findings`, RLS |
 | `supabase/functions/` | `voice-note` (kit + trailing-"stop" strip + a text path for agent conversations) + `geocode` (verbatim) + `scenario-ai` (draft, revise & the 🇮🇹 question translation) + `elevenlabs-token` (signed URLs for a private agent) + `elevenlabs-tts` (the pre-arrival notes read in Otto's real voice, streamed as they are made) |
