@@ -12,7 +12,7 @@ create table if not exists public.destinations (
   lng double precision not null,
   consignee text,                   -- who the delivery is for ("Maria Weber")
   floor text,                       -- floor / unit ("4th floor", "Apt 12B")
-  entrance text,                    -- which door: "Hinterhaus, staircase B", "courtyard door" — a Berlin bell panel's own words
+  entrance text,                    -- which door: "rear building, staircase B", "courtyard door" — what the bell panel would tell you
   notes jsonb,                      -- notes on file, newest first: [{id,text,at,by}] — by: 'dispatch' | 'driver'
   route text,                       -- the delivery route this stop belongs to (e.g. the demo route id)
   stop integer,                     -- 1-based position on that route
@@ -27,8 +27,8 @@ create table if not exists public.destinations (
 alter table public.destinations add column if not exists consignee text;
 alter table public.destinations add column if not exists floor text;
 alter table public.destinations add column if not exists notes jsonb;
--- The entrance — which door the parcel goes to (Vorderhaus, Hinterhaus,
--- Seitenflügel, a staircase, the courtyard gate) — read out with the
+-- The entrance — which door the parcel goes to (front or rear building,
+-- a side wing, a staircase, the courtyard gate) — read out with the
 -- consignee and the floor on approach. Safe to re-run.
 alter table public.destinations add column if not exists entrance text;
 

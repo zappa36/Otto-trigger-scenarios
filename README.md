@@ -1039,9 +1039,10 @@ stops carry notes on file: **delivery info from dispatch** ("ring
 GOODS-IN, not the front bell") and **what drivers reported on earlier
 tours** ("the stair light is on a short timer — you climb the last
 floor in the dark"). Every stop names **its consignee, its floor and
-its entrance** — Vorderhaus, Hinterhaus, Seitenflügel, the staircase,
-the courtyard door — the way a Berlin bell panel does, so the driver
-knows which door before the van stops; the entrance is read out with
+its entrance** — front building or rear building, which side wing,
+which staircase, the courtyard door — the way a Berlin bell panel does,
+in plain English, so the driver knows which door before the van stops;
+the entrance is read out with
 the name and the floor, shown on every card and row, and edited in the
 stop sheet like the rest (the `entrance` column — re-run
 `supabase/schema.sql` once on a store from before it; a route loaded

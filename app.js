@@ -182,7 +182,8 @@ const LANG_TEXT = {
     youreAt: t => `Sei a ${t}.`,
     stop: n => `fermata ${n}, `,
     floorNum: n => 'al piano ' + n,
-    floorRaw: f => 'a ' + f,
+    /* the English route files say "ground floor" / "top floor" — said in Italian */
+    floorRaw: f => (/^ground floor$/i.test(f) ? 'al piano terra' : /^top floor$/i.test(f) ? 'all\'ultimo piano' : 'a ' + f),
     deliveryFor: (n, f, e) => `La consegna è per ${n}${e ? ', ' + e : ''}${f ? ', ' + f : ''}.`,
     deliveryTo: (f, e) => `La consegna va ${[e, f].filter(Boolean).join(', ')}.`,
     fromDispatch: 'Dalla centrale: ',

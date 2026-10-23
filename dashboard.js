@@ -1593,7 +1593,7 @@ function renderScenario(sc) {
         </div>
         <div>
           <label>Entrance</label>
-          <input data-note-field="entrance" value="${esc(d.entrance || '')}" placeholder="Which door — &ldquo;Hinterhaus, staircase B&rdquo;, &ldquo;courtyard gate&rdquo;">
+          <input data-note-field="entrance" value="${esc(d.entrance || '')}" placeholder="Which door — &ldquo;rear building, staircase B&rdquo;, &ldquo;courtyard gate&rdquo;">
         </div>
       </div>
       ${notes.map((n, i) => `
