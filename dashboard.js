@@ -1457,8 +1457,10 @@ function demoSpokenLines(sc, d) {
   const lines = [];
   const name = String(d.consignee || '').trim();
   const floor = String(d.floor || '').trim();
-  if (name) lines.push({ text: `Delivery is for ${name}${floor ? ', ' + spokenFloor(floor) : ''}.`, by: 'CONSIGNEE' });
-  else if (floor) lines.push({ text: `Delivery goes to ${spokenFloor(floor)}.`, by: 'CONSIGNEE' });
+  const entrance = String(d.entrance || '').trim();
+  const where = [entrance, floor ? spokenFloor(floor) : ''].filter(Boolean).join(', ');
+  if (name) lines.push({ text: `Delivery is for ${name}${where ? ', ' + where : ''}.`, by: 'CONSIGNEE' });
+  else if (where) lines.push({ text: `Delivery goes to ${where}.`, by: 'CONSIGNEE' });
   dispatchNotesOf(d).slice(0, DEMO_MAX_NOTES).forEach(n => lines.push({
     text: (n.by === 'driver' ? 'A driver reported: ' : 'From dispatch: ') + spokenSentence(n.text),
     by: String(n.by || 'dispatch').toUpperCase(),
@@ -1588,6 +1590,10 @@ function renderScenario(sc) {
         <div>
           <label>Floor / unit</label>
           <input data-note-field="floor" value="${esc(d.floor || '')}" placeholder="&ldquo;4th floor&rdquo;, &ldquo;Apt 12B&rdquo;">
+        </div>
+        <div>
+          <label>Entrance</label>
+          <input data-note-field="entrance" value="${esc(d.entrance || '')}" placeholder="Which door — &ldquo;rear building, staircase B&rdquo;, &ldquo;courtyard gate&rdquo;">
         </div>
       </div>
       ${notes.map((n, i) => `
@@ -4280,6 +4286,7 @@ function specOf(sc) {
        * trigger's Otto is expected to say on approach */
       consignee: d.consignee || null,
       floor: d.floor || null,
+      entrance: d.entrance || null,
       notes: dispatchNotesOf(d),
     } : null,
     verdict: sc.verdict || null,
@@ -5079,7 +5086,8 @@ function routeFailText(r, e) {
     why = 'The store answered, but saved none of the stops — its policies on the destinations table are blocking writes.';
     fix = 'Paste supabase/schema.sql into the Supabase project\'s SQL editor and run it once (it is safe to re-run), then press the link again.';
   } else if (/column|PGRST204|schema cache/i.test(said)) {
-    why = 'The destinations table in the store is missing the route columns (route, stop).';
+    const col = (said.match(/'([^']+)' column/) || [])[1];
+    why = `The destinations table in the store is missing a column the route needs${col ? ' (' + col + ')' : ' (route, stop)'}.`;
     fix = 'Paste supabase/schema.sql into the Supabase project\'s SQL editor and run it once (it is safe to re-run), then press the link again.';
   } else if (/42501|row-level security|\b401\b|\b403\b|permission/i.test(said)) {
     why = 'The store refused the write — the destinations table\'s policies do not allow it.';
@@ -5101,7 +5109,7 @@ async function loadRoute(r) {
   const rows = r.stops.map(s => ({
     title: s.title, addr: s.addr, lat: s.lat, lng: s.lng,
     route: r.id, stop: s.stop,
-    consignee: s.consignee || null, floor: s.floor || null,
+    consignee: s.consignee || null, floor: s.floor || null, entrance: s.entrance || null,
     /* array order in the data file IS the reading order (newest first)
      * — the stamped times, a day apart, just say so */
     notes: (s.notes || []).map((n, j) => ({
@@ -5116,7 +5124,15 @@ async function loadRoute(r) {
      * store's own words, and schemaHint names the fix in the header */
     routeMsg(`Saving the “${r.name}” route — ${rows.length} stops…`, true);
     try { added = (await Backend.insertDestinations(rows)) || []; }
-    catch (e) { schemaHint(e); routeMsg(routeFailText(r, e)); return; }
+    catch (e) {
+      /* a store from before the entrance column still gets the route —
+       * without the entrances, and told so — rather than nothing */
+      if (/'entrance' column/i.test(String((e && e.message) || ''))) {
+        try { added = (await Backend.insertDestinations(rows.map(({ entrance, ...rest }) => rest))) || []; }
+        catch (e2) { schemaHint(e2); routeMsg(routeFailText(r, e2)); return; }
+        schemaMsg = 'Route loaded without its entrance info — the destinations table has no entrance column yet. Re-run supabase/schema.sql once; the next route load keeps it.';
+      } else { schemaHint(e); routeMsg(routeFailText(r, e)); return; }
+    }
     /* a policy that silently drops the rows answers with an empty list */
     if (!Array.isArray(added) || !added.length) { routeMsg(routeFailText(r, null)); return; }
   } else {
@@ -5239,7 +5255,7 @@ function renderStopSheet() {
     const msgs = (messagesByDest[s.id] || []).filter(m => m && !m.demo && (m.title || m.transcript)).slice(0, 2);
     return `
     <div class="stop-sec" data-dest="${esc(s.id)}">
-      <span class="addr-tag">STOP ${esc(s.stop)}${s.consignee ? ' — ' + esc(s.consignee) : ''}${s.floor ? ' · ' + esc(s.floor) : ''}</span>
+      <span class="addr-tag">STOP ${esc(s.stop)}${s.consignee ? ' — ' + esc(s.consignee) : ''}${s.entrance ? ' · ' + esc(s.entrance) : ''}${s.floor ? ' · ' + esc(s.floor) : ''}</span>
       ${notes.map((n, i) => `
         <div class="note-item">
           <span class="note-text">${esc(n.text)}</span>

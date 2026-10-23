@@ -39,7 +39,7 @@ window.DEMO_ROUTES = (window.DEMO_ROUTES || []).concat([{
         { by: 'dispatch', text: 'The bell panel is inside the gateway, not on the street — Brandt is the top button.' },
       ] },
     { stop: 2, title: 'Kolmarer Straße 3', addr: 'Kolmarer Straße 3, 10405 Berlin', lat: 52.53292, lng: 13.41844,
-      consignee: 'Café Kolmar', floor: 'EG',
+      consignee: 'Café Kolmar', floor: 'ground floor',
       notes: [
         { by: 'dispatch', text: 'Hand it over at the counter — they sign for the whole house.' },
       ] },
@@ -58,7 +58,7 @@ window.DEMO_ROUTES = (window.DEMO_ROUTES || []).concat([{
     { stop: 6, title: 'Husemannstraße 14', addr: 'Husemannstraße 14, 10435 Berlin', lat: 52.5379, lng: 13.41772,
       consignee: 'M. Aydın', floor: '2' },
     { stop: 7, title: 'Sredzkistraße 20', addr: 'Sredzkistraße 20, 10435 Berlin', lat: 52.53833, lng: 13.41553,
-      consignee: 'Buchhandlung Sredzki', floor: 'EG',
+      consignee: 'Buchhandlung Sredzki', floor: 'ground floor',
       notes: [
         { by: 'driver', text: 'No stopping on Sredzkistraße in the morning — the loading bay on Husemannstraße is 40 m away.' },
       ] },
@@ -80,6 +80,6 @@ window.DEMO_ROUTES = (window.DEMO_ROUTES || []).concat([{
         { by: 'dispatch', text: 'The courtyard door is temporarily closed — use the side entrance, there is a sign.' },
       ] },
     { stop: 12, title: 'Kollwitzstraße 64', addr: 'Kollwitzstraße 64, 10435 Berlin', lat: 52.53598, lng: 13.41797,
-      consignee: 'Studio Nordlicht', floor: 'EG' },
+      consignee: 'Studio Nordlicht', floor: 'ground floor' },
   ],
 }]);

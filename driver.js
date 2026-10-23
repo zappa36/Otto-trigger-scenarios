@@ -152,7 +152,8 @@ window.DriverScreen = (() => {
   const position = () => LiveGeo.position;
   const distTo = d => { const p = position(); return p ? distM(p, d) : null; };
   const floorText = f => { f = String(f == null ? '' : f).trim(); return !f ? '' : /^\d+$/.test(f) ? 'floor ' + f : f; };
-  const whoLine = d => [String(d.consignee || '').trim(), floorText(d.floor)].filter(Boolean).join(' · ');
+  /* name · entrance · floor — the three things a bell panel answers */
+  const whoLine = d => [String(d.consignee || '').trim(), String(d.entrance || '').trim(), floorText(d.floor)].filter(Boolean).join(' · ');
   const hhmm = iso => { const t = new Date(iso); return isNaN(t) ? '' : t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); };
   const sameDoor = (a, b) => a.lat === b.lat && a.lng === b.lng;
   const doorMates = d => stops().filter(x => x.id !== d.id && sameDoor(x, d));
@@ -636,7 +637,8 @@ window.DriverScreen = (() => {
     const reports = driverReportsOf(d);
     if (who || notes.length || reports.length) {
       body.appendChild(h('h3', 'dv-sec', 'On file for this door'));
-      if (who) body.appendChild(kv('home', null, String(d.consignee || '').trim() || 'Delivery', floorText(d.floor) || '', 'muted'));
+      if (who) body.appendChild(kv('home', null, String(d.consignee || '').trim() || 'Delivery',
+        [String(d.entrance || '').trim(), floorText(d.floor)].filter(Boolean).join(' · '), 'muted'));
       notes.forEach(n => body.appendChild(kv(n.by === 'driver' ? 'person' : 'note', n.by === 'driver' ? 'green' : null,
         n.by === 'driver' ? 'A driver reported' : 'From dispatch', String(n.text))));
       reports.slice(0, 3).forEach(r => body.appendChild(kv('mic', 'green', 'Reported to Otto' + (r.category ? ' · ' + r.category : ''),
