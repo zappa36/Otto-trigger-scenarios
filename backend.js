@@ -198,6 +198,15 @@ const Backend = (() => {
       body: JSON.stringify(patch),
     }),
     deleteDestination: id => rest('/rest/v1/destinations?id=eq.' + encodeURIComponent(id), { method: 'DELETE' }),
+    /* several stops renumbered in ONE request (a stop taken off a route
+     * moves every stop after it up one): an upsert by id that only
+     * touches the columns sent — every row must carry the same keys,
+     * and the not-null ones (title, lat, lng) must be among them */
+    upsertDestinations: rows => rest('/rest/v1/destinations?on_conflict=id', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation,resolution=merge-duplicates' },
+      body: JSON.stringify(rows),
+    }),
     listMessages: limit => rest(`/rest/v1/${table}?select=*&order=created_at.desc&limit=${limit || 500}`),
     /* return=representation on both: RLS without the update/delete
      * policies (a schema.sql behind this build) silently matches zero
@@ -317,6 +326,36 @@ const Backend = (() => {
       body: JSON.stringify([row]),
     }),
     unacceptFinding: key => rest('/rest/v1/accepted_findings?key=eq.' + encodeURIComponent(key), { method: 'DELETE' }),
+
+    /* ---------- routes ----------
+     * One row per route on file (the dashboard's ROUTES tab): its name,
+     * on foot or by van, and the one flag the phones read — active,
+     * THE route the driver's screen shows. The dashboard keeps one row
+     * active: every active row goes off (updateRoutesWhere), then the
+     * chosen one goes on. A 404 means the table is not created yet
+     * (schema.sql behind this build): the dashboard says so, and the
+     * phones show every route on file as before. */
+    listRoutes: () => rest('/rest/v1/routes?select=*&order=created_at.asc'),
+    /* insert the rows that are new, leave the ones already there as
+     * they are — the heal that gives an older store's routes their
+     * rows must never reset a flag another dashboard set meanwhile */
+    upsertRoutes: rows => rest('/rest/v1/routes?on_conflict=id', {
+      method: 'POST',
+      headers: { Prefer: 'return=representation,resolution=ignore-duplicates' },
+      body: JSON.stringify(rows),
+    }),
+    updateRoute: (id, patch) => rest('/rest/v1/routes?id=eq.' + encodeURIComponent(id), {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify(patch),
+    }),
+    /* filter is a PostgREST query string, e.g. 'active=eq.true' */
+    updateRoutesWhere: (filter, patch) => rest('/rest/v1/routes?' + filter, {
+      method: 'PATCH',
+      headers: { Prefer: 'return=representation' },
+      body: JSON.stringify(patch),
+    }),
+    deleteRoute: id => rest('/rest/v1/routes?id=eq.' + encodeURIComponent(id), { method: 'DELETE' }),
 
     /* ---------- visits ----------
      * The Delivered / Not delivered tap on a route stop (app.js) — the

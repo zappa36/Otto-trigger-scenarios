@@ -71,6 +71,8 @@
    * + NEW SCENARIO on the situations tab) stayed on screen and did
    * nothing when pressed */
   .chip[hidden] { display: none; }
+  .chip.on { border-color: rgba(60,192,224,.55); background: rgba(60,192,224,.1); color: #7fd6ea; }
+  .chip:disabled { opacity: .45; cursor: default; }
   button.chip:hover { border-color: rgba(60,192,224,.5); color: #cfe9f2; }
   .chip.primary {
     border-color: rgba(124,140,255,.5);
@@ -890,6 +892,169 @@
   .route-msg.busy { color: #7fd6ea; }
   .route-msg[hidden] { display: none; }
 
+  /* ---------- the ROUTES tab ----------
+   * One card per route on file; the one on the phones is marked. The
+   * open card lists its stops — each a row with its number, its door
+   * and the tools to move it or take it off — and the form that adds
+   * the next one. The stop sheet (below) edits one door. */
+  .rt-top {
+    padding: 14px 16px 16px;
+    border-radius: 16px;
+    border: 1px solid rgba(140,165,200,.18);
+    background: rgba(9,17,26,.92);
+  }
+  .rt-intro b { display: block; font-size: 15.5px; }
+  .rt-intro p { margin: 6px 0 0; font-size: 13px; line-height: 1.5; color: #94a1b2; }
+  .rt-intro .rt-phones { color: #cfe9f2; }
+  .rt-intro .rt-phones b { display: inline; font-size: inherit; color: #7ce0b8; }
+  .rt-intro .rt-phones.warn { color: #ffd95e; }
+  .rt-intro .rt-phones.warn b { color: #ffe9ad; }
+  .rt-actions { margin-top: 12px; }
+  .rt {
+    border-radius: 16px;
+    border: 1px solid rgba(140,165,200,.18);
+    background: rgba(9,17,26,.92);
+    overflow: hidden;
+  }
+  .rt.active { border-color: rgba(70,211,154,.45); box-shadow: inset 0 0 0 1px rgba(70,211,154,.12); }
+  .rt-header { display: flex; align-items: center; gap: 12px; padding: 13px 16px; cursor: pointer; }
+  .rt-header:hover { background: rgba(140,165,200,.05); }
+  .rt-radio {
+    flex: none;
+    width: 22px; height: 22px;
+    padding: 0;
+    position: relative;
+    border-radius: 999px;
+    border: 2px solid rgba(140,165,200,.45);
+    background: none;
+    cursor: pointer;
+  }
+  .rt-radio:hover { border-color: #46d39a; }
+  .rt-radio.on { border-color: #46d39a; cursor: default; }
+  .rt-radio.on::after { content: ''; position: absolute; inset: 4px; border-radius: 999px; background: #46d39a; }
+  .rt-radio:disabled:not(.on) { opacity: .45; cursor: default; }
+  .rt-head { flex: 1; min-width: 0; }
+  .rt-head h3 { margin: 0; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rt-meta { margin-top: 2px; font-size: 12px; color: #94a1b2; }
+  .rt-caret { flex: none; color: #8b97a8; font-size: 12px; }
+  .rt-actions-row { display: flex; flex-wrap: wrap; gap: 7px; padding: 0 16px 14px; }
+  .mini-btn.danger:hover { color: #ff9b9b; border-color: rgba(255,107,107,.5); background: rgba(255,107,107,.08); }
+  .mini-btn:disabled { opacity: .45; cursor: default; }
+  .rt-stops { padding: 2px 16px 16px; border-top: 1px solid rgba(140,165,200,.12); }
+  .rt-stops-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 12px 0 4px; }
+  .rt-stops-head .addr-tag { margin: 0; }
+  .rt-stop {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 6px;
+    padding: 8px 10px;
+    border-radius: 11px;
+    border: 1px solid rgba(140,165,200,.13);
+    background: rgba(140,165,200,.05);
+  }
+  .rt-stop:hover { border-color: rgba(60,192,224,.4); }
+  .rt-num {
+    flex: none;
+    width: 30px; height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9px;
+    border: 1px solid rgba(96,165,250,.45);
+    background: rgba(96,165,250,.1);
+    color: #9ec5f2;
+    font-family: ui-monospace, monospace;
+    font-size: 11.5px;
+  }
+  /* amber where notes are on file — the map says the same */
+  .rt-stop.noted .rt-num { border-color: rgba(255,217,94,.5); background: rgba(255,217,94,.1); color: #ffd95e; }
+  .rt-stop-body { flex: 1; min-width: 0; cursor: pointer; }
+  .rt-stop-body b { display: block; font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rt-stop-sub { display: block; margin-top: 1px; font-size: 11.5px; color: #94a1b2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rt-kind {
+    flex: none;
+    padding: 3px 7px;
+    border-radius: 999px;
+    font-family: ui-monospace, monospace;
+    font-size: 8.5px;
+    letter-spacing: .09em;
+    border: 1px solid rgba(255,217,94,.4);
+    color: #ffd95e;
+    background: rgba(255,217,94,.08);
+  }
+  .rt-kind.food { border-color: rgba(70,211,154,.45); color: #7ce0b8; background: rgba(70,211,154,.09); }
+  .rt-stop-tools { flex: none; display: flex; gap: 4px; }
+  .rt-tool {
+    width: 26px; height: 26px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    border: 1px solid rgba(140,165,200,.22);
+    background: none;
+    color: #94a1b2;
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .rt-tool:hover { color: #cfe9f2; border-color: rgba(60,192,224,.5); }
+  .rt-tool:disabled { opacity: .3; cursor: default; }
+  .rt-tool.del:hover { color: #ff9b9b; border-color: rgba(255,107,107,.5); background: rgba(255,107,107,.08); }
+  .rt-form {
+    margin-top: 12px;
+    padding: 12px 14px;
+    border-radius: 13px;
+    border: 1px solid rgba(60,192,224,.3);
+    background: rgba(60,192,224,.05);
+  }
+  .rt-form .addr-tag { color: #7fd6ea; }
+  .rt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
+  .rt-grid .full { grid-column: 1 / -1; }
+  @media (max-width: 560px) { .rt-grid { grid-template-columns: 1fr; } }
+  .rt-grid label {
+    display: block;
+    font-family: ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    color: #8b97a8;
+    margin-bottom: 4px;
+  }
+  .rt-grid input, .rt-grid select, .stop-fields input, .stop-fields select {
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 9px;
+    border: 1px solid rgba(140,165,200,.25);
+    background: rgba(7,13,22,.7);
+    color: #eef2f7;
+    font-size: 12.5px;
+    font-family: inherit;
+    outline: none;
+  }
+  .rt-grid input:focus, .rt-grid select:focus, .stop-fields input:focus, .stop-fields select:focus { border-color: rgba(60,192,224,.55); }
+  .rt-opts { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 7px 0 2px; font-size: 13px; }
+  .rt-opts label { display: inline-flex; align-items: center; gap: 6px; margin: 0; font: inherit; text-transform: none; letter-spacing: 0; color: #eef2f7; cursor: pointer; }
+  .rt-opts input { width: auto; accent-color: #46d39a; }
+  .rt-cands { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+  .rt-cands .cand { padding: 9px 11px; font-size: 12.5px; }
+  .rt-picked {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 11px;
+    border-radius: 11px;
+    border: 1px solid rgba(70,211,154,.4);
+    background: rgba(70,211,154,.08);
+    font-size: 12.5px;
+  }
+  .rt-picked .link-btn { margin-left: auto; flex: none; }
+  .rt-hint { margin-top: 4px; font-size: 11.5px; color: #94a1b2; min-height: 1em; }
+  .rt-form-foot { display: flex; gap: 8px; margin-top: 10px; }
+  /* the stop sheet's own fields, one grid per door */
+  .stop-fields { margin: 6px 0 2px; }
+  .stop-foot { display: flex; justify-content: flex-end; margin-top: 10px; }
+
   /* ---------- describe → draft ---------- */
   .describe {
     padding: 11px 12px;
@@ -1536,7 +1701,7 @@
     <span class="chip plain" id="backend" title="Map backend">GRID</span>
     <button class="chip" id="refresh" type="button" title="Reload scenarios and debriefs">↻ REFRESH</button>
     <button class="chip" id="spec-all" type="button" title="Download every scenario as a JSON spec — tuned values, versions, feedback, test results">⇩ SPECS</button>
-    <button class="chip" id="route-chip" type="button" hidden></button>
+    <button class="chip" id="route-chip" type="button" title="The delivery routes — which one the phones show, and the stops on each" hidden></button>
     <button class="chip" id="import-open" type="button">⎘ PASTE FROM EXCEL</button>
     <button class="chip primary" id="new-open" type="button">+ NEW SCENARIO</button>
     <button class="chip primary" id="new-situation" type="button" title="One more thing a driver reports — the card is the editor" hidden>+ NEW SITUATION</button>
@@ -1555,7 +1720,7 @@
       <button class="zoom-btn" id="zoom-in" type="button" aria-label="Zoom in">+</button>
       <button class="zoom-btn" id="zoom-out" type="button" aria-label="Zoom out">−</button>
     </div>
-    <p class="map-note">Pins are the scenarios' test addresses — click one to open its scenario; click a route stop to see the notes behind that door. The tester sees the same pins in the phone app.</p>
+    <p class="map-note">Pins are the scenarios' test addresses — click one to open its scenario. The numbered pins are the route open on the ROUTES tab (else the one on the phones) — click a stop to see what is on file behind that door.</p>
   </section>
   <section class="list" id="list"></section>
 </main>
@@ -1643,10 +1808,6 @@
     <div class="panel-foot">
       <span class="spacer">
         <button class="link-btn" id="sheet-load" type="button" hidden></button>
-        <span id="route-toggles"></span>
-        <!-- a route load that the store refused says so here, in plain
-             words, instead of closing the sheet in silence -->
-        <p class="route-msg" id="route-msg" hidden></p>
       </span>
       <button class="sheet-btn" id="import-cancel" type="button">Cancel</button>
       <button class="sheet-btn primary" id="import-go" type="button">Import</button>

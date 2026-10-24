@@ -109,7 +109,13 @@ window.DriverScreen = (() => {
    * show up here without a seam. */
   const byStop = (a, b) => ((a.stop == null ? 1e9 : a.stop) - (b.stop == null ? 1e9 : b.stop))
     || String(a.created_at || '').localeCompare(String(b.created_at || ''));
+  /* the routes on this phone: the one the dashboard put on the phones
+   * when it marked one (its ROUTES tab; activeRouteId in app.js), else
+   * every route the rows name — a store from before the dashboard
+   * could choose, where the title's picker still does the choosing */
   const routesOnFile = () => {
+    const act = typeof activeRouteId === 'function' ? activeRouteId() : null;
+    if (act) return [act];
     const seen = [];
     destinations.forEach(d => { if (d.route && !seen.includes(d.route)) seen.push(d.route); });
     return seen;
@@ -122,6 +128,9 @@ window.DriverScreen = (() => {
    * route's own scenario row's title ("Kollwitzkiez 01 route — …"),
    * else the id made readable */
   const routeNameOf = id => {
+    /* the routes table's own name first — a route made on the dashboard has no file */
+    const row = typeof routesMeta !== 'undefined' && Array.isArray(routesMeta) ? routesMeta.find(x => x && x.id === id) : null;
+    if (row && row.name) return row.name;
     const r = demoRoutes().find(x => x && x.id === id);
     if (r && r.name) return r.name;
     const sc = typeof routeScenarios !== 'undefined' && routeScenarios[id];
@@ -492,7 +501,7 @@ window.DriverScreen = (() => {
     if (!routeId) {
       if (!loaded) { box.appendChild(emptyEl('refresh', 'Loading today\'s route…', 'One moment — the stops are on their way from the store.')); return; }
       const e = emptyEl('route', 'No route on file',
-        'Load today\'s route on the dashboard — the ⇪ ROUTE chip — and its stops show up here, in driving order.');
+        'Load today\'s route on the dashboard — the ROUTES tab — and its stops show up here, in driving order.');
       const r = withIcon(h('button', 'dv-btn outline', 'Check again'), 'refresh');
       r.type = 'button';
       r.onclick = reload;
@@ -501,6 +510,18 @@ window.DriverScreen = (() => {
       return;
     }
     const list = stops();
+    if (!list.length) {
+      /* the route on the phones has no stops yet — a new one, still being built on the dashboard */
+      if (!loaded) { box.appendChild(emptyEl('refresh', 'Loading today\'s route…', 'One moment — the stops are on their way from the store.')); return; }
+      const e = emptyEl('route', 'No stops on this route yet',
+        'Add them on the dashboard — the ROUTES tab, “+ Add a stop” — and they show up here, in driving order.');
+      const r = withIcon(h('button', 'dv-btn outline', 'Check again'), 'refresh');
+      r.type = 'button';
+      r.onclick = reload;
+      e.appendChild(r);
+      box.appendChild(e);
+      return;
+    }
     const next = nextOf(list);
     const todo = list.filter(d => stateOf(d) === 'open');
     const done = list.filter(d => stateOf(d) !== 'open');

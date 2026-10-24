@@ -1360,16 +1360,36 @@ const panoUrl = d => `https://www.google.com/maps/@?api=1&map_action=pano&viewpo
 const LS_ROUTE_ON = 'od_route_on';
 let routeOn = true;
 try { routeOn = localStorage.getItem(LS_ROUTE_ON) !== '0'; } catch { /* private mode */ }
+/* The routes table, read for ONE thing: which route the dashboard put
+ * on the phones (its ROUTES tab marks one row active). With a route
+ * marked, the other routes' stops leave this phone altogether — the
+ * map, the approach readings, the driver's screen alike. With none
+ * marked (a store from before the table, a dashboard that never
+ * chose) every route on file shows, as before. */
+const LS_ROUTES = 'od_routes';
+let routesMeta = [];
+const activeRouteId = () => {
+  const a = (Array.isArray(routesMeta) ? routesMeta : []).filter(r => r && r.active)
+    .sort((x, y) => String(y.active_at || '').localeCompare(String(x.active_at || '')))[0];
+  return a ? a.id : null;
+};
+/* the route stops this phone works with: the active route's, else every route's */
+const phoneRouteStops = () => {
+  const act = activeRouteId();
+  return destinations.filter(d => d.route && (!act || d.route === act));
+};
 function visibleDestinations() {
   /* the driver's screen shows the route whatever the tester's chip says
    * — while it is up, the approach readings, the arrival ring and the
    * nearest-stop lookup see the route too */
   const driver = !!(window.DriverScreen && DriverScreen.opened);
-  return routeOn || driver ? destinations : destinations.filter(d => !d.route);
+  const act = activeRouteId();
+  const list = act ? destinations.filter(d => !d.route || d.route === act) : destinations;
+  return routeOn || driver ? list : list.filter(d => !d.route);
 }
 function renderRouteChip() {
   const chip = el('route');
-  const n = destinations.filter(d => d.route).length;
+  const n = phoneRouteStops().length;
   chip.hidden = !n;
   if (!n) return;
   chip.textContent = routeOn ? `ROUTE · ${n} STOPS` : 'ROUTE OFF';
@@ -2927,8 +2947,14 @@ async function boot() {
       visitsByDest = {};
       ((await Backend.listVisits(1000)) || []).forEach(recordVisit);
     } catch (e) { console.warn('no visits — re-run schema.sql to add the table?', e.message); }
+    /* which route the dashboard put on the phones — without the table,
+     * every route on file shows */
+    try {
+      routesMeta = (await Backend.listRoutes()) || [];
+    } catch (e) { routesMeta = []; console.warn('no routes table — every route on file shows', e.message); }
   } else {
     try { destinations = JSON.parse(localStorage.getItem(LS_DEST) || '[]'); } catch { /* private mode */ }
+    try { routesMeta = JSON.parse(localStorage.getItem(LS_ROUTES) || '[]'); } catch { /* private mode */ }
     try {
       (JSON.parse(localStorage.getItem(LS_MSGS) || '[]')).forEach(m => {
         if (m.destination_id) recordMessage(m.destination_id, m);
@@ -2958,9 +2984,11 @@ if (!Backend.enabled) {
   window.addEventListener('storage', e => {
     /* the dashboard's CALLS tab, edited in another tab of this browser */
     if (e.key === LS_CALLS) { loadCalls().then(() => { renderCallList(); renderHomeCall(); }); return; }
-    if (e.key && ![LS_DEST, LS_SCEN].includes(e.key)) return;
+    if (e.key && ![LS_DEST, LS_SCEN, LS_ROUTES].includes(e.key)) return;
     try { destinations = JSON.parse(localStorage.getItem(LS_DEST) || '[]'); } catch { return; }
     try { scenarios = JSON.parse(localStorage.getItem(LS_SCEN) || '[]'); } catch { /* keep old */ }
+    /* the dashboard's ROUTES tab put another route on the phones */
+    try { routesMeta = JSON.parse(localStorage.getItem(LS_ROUTES) || '[]'); } catch { /* keep old */ }
     rebuildScenarioIndex();
     renderRouteChip();
     renderEmpty();
