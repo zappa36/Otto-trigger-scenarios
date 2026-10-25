@@ -28,6 +28,7 @@ const LS_SCEN = 'od_scenarios';
 const LS_RUNS = 'od_runs';
 const LS_SITU = 'od_situations';
 const LS_CALLS = 'od_calls';
+const LS_ROUTES = 'od_routes';
 
 let scenarios = [];
 let destinations = [];
@@ -143,7 +144,9 @@ const uiBusy = () => !!proposalBusy
    * back up under the reader — ↻ REFRESH is there when they are done */
   || (runsTabOn() && !!openRunId)
   || (cardView !== 'demo' && !!(tune || fbRec || proposal || msgEdit || gradeBusy() || sitDirty() || callDirty()))
-  || !el('form-sheet').hidden || !el('stop-sheet').hidden || notesEditing();
+  || !el('form-sheet').hidden || !el('stop-sheet').hidden || notesEditing()
+  /* a route or a stop half-typed on the ROUTES tab, or one being written */
+  || !!stopForm || !!routeForm || routeBusy;
 
 const persistLocal = () => {
   if (Backend.enabled) return;
@@ -152,6 +155,7 @@ const persistLocal = () => {
     localStorage.setItem(LS_DEST, JSON.stringify(destinations));
     localStorage.setItem(LS_SITU, JSON.stringify(situations));
     localStorage.setItem(LS_CALLS, JSON.stringify(calls));
+    localStorage.setItem(LS_ROUTES, JSON.stringify(routes));
   } catch { /* private mode */ }
 };
 
@@ -704,13 +708,14 @@ function centerOnScenarios() {
   const pins = scenarios.map(sc => sc.destination_id && destById(sc.destination_id)).filter(Boolean)
     .concat(shownRouteStops());
   if (!pins.length) { Geo.simulate({ lat: 52.5346, lng: 13.4109 }); return; }
-  const mid = list => {
-    const s = [...list].sort((a, b) => a - b);
-    const h = Math.floor(s.length / 2);
-    return s.length % 2 ? s[h] : (s[h - 1] + s[h]) / 2;
-  };
-  Geo.simulate({ lat: mid(pins.map(d => d.lat)), lng: mid(pins.map(d => d.lng)) });
+  Geo.simulate({ lat: medianOf(pins.map(d => d.lat)), lng: medianOf(pins.map(d => d.lng)) });
 }
+/* the middle value — a route's middle stop, not the mean of its span */
+const medianOf = list => {
+  const s = [...list].sort((a, b) => a - b);
+  const h = Math.floor(s.length / 2);
+  return s.length % 2 ? s[h] : (s[h - 1] + s[h]) / 2;
+};
 
 /* ---------- load ---------- */
 async function loadAll() {
@@ -726,6 +731,17 @@ async function loadAll() {
       callMessages = (ms || []).filter(isCallMessage);
       pruneGrades();
     } catch (e) { warn(e); }
+    /* the routes table — which route the phones show — rides its own
+     * request: a store from before the table still has its stops, and
+     * the ROUTES tab says what to run */
+    try {
+      routes = (await Backend.listRoutes()) || [];
+      routesMissing = false;
+    } catch (e) {
+      warn(e);
+      routesMissing = /\b404\b|PGRST205|42P01|schema cache/i.test(String((e && e.message) || ''));
+      routes = [];
+    }
     /* the calls the same way: their own request, their own absence */
     try {
       calls = (await Backend.listCalls()) || [];
@@ -803,6 +819,8 @@ async function loadAll() {
   } else {
     try { scenarios = JSON.parse(localStorage.getItem(LS_SCEN) || '[]'); } catch { scenarios = []; }
     try { destinations = JSON.parse(localStorage.getItem(LS_DEST) || '[]'); } catch { destinations = []; }
+    try { routes = JSON.parse(localStorage.getItem(LS_ROUTES) || '[]'); } catch { routes = []; }
+    if (!Array.isArray(routes)) routes = [];
     try { situations = JSON.parse(localStorage.getItem(LS_SITU) || '[]'); } catch { situations = []; }
     try { calls = JSON.parse(localStorage.getItem(LS_CALLS) || '[]'); } catch { calls = []; }
     messagesByDest = {};
@@ -883,6 +901,12 @@ function renderStats() {
       const roll = runRollup(open);
       parts.push(`reading the run of ${fmtAgo(agentRanAt(open))} · ${roll.passed} of ${roll.conv} test calls passed`);
     }
+  } else if (routesTabOn()) {
+    const on = routesOnFile();
+    const act = activeRoute();
+    parts.push(`${on.length} route${on.length === 1 ? '' : 's'} on file`);
+    if (act) parts.push(`“${act.name}” on the phones · ${routeStops(act).length} stops`);
+    else if (on.length) parts.push(routesMissing ? 'the phones show every route — no routes table yet' : 'no route marked for the phones yet');
   } else if (sitTabOn()) {
     parts.push(`${situations.length} situation${situations.length === 1 ? '' : 's'}`);
     const withResults = situations.filter(s => agentTestsFor(suite.main, s, 'situation').length).length;
@@ -915,12 +939,16 @@ function renderStats() {
       + (suite.branch ? ` · a proposed prompt ran on branch ${suite.branch.branch_id} since` : '');
     parts.push({ html: `<span class="stats-suite" title="${esc(title)}">${esc(text)}</span>` });
   }
-  if (!sitTabOn() && !runsTabOn()) renderScenarioVerdicts(parts);
-  for (const r of loadedRoutes()) {
-    const rt = routeStops(r);
-    const noted = rt.filter(d => dispatchNotesOf(d).length).length;
-    parts.push(`route “${r.name}” · ${rt.length} stops on the phone`
-      + (noted ? ` · ${noted} with notes (amber pins)` : ''));
+  if (!sitTabOn() && !runsTabOn() && !routesTabOn()) renderScenarioVerdicts(parts);
+  /* the route on the phones — every loaded route while none is marked */
+  if (!routesTabOn()) {
+    const act = activeRoute();
+    for (const r of (act ? [act] : loadedRoutes())) {
+      const rt = routeStops(r);
+      const noted = rt.filter(d => dispatchNotesOf(d).length).length;
+      parts.push(`route “${r.name}” · ${rt.length} stops on the phones`
+        + (noted ? ` · ${noted} with notes (amber pins)` : ''));
+    }
   }
   parts.push('build ' + window.BUILD);
   /* every part is data (route names, the suite's numbers) and goes
@@ -1736,7 +1764,7 @@ const sitCat = c => (SIT_CATEGORIES.includes(c) ? c : 'other');
  * phone walks, so the simulated driver and Otto share an address and a
  * consignee. No route file loaded: a plain number, which is all the
  * column holds anyway. */
-const sitRoute = () => ROUTES.find(r => r.id === 'kollwitz-01') || null;
+const sitRoute = () => DEMO_ROUTES.find(r => r.id === 'kollwitz-01') || null;
 
 /* The draft is FORM values — strings as typed, the lists one item per
  * line — so a half-typed line never has to survive a round trip
@@ -3539,6 +3567,11 @@ function renderRunSummary(run) {
  * it is the first thing done on it. */
 function renderTabs() {
   const own = scenarios.filter(sc => !fromSheet(sc)).length;
+  /* ROUTES stays in both views: which route the phones show is part of
+   * running a demo, not workshop chrome */
+  const routesTab = `
+      <button class="tab${routesTabOn() ? ' on' : ''}" type="button" data-tab="routes"
+        title="The delivery routes: which one the phones show, and the stops on each — add, remove, move">ROUTES · ${routesOnFile().length}</button>`;
   const sit = cardView === 'demo' ? '' : `
       <button class="tab${sitTabOn() ? ' on' : ''}" type="button" data-tab="situations"
         title="What a driver reports when they press REPORT — the pilot's other sheet, tested by the agent suite in four voices">SITUATIONS · ${situations.length}</button>
@@ -3547,24 +3580,25 @@ function renderTabs() {
       <button class="tab${runsTabOn() ? ' on' : ''}" type="button" data-tab="runs"
         title="Every test run, newest first — one report each: what went well, what went wrong, and what to change. Reading only; nothing on it changes the agent.">RUNS · ${agentRuns.length}</button>`;
   const scen = !scenarios.length ? '' : !listMixed()
-    ? `<button class="tab${sitTabOn() || callsTabOn() ? '' : ' on'}" type="button" data-tab="${scenarios.every(fromSheet) ? 'sheet' : 'own'}"
+    ? `<button class="tab${scenTabOn() ? ' on' : ''}" type="button" data-tab="${scenarios.every(fromSheet) ? 'sheet' : 'own'}"
         title="The trigger scenarios — when Otto speaks, and what he asks">${scenarios.every(fromSheet) ? '⇩ STARTER SHEET' : 'YOUR SCENARIOS'} · ${scenarios.length}</button>`
-    : `<button class="tab${!sitTabOn() && !callsTabOn() && listTab !== 'sheet' ? ' on' : ''}" type="button" data-tab="own"
+    : `<button class="tab${scenTabOn() && listTab !== 'sheet' ? ' on' : ''}" type="button" data-tab="own"
         title="Rows made on this dashboard">YOUR SCENARIOS · ${own}</button>
-      <button class="tab${!sitTabOn() && !callsTabOn() && listTab === 'sheet' ? ' on' : ''}" type="button" data-tab="sheet"
+      <button class="tab${scenTabOn() && listTab === 'sheet' ? ' on' : ''}" type="button" data-tab="sheet"
         title="Rows loaded from the shipped starter sheet — rename one and it moves to your tab">⇩ STARTER SHEET · ${scenarios.length - own}</button>`;
-  return !scen && !sit ? '' : `
-    <div class="tabs">${scen}${sit}</div>`;
+  return `
+    <div class="tabs">${scen}${routesTab}${sit}</div>`;
 }
 
 function render() {
   renderStats();
-  renderRouteToggle();
+  renderRouteChip();
   /* the top bar follows the tab: a situation has no pin to import, no
    * spec to export and no Excel sheet behind it */
   const sit = sitTabOn();
   const callsTab = callsTabOn();
   const runs = runsTabOn();
+  const routesTab = routesTabOn();
   el('new-situation').hidden = !sit;
   if (el('new-call')) el('new-call').hidden = !callsTab;
   /* the starter calls' reload: on the CALLS tab, whenever a starter row
@@ -3576,9 +3610,9 @@ function render() {
     el('reload-calls').textContent = stale ? `⇩ RELOAD STARTER CALLS · ${stale} CHANGED IN THE FILE` : '⇩ RELOAD STARTER CALLS';
     el('reload-calls').classList.toggle('primary', !!stale);
   }
-  el('new-open').hidden = sit || callsTab || runs;
-  el('import-open').hidden = sit || callsTab || runs;
-  el('spec-all').hidden = sit || callsTab || runs;
+  el('new-open').hidden = sit || callsTab || runs || routesTab;
+  el('import-open').hidden = sit || callsTab || runs || routesTab;
+  el('spec-all').hidden = sit || callsTab || runs || routesTab;
   /* the RUNS tab is a report with no pins to show: the map column goes
    * away and the report takes the full width. Leaving the tab brings
    * the map back and tells it its box changed size. */
@@ -3613,6 +3647,12 @@ function render() {
     }
     return;
   }
+  /* the ROUTES tab: the routes on file, the one on the phones, the
+   * stops of the open one */
+  if (routesTab) {
+    box.innerHTML = renderTabs() + renderRoutesTab();
+    return;
+  }
   if (sit) {
     box.innerHTML = renderTabs()
       + (situations.length ? situations.map(renderSituation).join('') + renderSitSheetLink() : renderSituationsEmpty());
@@ -3630,9 +3670,9 @@ function render() {
         <p>Define what the tester should act out and what Otto should understand — then pin each scenario to a real address.</p>
         <div class="top-actions">
           <button class="chip primary" type="button" data-empty="new">+ NEW SCENARIO</button>
-          <button class="chip" type="button" data-empty="import">⎘ PASTE FROM EXCEL</button>
+          <button class="chip" type="button" data-empty="import">⇩ IMPORT</button>
           ${SHEET ? `<button class="chip" type="button" data-empty="sheet">⇩ LOAD THE STARTER SHEET · ${SHEET.scenarios.length}</button>` : ''}
-          ${ROUTES.length && !routeStops().length ? '<button class="chip" type="button" data-empty="route">⇪ LOAD A DEMO ROUTE</button>' : ''}
+          ${!routesOnFile().length ? '<button class="chip" type="button" data-empty="route">⇪ ROUTES — LOAD A DEMO ROUTE</button>' : ''}
         </div>
       </div>`;
     return;
@@ -4578,17 +4618,75 @@ function rowsToScenarios(text) {
     .filter(s => s.title);
 }
 
+/* ---------- the import sheet ----------
+ * Three doors in, each a card with one button: the starter sheet, with
+ * its state (none loaded, some missing, all in); rows copied from
+ * Excel — the paste box, folded away until asked for, since most
+ * sessions never open it; and the way to the ROUTES tab, where the
+ * routes went. No links, no box on display that nobody uses. */
+let importMode = 'pick'; // pick | paste
+function renderImportSheet() {
+  const box = el('import-options');
+  const cards = [];
+  if (SHEET) {
+    const total = SHEET.scenarios.length;
+    const n = sheetMissing().length;
+    const status = n === total ? ''
+      : n ? `<span class="imp-status warn">${n} OF THE ${total} ARE NOT IN THE LIST</span>`
+      : `<span class="imp-status ok">ALL ${total} ARE IN THE LIST</span>`;
+    cards.push(`
+      <div class="imp-opt">
+        <div class="imp-ic">⇩</div>
+        <div class="imp-body">
+          <b>The starter sheet · ${total} scenarios</b>
+          <span>The deck's “${esc(SHEET.name)}” sheet — the ${total} scenarios the pilot started from, every column filled in.</span>
+          ${status}
+        </div>
+        <button class="sheet-btn primary" type="button" data-imp="sheet"${n ? '' : ' disabled'}>${n === total ? `Load all ${total}` : n ? `Restore ${n}` : 'In the list ✓'}</button>
+      </div>`);
+  }
+  cards.push(`
+      <div class="imp-opt">
+        <div class="imp-ic">⎘</div>
+        <div class="imp-body">
+          <b>Rows copied from Excel</b>
+          <span>Your own scenarios: copy the rows in the sheet and paste them here. Each still needs its test address afterwards.</span>
+        </div>
+        <button class="sheet-btn" type="button" data-imp="paste">Paste rows</button>
+      </div>`);
+  const on = routesOnFile();
+  const act = activeRoute();
+  cards.push(`
+      <div class="imp-opt">
+        <div class="imp-ic">⇪</div>
+        <div class="imp-body">
+          <b>Routes</b>
+          <span>The delivery routes live on the ROUTES tab: load a demo route, make a new one, add and move stops, pick the one the phones show.</span>
+          ${on.length ? `<span class="imp-status">${on.length} ROUTE${on.length === 1 ? '' : 'S'} ON FILE${act ? ` · “${esc(String(act.name).toUpperCase())}” ON THE PHONES` : ''}</span>` : ''}
+        </div>
+        <button class="sheet-btn" type="button" data-imp="routes">Open the ROUTES tab</button>
+      </div>`);
+  box.innerHTML = cards.join('');
+  box.hidden = importMode === 'paste';
+  el('import-paste').hidden = importMode !== 'paste';
+}
 function openImport() {
+  importMode = 'pick';
   el('import-text').value = '';
   el('import-preview').textContent = '';
-  renderSheetLink();
-  renderRouteToggle();
+  el('import-go').disabled = true;
+  renderImportSheet();
   el('import-sheet').hidden = false;
+}
+function showPasteBox() {
+  importMode = 'paste';
+  renderImportSheet();
   el('import-text').focus();
 }
 
 function previewImport() {
   const list = rowsToScenarios(el('import-text').value);
+  el('import-go').disabled = !list.length;
   el('import-preview').textContent = !list.length
     ? (el('import-text').value.trim() ? 'No scenario rows recognised — is the "Trigger scenario" column the second one?' : '')
     : `${list.length} scenario${list.length === 1 ? '' : 's'} recognised: `
@@ -4648,7 +4746,7 @@ const fromSheet = sc => SHEET_TITLES.has(normTitle(sc.title));
  * does not carry it — the choice is kept, not cleared, and flipping
  * back to TESTING lands on it again. */
 const LS_TAB = 'od_scen_tab';
-const LIST_TABS = ['own', 'sheet', 'situations', 'calls', 'runs'];
+const LIST_TABS = ['own', 'sheet', 'routes', 'situations', 'calls', 'runs'];
 let listTab = 'own';
 try { const t = localStorage.getItem(LS_TAB); if (LIST_TABS.includes(t)) listTab = t; } catch { /* private mode */ }
 const sitTabOn = () => listTab === 'situations' && cardView !== 'demo';
@@ -4659,8 +4757,13 @@ const callsTabOn = () => listTab === 'calls' && cardView !== 'demo';
  * drivers got out of Otto is the last thing a client demo wants on
  * screen, so the DEMO view hides it exactly as it hides SITUATIONS */
 const runsTabOn = () => listTab === 'runs' && cardView !== 'demo';
+/* ROUTES is not workshop chrome: which route the phones show is part
+ * of running a demo, so the DEMO view keeps it */
+const routesTabOn = () => listTab === 'routes';
+/* the scenario tabs — one or two — are what is left when no other tab is on */
+const scenTabOn = () => !sitTabOn() && !callsTabOn() && !runsTabOn() && !routesTabOn();
 const listMixed = () => scenarios.some(fromSheet) && scenarios.some(sc => !fromSheet(sc));
-const inTab = sc => !sitTabOn() && !callsTabOn() && !runsTabOn() && (!listMixed() || ((listTab === 'sheet') === fromSheet(sc)));
+const inTab = sc => scenTabOn() && (!listMixed() || ((listTab === 'sheet') === fromSheet(sc)));
 function setListTab(t) {
   listTab = LIST_TABS.includes(t) ? t : 'own';
   /* leaving the RUNS tab closes whatever summary was open: coming back
@@ -4674,20 +4777,6 @@ const sheetMissing = () => {
   const have = new Set(scenarios.map(sc => normTitle(sc.title)));
   return SHEET.scenarios.filter(r => !have.has(normTitle(r.title)));
 };
-
-function renderSheetLink() {
-  const btn = el('sheet-load');
-  if (!SHEET) { btn.hidden = true; return; }
-  const n = sheetMissing().length;
-  const total = SHEET.scenarios.length;
-  btn.hidden = false;
-  btn.disabled = !n;
-  btn.textContent = n === total
-    ? `…or load the ${total}-scenario starter sheet (the deck's “${SHEET.name}”)`
-    : n
-      ? `…or restore the ${n} starter-sheet row${n === 1 ? '' : 's'} not in the list`
-      : `all ${total} starter-sheet scenarios are in the list`;
-}
 
 async function loadSheet() {
   const missing = sheetMissing();
@@ -5012,117 +5101,217 @@ function scrollToCall(id) {
   if (node) node.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-/* ---------- the demo route ----------
- * route-schoeneberg.js ships one realistic delivery tour through
- * Berlin-Schöneberg: up to a hundred ordered stops, several of them
- * behind one front door, with pre-arrival notes on file at many —
- * delivery info from dispatch and what drivers reported on earlier
- * tours. Loading turns every stop into a destination row (the route
- * and stop columns keep the grouping), so the phone shows the pins
- * and Otto reads the notes on approach — the pre-arrival loop at the
- * scale of a real tour instead of one hand-made pin. */
-const ROUTES = (window.DEMO_ROUTES || (window.DEMO_ROUTE ? [window.DEMO_ROUTE] : []))
+/* ---------- routes ----------
+ * A route is the list of doors one van works in a day — the thing the
+ * driver's screen shows. Its stops are destination rows that carry
+ * the route id and a stop number (several stops may share one
+ * address: one front door, several parcels). The route itself is a
+ * row of the routes table: its name, whether it is walked or driven,
+ * and the one flag the phones read — `active`, THE route on the
+ * phones. The dashboard keeps one row active; the ROUTES tab is where
+ * it is chosen, and where routes and stops are added and removed.
+ * route-schoeneberg.js and route-kollwitz.js ship two demo routes to
+ * load whole; a new route starts empty and grows stop by stop. */
+const DEMO_ROUTES = (window.DEMO_ROUTES || (window.DEMO_ROUTE ? [window.DEMO_ROUTE] : []))
   .filter(r => r && r.id && Array.isArray(r.stops));
-/* the stops of one route — or of every loaded route when none is named */
-const routeStops = r => destinations.filter(d => (r ? d.route === r.id : !!d.route));
-const loadedRoutes = () => ROUTES.filter(r => routeStops(r).length);
-const routeById = id => ROUTES.find(r => r.id === id) || null;
-/* The header chip is an ON/OFF switch for this dashboard's map, like
- * the phone's ROUTE chip is for its own screen — hiding is a view
- * choice per browser, never a delete. Removing the route (data and
- * all) stays behind the link in the import sheet. */
-const LS_ROUTE_SHOW = 'od_route_show';
-let routeShown = true;
-try { routeShown = localStorage.getItem(LS_ROUTE_SHOW) !== '0'; } catch { /* private mode */ }
-const shownRouteStops = () => (routeShown ? destinations.filter(d => d.route) : []);
+const demoRouteById = id => DEMO_ROUTES.find(r => r.id === id) || null;
+let routes = [];            // the routes table, oldest first
+let routesMissing = false;  // the store has no routes table yet (schema.sql behind this build)
+let routeBusy = false;      // one route write at a time — the buttons wait for the store
+const routeRow = id => routes.find(r => r.id === id) || null;
+const byStopOrder = (a, b) => ((a.stop == null ? 1e9 : a.stop) - (b.stop == null ? 1e9 : b.stop))
+  || String(a.created_at || '').localeCompare(String(b.created_at || ''));
+/* the stops of one route (the row, or its id), in order — or of every route when none is named */
+const routeStops = r => {
+  const id = r && typeof r === 'object' ? r.id : r;
+  return destinations.filter(d => (id ? d.route === id : !!d.route)).sort(byStopOrder);
+};
+const prettyRouteId = id => String(id).replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+/* a route the stops name but the table does not know (a store from
+ * before the table, a route loaded by an older dashboard): a row made
+ * up on the spot, named after its data file when it has one */
+const ghostRoute = id => {
+  const demo = demoRouteById(id);
+  return { id, name: demo ? demo.name : prettyRouteId(id), area: demo ? demo.area || null : null, walking: !!(demo && demo.walking), active: false, active_at: null, ghost: true };
+};
+/* every route on file: the table's rows, then any route only the stops know */
+function routesOnFile() {
+  const list = routes.slice();
+  destinations.forEach(d => { if (d.route && !list.some(r => r.id === d.route)) list.push(ghostRoute(d.route)); });
+  return list;
+}
+const routeOnFileById = id => routesOnFile().find(r => r.id === id) || null;
+const loadedRoutes = () => routesOnFile().filter(r => routeStops(r).length);
+/* the route the phones show — the active row (the newest, should two ever be) */
+const activeRoute = () => routes.filter(r => r.active)
+  .sort((a, b) => String(b.active_at || '').localeCompare(String(a.active_at || '')))[0] || null;
 
-/* The route rides two controls: the header chip — load once, then an
- * on/off switch for this dashboard's map — and the import-sheet link,
- * which is where the destructive remove lives. */
-function renderRouteToggle() {
-  const box = el('route-toggles');
-  const chip = el('route-chip');
-  if (!ROUTES.length) { box.innerHTML = ''; chip.hidden = true; return; }
-  /* one link per route in the import sheet — load it, or remove it */
-  box.innerHTML = ROUTES.map(r => {
-    const n = routeStops(r).length;
-    return n
-      ? `<button class="link-btn" type="button" data-route="${esc(r.id)}" data-route-act="unload">✕ remove the “${esc(r.name)}” route (${n} stops loaded)</button>`
-      : `<button class="link-btn" type="button" data-route="${esc(r.id)}" data-route-act="load">…or load the “${esc(r.name)}” route — ${r.stops.length} ${esc(r.area)} stops to ${r.walking ? 'walk' : 'drive'}, delivery + driver notes on file</button>`;
-  }).join('');
-  const n = routeStops().length;
-  chip.hidden = false;
-  chip.classList.toggle('off', !!n && !routeShown);
-  if (!n) {
-    chip.textContent = '⇪ ROUTE';
-    chip.title = ROUTES.length === 1
-      ? `Load the “${ROUTES[0].name}” demo route — ${ROUTES[0].stops.length} ${ROUTES[0].area} stops, delivery + driver notes on file`
-      : 'Load a demo route — ' + ROUTES.map(r => `${r.name} (${r.stops.length} stops, ${r.walking ? 'walk' : 'drive'})`).join(' or ');
-  } else if (routeShown) {
-    chip.textContent = `ROUTE · ${n}`;
-    chip.title = 'Hide the route stops on this dashboard — the phones keep them; loading and removing routes lives in the ⎘ PASTE FROM EXCEL sheet';
-  } else {
-    chip.textContent = 'ROUTE OFF';
-    chip.title = `Show the ${n} route stops on the map again`;
-  }
+/* The map's route layer: the route whose card is open on the ROUTES
+ * tab, else the one on the phones. PINS OFF hides the layer on this
+ * dashboard — a view choice per browser, never a delete. */
+const LS_ROUTE_SHOW = 'od_route_show';
+const LS_ROUTE_OPEN = 'od_route_open';
+let routeShown = true;
+let openRouteId = null;  // the card unfolded on the ROUTES tab — its stops listed, and drawn
+try { routeShown = localStorage.getItem(LS_ROUTE_SHOW) !== '0'; } catch { /* private mode */ }
+try { openRouteId = localStorage.getItem(LS_ROUTE_OPEN) || null; } catch { /* private mode */ }
+const mapRoute = () => (openRouteId && routeOnFileById(openRouteId)) || activeRoute() || null;
+const shownRouteStops = () => (routeShown ? routeStops(mapRoute()) : []);
+function setOpenRoute(id) {
+  openRouteId = id || null;
+  try { if (id) localStorage.setItem(LS_ROUTE_OPEN, id); else localStorage.removeItem(LS_ROUTE_OPEN); } catch { /* private mode */ }
 }
 
-/* nothing loaded yet: a single route on file loads straight away, more
- * than one goes through the sheet, where each has its own link */
-function loadSomeRoute() {
-  if (routeStops().length) return;
-  if (ROUTES.length === 1) loadRoute(ROUTES[0]);
-  else openImport();
+/* the header chip: how many routes are on file, and the way to the tab */
+function renderRouteChip() {
+  const chip = el('route-chip');
+  if (!chip) return;
+  const n = routesOnFile().length;
+  const act = activeRoute();
+  chip.hidden = false;
+  chip.classList.toggle('on', routesTabOn());
+  chip.textContent = n ? `ROUTES · ${n}` : '⇪ ROUTES';
+  chip.title = act ? `The routes on file — “${act.name}” is on the phones. Open the tab to switch, or to add and remove routes and stops.`
+    : n ? 'The routes on file — none is marked for the phones yet. Open the tab to pick one.'
+    : 'No route on file yet — open the tab to load a demo route or make a new one.';
 }
 
 function toggleRouteShown() {
   routeShown = !routeShown;
   try { localStorage.setItem(LS_ROUTE_SHOW, routeShown ? '1' : '0'); } catch { /* private mode */ }
-  renderRouteToggle();
+  render();
   map.refresh();
-  if (routeShown) { centerOnScenarios(); map.center(); } // switching it on means "show me"
+  if (routeShown) centerOnRoute(mapRoute()); // switching it on means "show me"
+}
+function centerOnRoute(r) {
+  const list = routeStops(r);
+  if (!list.length) return;
+  centerOn(medianOf(list.map(d => d.lat)), medianOf(list.map(d => d.lng)));
 }
 
-/* What the sheet says while a route is being saved, and when the store
- * refuses it — the refusal used to close the sheet in silence, which
- * reads as "the link does nothing" to the person who pressed it. */
+/* ---- what the tab says about the last write ----
+ * A route being saved, and a store that refused — in the store's own
+ * words, with the fix. A refusal used to close a sheet in silence,
+ * which reads as "the button does nothing" to the person who pressed it. */
+let routeNote = null;  // { text, busy }
 function routeMsg(text, busy) {
+  routeNote = text ? { text, busy: !!busy } : null;
   const n = el('route-msg');
   if (!n) return;
   n.textContent = text || '';
   n.hidden = !text;
   n.classList.toggle('busy', !!busy);
 }
-function routeFailText(r, e) {
+function failText(subject, e, what, table) {
   const said = e ? String((e && e.message) || e).replace(/^supabase\s*/i, '') : '';
   let why, fix;
   if (!e) {
-    why = 'The store answered, but saved none of the stops — its policies on the destinations table are blocking writes.';
-    fix = 'Paste supabase/schema.sql into the Supabase project\'s SQL editor and run it once (it is safe to re-run), then press the link again.';
+    why = `The store answered, but saved nothing — its policies on the ${table || 'destinations'} table are blocking writes.`;
+    fix = 'Paste supabase/schema.sql into the Supabase project\'s SQL editor and run it once (it is safe to re-run), then try again.';
+  } else if (/PGRST205|42P01|Could not find the table/i.test(said)) {
+    why = 'The store is missing a table this needs.';
+    fix = 'Paste supabase/schema.sql into the Supabase project\'s SQL editor and run it once (it is safe to re-run), then press ↻ REFRESH and try again.';
   } else if (/column|PGRST204|schema cache/i.test(said)) {
     const col = (said.match(/'([^']+)' column/) || [])[1];
-    why = `The destinations table in the store is missing a column the route needs${col ? ' (' + col + ')' : ' (route, stop)'}.`;
-    fix = 'Paste supabase/schema.sql into the Supabase project\'s SQL editor and run it once (it is safe to re-run), then press the link again.';
+    why = `A table in the store is missing a column this needs${col ? ' (' + col + ')' : ''}.`;
+    fix = 'Paste supabase/schema.sql into the Supabase project\'s SQL editor and run it once (it is safe to re-run), then try again.';
   } else if (/42501|row-level security|\b401\b|\b403\b|permission/i.test(said)) {
-    why = 'The store refused the write — the destinations table\'s policies do not allow it.';
-    fix = 'Paste supabase/schema.sql into the Supabase project\'s SQL editor and run it once (it sets the policies), then press the link again.';
+    why = 'The store refused the write — the table\'s policies do not allow it.';
+    fix = 'Paste supabase/schema.sql into the Supabase project\'s SQL editor and run it once (it sets the policies), then try again.';
   } else if (/Failed to fetch|NetworkError|Load failed|network/i.test(said)) {
     why = 'No connection to the store.';
-    fix = 'Check the internet connection and press the link again.';
+    fix = 'Check the internet connection and try again.';
   } else {
     why = 'The store refused it.';
-    fix = 'Press the link again in a moment; if it keeps failing, the words below say why.';
+    fix = 'Try again in a moment; if it keeps failing, the words below say why.';
   }
-  return `The “${r.name}” route could not be saved. ${why} ${fix}${said ? ' The store said: ' + said : ''}`;
+  return `${subject} could not be ${what || 'saved'}. ${why} ${fix}${said ? ' The store said: ' + said : ''}`;
+}
+const routeFailText = (r, e, what, table) => failText(`The “${r.name}” route`, e, what, table);
+const stopFailText = (e, what, table) => failText('The stop', e, what, table);
+
+/* ---- the rows of the routes table ---- */
+/* every route the stops name gets its row — once, idempotently; a row
+ * that landed meanwhile (another dashboard) is left as it is */
+async function ensureRouteRows() {
+  if (routesMissing) return;
+  const ghosts = routesOnFile().filter(r => r.ghost);
+  if (ghosts.length) {
+    const rows = ghosts.map(g => ({ id: g.id, name: g.name, area: g.area, walking: g.walking, active: false, active_at: null }));
+    if (Backend.enabled) {
+      try {
+        const saved = await Backend.upsertRoutes(rows);
+        (Array.isArray(saved) ? saved : []).forEach(s => { if (s && !routeRow(s.id)) routes.push(s); });
+      } catch (e) { warn(e); }
+    }
+    const at = new Date().toISOString();
+    rows.forEach(x => { if (!routeRow(x.id)) routes.push({ ...x, created_at: at }); });
+  }
+  /* one route on file and none chosen: there is nothing to choose — it
+   * goes to the phones by itself */
+  if (!activeRoute() && routes.length === 1 && routesOnFile().length === 1) await setActiveRoute(routes[0], true);
+  persistLocal();
 }
 
-async function loadRoute(r) {
-  if (!r || routeStops(r).length) return;
+/* one route on the phones: every other row goes off first */
+async function setActiveRoute(r, quiet) {
+  if (!r || routeBusy) return false;
+  if (routesMissing) {
+    routeMsg('The phones cannot be told which route to show until the store has its routes table — paste supabase/schema.sql into the Supabase SQL editor and run it once, then press ↻ REFRESH.');
+    if (!quiet) render();
+    return false;
+  }
+  if (r.ghost) { await ensureRouteRows(); r = routeRow(r.id); if (!r) return false; }
+  const now = new Date().toISOString();
+  if (Backend.enabled) {
+    routeBusy = true;
+    routeMsg(`Putting “${r.name}” on the phones…`, true);
+    if (!quiet) render();
+    try {
+      await Backend.updateRoutesWhere('active=eq.true', { active: false });
+      await Backend.updateRoute(r.id, { active: true, active_at: now });
+    } catch (e) {
+      routeBusy = false;
+      schemaHint(e);
+      routeMsg(routeFailText(r, e, 'put on the phones', 'routes'));
+      if (!quiet) render();
+      return false;
+    }
+    routeBusy = false;
+    routeMsg('');
+  }
+  routes.forEach(x => { x.active = x.id === r.id; if (x.active) x.active_at = now; });
+  persistLocal();
+  if (!quiet) { render(); map.refresh(); }
+  return true;
+}
+
+/* a route's row in the table — the demo file's, or a new one's;
+ * a row already there (another dashboard loaded it first) stays as it is */
+async function putRouteRow(row) {
+  if (routesMissing) return null;
+  const have = routeRow(row.id);
+  if (have) return have;
+  let saved = row;
+  if (Backend.enabled) {
+    try {
+      const got = await Backend.upsertRoutes([row]);
+      if (Array.isArray(got) && got[0]) saved = got[0];
+    } catch (e) { warn(e); }
+  }
+  if (!saved.created_at) saved = { ...saved, created_at: new Date().toISOString() };
+  routes.push(saved);
+  return saved;
+}
+
+/* ---- a demo route, loaded whole from its file ---- */
+async function loadRoute(demo) {
+  if (!demo || routeStops(demo).length || routeBusy) return;
   routeMsg('');
   const now = Date.now();
-  const rows = r.stops.map(s => ({
+  const rows = demo.stops.map(s => ({
     title: s.title, addr: s.addr, lat: s.lat, lng: s.lng,
-    route: r.id, stop: s.stop,
+    route: demo.id, stop: s.stop,
     consignee: s.consignee || null, floor: s.floor || null, entrance: s.entrance || null, kind: s.kind || null,
     /* array order in the data file IS the reading order (newest first)
      * — the stamped times, a day apart, just say so */
@@ -5134,42 +5323,49 @@ async function loadRoute(r) {
   let added = [];
   if (Backend.enabled) {
     /* live: one bulk insert or nothing — a schema without the route
-     * columns fails whole; the sheet stays open and says why, in the
-     * store's own words, and schemaHint names the fix in the header */
-    routeMsg(`Saving the “${r.name}” route — ${rows.length} stops…`, true);
+     * columns fails whole; the tab says why, in the store's own words,
+     * and schemaHint names the fix in the header */
+    routeBusy = true;
+    routeMsg(`Saving the “${demo.name}” route — ${rows.length} stops…`, true);
+    render();
     try { added = (await Backend.insertDestinations(rows)) || []; }
     catch (e) {
-      /* a store from before the entrance column still gets the route —
-       * without the entrances, and told so — rather than nothing */
-      /* …one newer column at a time: entrance, kind */
+      /* a store from before the entrance / kind columns still gets the
+       * route — without them, and told so — rather than nothing: one
+       * newer column stripped at a time */
       let rs = rows, err = e;
       const missing = [];
       while (err) {
         const col = (String((err && err.message) || '').match(/'(entrance|kind)' column/i) || [])[1];
-        if (!col || missing.includes(col)) { schemaHint(err); routeMsg(routeFailText(r, err)); return; }
+        if (!col || missing.includes(col)) { routeBusy = false; schemaHint(err); routeMsg(routeFailText(demo, err)); render(); return; }
         missing.push(col);
         rs = rs.map(x => { const c = { ...x }; delete c[col]; return c; });
         try { added = (await Backend.insertDestinations(rs)) || []; err = null; } catch (e2) { err = e2; }
       }
       schemaMsg = `Route loaded without its ${missing.join(' and ')} info — the destinations table has no ${missing.join(' / ')} column yet. Re-run supabase/schema.sql once; the next route load keeps it.`;
     }
+    routeBusy = false;
     /* a policy that silently drops the rows answers with an empty list */
-    if (!Array.isArray(added) || !added.length) { routeMsg(routeFailText(r, null)); return; }
+    if (!Array.isArray(added) || !added.length) { routeMsg(routeFailText(demo, null)); render(); return; }
   } else {
     const at = new Date().toISOString();
     added = rows.map(r => ({ ...r, id: localId('d'), created_at: at }));
   }
   routeMsg('');
-  el('import-sheet').hidden = true;
   destinations.push(...added);
+  await putRouteRow({ id: demo.id, name: demo.name, area: demo.area || null, walking: !!demo.walking, active: false, active_at: null });
   routeShown = true; // loading means "show me"
   try { localStorage.setItem(LS_ROUTE_SHOW, '1'); } catch { /* private mode */ }
-  const first = added[0];
-  if (first) await createRouteScenario(r, first);
+  setOpenRoute(demo.id);
+  const first = routeStops(demo)[0];
+  if (first) await createRouteScenario(demo, first);
+  /* the first route on file goes to the phones by itself; a second one
+   * does not take them over — that is a choice, made on its card */
+  if (!activeRoute() && !routesMissing) await setActiveRoute(routeRow(demo.id) || ghostRoute(demo.id), true);
   persistLocal();
   render();
   map.refresh();
-  if (first) centerOn(first.lat, first.lng);
+  centerOnRoute(demo);
 }
 
 /* The route is a scenario of its OWN — one row in the list to find it
@@ -5209,44 +5405,534 @@ async function createRouteScenario(r, first) {
     || String(a.created_at || '').localeCompare(String(b.created_at || '')));
 }
 
-/* A route loaded before the scenario row existed heals itself: stops
- * on file but no scenario pinned at any of them → cut the row now.
- * Idempotent — the guard is the row's own existence. */
+/* A route with stops but no scenario row heals itself: a route loaded
+ * before the row existed, a new route that just got its first stop →
+ * cut the row now. Idempotent — the guard is the row's own existence. */
 async function ensureRouteScenario() {
   let cut = false;
   for (const r of loadedRoutes()) {
     const mine = routeStops(r);
     const ids = new Set(mine.map(d => d.id));
     if (scenarios.some(sc => sc.destination_id && ids.has(sc.destination_id))) continue;
-    const first = mine.reduce((a, b) => ((a.stop == null ? 1e9 : a.stop) <= (b.stop == null ? 1e9 : b.stop) ? a : b));
-    await createRouteScenario(r, first);
+    await createRouteScenario(r, mine[0]);
     cut = true;
   }
   if (cut) persistLocal();
 }
 
+/* ---- a new route, made on the tab ---- */
+let routeForm = null;  // { name, area, walking } while the + NEW ROUTE form is open
+const focusIn = sel => requestAnimationFrame(() => { const n = el('list').querySelector(sel); if (n) n.focus(); });
+async function createRoute() {
+  if (!routeForm || routeBusy) return;
+  const name = String(routeForm.name || '').trim();
+  if (!name) return;
+  if (routesMissing) {
+    routeMsg('A new route needs the routes table in the store — paste supabase/schema.sql into the Supabase SQL editor and run it once, then press ↻ REFRESH.');
+    render();
+    return;
+  }
+  const row = { id: 'r-' + Date.now().toString(36), name, area: String(routeForm.area || '').trim() || null, walking: !!routeForm.walking, active: false, active_at: null };
+  if (Backend.enabled) {
+    routeBusy = true;
+    routeMsg(`Saving the “${name}” route…`, true);
+    render();
+    let got;
+    try { got = await Backend.upsertRoutes([row]); }
+    catch (e) { routeBusy = false; schemaHint(e); routeMsg(routeFailText(row, e, 'saved', 'routes')); render(); return; }
+    routeBusy = false;
+    /* a policy that silently drops the row answers with an empty list */
+    if (!Array.isArray(got) || !got[0]) { routeMsg(routeFailText(row, null, 'saved', 'routes')); render(); return; }
+    Object.assign(row, got[0]);
+  } else {
+    row.created_at = new Date().toISOString();
+  }
+  routeMsg('');
+  routes.push(row);
+  routeForm = null;
+  setOpenRoute(row.id);
+  stopForm = newStopForm(row.id); // the first stop is the next thing to do
+  if (!activeRoute() && routesOnFile().length === 1) await setActiveRoute(row, true);
+  persistLocal();
+  render();
+  map.refresh();
+  focusIn('[data-sf="q"]');
+}
+
+/* ---- removing a route: its stops, their notes and debriefs, its scenario row, its row ---- */
 async function unloadRoute(r) {
-  const mine = r ? routeStops(r) : [];
-  if (!mine.length) return;
-  if (!confirm(`Remove the “${r.name}” demo route — all ${mine.length} stops, their notes and debriefs, and the route's scenario row?`)) return;
-  el('import-sheet').hidden = true;
+  if (!r || routeBusy) return;
+  const mine = routeStops(r);
+  const ask = mine.length
+    ? `Remove the “${r.name}” route — all ${mine.length} stops, their notes and debriefs, and the route's scenario row?`
+    : `Remove the “${r.name}” route? It has no stops yet.`;
+  if (!confirm(ask)) return;
   const ids = new Set(mine.map(d => d.id));
   /* the route's own scenario (the loader pins it at a stop — nothing
    * else ever points a scenario at a route stop) leaves with it */
   const routeScs = scenarios.filter(sc => sc.destination_id && ids.has(sc.destination_id));
   if (Backend.enabled) {
+    routeBusy = true;
+    routeMsg(`Removing the “${r.name}” route…`, true);
+    render();
     try {
       for (const sc of routeScs) await Backend.deleteScenario(sc.id);
-      await Backend.deleteDestinationsByRoute(r.id);
-    } catch (e) { warn(e); return; }
+      if (mine.length) await Backend.deleteDestinationsByRoute(r.id);
+      if (!routesMissing && !r.ghost) await Backend.deleteRoute(r.id);
+    } catch (e) { routeBusy = false; warn(e); routeMsg(routeFailText(r, e, 'removed')); render(); return; }
+    routeBusy = false;
+    routeMsg('');
   }
   scenarios = scenarios.filter(sc => !routeScs.includes(sc));
   destinations = destinations.filter(d => !ids.has(d.id));
+  mine.forEach(d => { delete messagesByDest[d.id]; });
+  routes = routes.filter(x => x.id !== r.id);
+  if (openRouteId === r.id) setOpenRoute(null);
+  if (stopForm && stopForm.routeId === r.id) stopForm = null;
   el('stop-sheet').hidden = true; // an open stop just left with the route
   stopFor = null;
   persistLocal();
   render();
   map.refresh();
+}
+
+/* ---- the stops: added one at a time, moved, taken off ---- */
+let stopForm = null;   // the + ADD A STOP form while open (one route at a time)
+let stopFormSeq = 0;
+const newStopForm = routeId => ({ routeId, q: '', cands: [], cand: null, consignee: '', floor: '', entrance: '', kind: '', note: '', after: 'end', hint: '', timer: null });
+function openStopForm(r) {
+  if (!r) return;
+  setOpenRoute(r.id);
+  stopForm = newStopForm(r.id);
+  render();
+  focusIn('[data-sf="q"]');
+}
+/* the same search as the address sheet: coordinates pasted from Google
+ * Maps land at once, three letters start a lookup */
+function onStopAddrInput(q) {
+  const f = stopForm;
+  if (!f || q === f.q) return;
+  f.q = q;
+  f.cand = null;
+  clearTimeout(f.timer);
+  const seq = ++stopFormSeq;
+  const m = q.match(/(-?\d{1,2}\.\d+)\s*[, ]\s*(-?\d{1,3}\.\d+)/);
+  if (m) {
+    f.cands = [{ label: `Dropped pin — ${(+m[1]).toFixed(5)}, ${(+m[2]).toFixed(5)}`, lat: +m[1], lng: +m[2], pin: true }];
+    f.hint = '';
+    renderStopCands();
+    return;
+  }
+  if (q.trim().length < 3) { f.cands = []; f.hint = ''; renderStopCands(); return; }
+  f.hint = 'Searching…';
+  renderStopCands();
+  f.timer = setTimeout(async () => {
+    const found = await searchAddress(q.trim());
+    if (seq !== stopFormSeq || stopForm !== f) return; // they kept typing — this answer is stale
+    f.cands = found;
+    f.hint = !found.length ? 'Nothing found — try adding the city, or paste coordinates like "52.5346, 13.4109".' : houseNumberHint(q, found);
+    renderStopCands();
+  }, 350);
+}
+function stopCandsHtml() {
+  const f = stopForm;
+  if (!f) return '';
+  if (f.cand) return `<div class="rt-picked">📍 ${esc(f.cand.label)}<button class="link-btn" type="button" data-rt="unpick">change</button></div>`;
+  return f.cands.map((c, i) => `<button class="cand" type="button" data-rt="pick" data-i="${i}">${esc(c.label)}</button>`).join('');
+}
+/* only the candidates and the hint repaint while typing — the field keeps its cursor */
+function renderStopCands() {
+  const box = el('list').querySelector('.rt-cands');
+  const hint = el('list').querySelector('.rt-hint');
+  const save = el('list').querySelector('[data-rt="save-stop"]');
+  if (box) box.innerHTML = stopCandsHtml();
+  if (hint) hint.textContent = (stopForm && stopForm.hint) || '';
+  if (save) save.disabled = !(stopForm && stopForm.cand) || routeBusy;
+}
+function pickStopCand(i) {
+  const c = stopForm && stopForm.cands[i];
+  if (!c) return;
+  stopForm.cand = c;
+  stopForm.cands = [];
+  stopForm.hint = '';
+  renderStopCands();
+  focusIn('[data-sf="consignee"]');
+}
+/* "Goltzstraße 13" out of a geocoder's long label: the first part of a
+ * Google label ("Goltzstraße 13, 10781 Berlin, Germany"); number and
+ * street swapped back for Nominatim's ("13, Goltzstraße, Schöneberg, …") */
+function stopTitleOf(label) {
+  const parts = String(label || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (!parts.length) return 'Stop';
+  if (/^\d+[a-zA-Z]?$/.test(parts[0]) && parts[1]) return `${parts[1]} ${parts[0]}`.slice(0, 40);
+  return parts[0].slice(0, 40);
+}
+/* one stop's row into the store — a store from before the entrance /
+ * kind columns takes it without them, and the header says so */
+async function insertStopRow(row) {
+  let rs = row;
+  const missing = [];
+  for (;;) {
+    try {
+      const saved = await Backend.insertDestination(rs);
+      if (missing.length) schemaMsg = `Stop saved without its ${missing.join(' and ')} — the destinations table has no ${missing.join(' / ')} column yet. Re-run supabase/schema.sql once.`;
+      return Array.isArray(saved) && saved[0] ? saved[0] : null;
+    } catch (e) {
+      const col = (String((e && e.message) || '').match(/'(entrance|kind)' column/i) || [])[1];
+      if (!col || missing.includes(col)) throw e;
+      missing.push(col);
+      rs = { ...rs };
+      delete rs[col];
+    }
+  }
+}
+/* stop numbers follow the order: 1, 2, 3 … — the rows whose number changed come back */
+function renumbered(list) {
+  const changed = [];
+  list.forEach((d, i) => { if (d.stop !== i + 1) { d.stop = i + 1; changed.push(d); } });
+  return changed;
+}
+async function saveStopNumbers(changed) {
+  if (!changed.length || !Backend.enabled) return true;
+  try {
+    await Backend.upsertDestinations(changed.map(d => ({ id: d.id, title: d.title, lat: d.lat, lng: d.lng, stop: d.stop })));
+    return true;
+  } catch (e) {
+    warn(e);
+    /* one row at a time, then */
+    try {
+      await Promise.all(changed.map(d => Backend.updateDestination(d.id, { stop: d.stop })));
+      return true;
+    } catch (e2) {
+      schemaHint(e2);
+      routeMsg(`The stop numbers could not all be saved — the store said: ${String((e2 && e2.message) || e2).replace(/^supabase\s*/i, '')}. Press ↻ REFRESH to see what landed.`);
+      return false;
+    }
+  }
+}
+async function addStop() {
+  const f = stopForm;
+  if (!f || !f.cand || routeBusy) return;
+  const r = routeOnFileById(f.routeId);
+  if (!r) return;
+  const list = routeStops(r);
+  const last = list.length ? Math.max(...list.map(d => d.stop || 0)) : 0;
+  const afterStop = f.after === 'end' ? last : Math.min(last, Math.max(0, parseInt(f.after, 10) || 0));
+  const bump = list.filter(d => (d.stop || 0) > afterStop);
+  const c = f.cand;
+  const at = new Date().toISOString();
+  const trim = v => String(v == null ? '' : v).trim();
+  const row = {
+    title: c.pin ? 'Dropped pin' : stopTitleOf(c.label), addr: c.pin ? null : c.label, lat: c.lat, lng: c.lng,
+    route: r.id, stop: afterStop + 1,
+    consignee: trim(f.consignee) || null, floor: trim(f.floor) || null, entrance: trim(f.entrance) || null, kind: f.kind || null,
+    notes: trim(f.note) ? [{ id: localId('n'), text: trim(f.note), by: 'dispatch', at }] : null,
+  };
+  let d;
+  if (Backend.enabled) {
+    routeBusy = true;
+    routeMsg(`Adding stop ${row.stop} to “${r.name}”…`, true);
+    renderStopCands();
+    try { d = await insertStopRow(row); }
+    catch (e) { routeBusy = false; schemaHint(e); routeMsg(stopFailText(e, 'added')); renderStopCands(); return; }
+    routeBusy = false;
+    if (!d) { routeMsg(stopFailText(null, 'added')); renderStopCands(); return; }
+  } else {
+    d = { ...row, id: localId('d'), created_at: at };
+  }
+  routeMsg('');
+  destinations.push(d);
+  bump.forEach(x => { x.stop = (x.stop || 0) + 1; });
+  await saveStopNumbers(bump);
+  /* ready for the next stop — placed after the one just added */
+  stopForm = newStopForm(r.id);
+  stopForm.after = f.after === 'end' ? 'end' : String(row.stop);
+  await ensureRouteScenario(); // the first stop earns the route its scenario row
+  persistLocal();
+  render();
+  map.refresh();
+  centerOn(d.lat, d.lng);
+  focusIn('[data-sf="q"]');
+  /* a dropped pin gets its street name when the geocoder finds one */
+  if (!d.addr) {
+    Geo.reverseGeocode(d.lat, d.lng).then(res => {
+      if (!res || !(res.street || res.area)) return;
+      const patch = { addr: [res.street, res.area].filter(Boolean).join(', ') };
+      if (res.street && d.title === 'Dropped pin') patch.title = String(res.street).slice(0, 40);
+      saveDestPatch(d, patch);
+      render();
+      map.refresh();
+    });
+  }
+}
+async function moveStop(d, dir) {
+  if (routeBusy) return;
+  const list = routeStops(d.route);
+  const i = list.indexOf(d);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= list.length) return;
+  list[i] = list[j];
+  list[j] = d;
+  const changed = renumbered(list);
+  persistLocal();
+  render();
+  map.refresh();
+  await saveStopNumbers(changed);
+}
+async function removeStop(d) {
+  if (routeBusy) return;
+  const r = routeOnFileById(d.route);
+  if (!r) return;
+  const list = routeStops(r);
+  if (!confirm(`Take stop ${d.stop} · ${d.title} off the “${r.name}” route?\n\nIts notes and the debriefs filed at this door go with it. The stops after it move up one.`)) return;
+  const rest = list.filter(x => x !== d);
+  /* the route's scenario row is pinned at one stop; if this is the one,
+   * it moves to the first stop left — or goes with the last stop */
+  const sc = scenarios.find(s => s.destination_id === d.id);
+  if (Backend.enabled) {
+    routeBusy = true;
+    routeMsg(`Removing stop ${d.stop}…`, true);
+    render();
+    try {
+      if (sc) { if (rest.length) await Backend.updateScenario(sc.id, { destination_id: rest[0].id }); else await Backend.deleteScenario(sc.id); }
+      await Backend.deleteDestination(d.id);
+    } catch (e) { routeBusy = false; warn(e); routeMsg(stopFailText(e, 'removed')); render(); return; }
+    routeBusy = false;
+    routeMsg('');
+  }
+  if (sc) { if (rest.length) sc.destination_id = rest[0].id; else scenarios = scenarios.filter(s => s !== sc); }
+  destinations = destinations.filter(x => x !== d);
+  delete messagesByDest[d.id];
+  if (stopFor === d) { el('stop-sheet').hidden = true; stopFor = null; }
+  const changed = renumbered(rest);
+  persistLocal();
+  render();
+  map.refresh();
+  await saveStopNumbers(changed);
+}
+
+/* ---- the ROUTES tab ---- */
+const floorWord = f => { f = String(f == null ? '' : f).trim(); return !f ? '' : /^\d+$/.test(f) ? 'floor ' + f : f; };
+/* name · entrance · floor — the stop's one line, as the driver's screen says it */
+const stopWho = d => [String(d.consignee || '').trim(), String(d.entrance || '').trim(), floorWord(d.floor)].filter(Boolean).join(' · ');
+const kindTag = d => KIND_WORD[String(d.kind || '').toLowerCase()] || '';
+
+function renderRoutesTab() {
+  const on = routesOnFile();
+  const act = activeRoute();
+  const demos = DEMO_ROUTES.filter(r => !on.some(x => x.id === r.id));
+  const phones = !on.length ? ''
+    : routesMissing ? '<p class="rt-phones warn">The store has no <b>routes</b> table yet, so the phones cannot be told which route to show — they show every route on file. Paste supabase/schema.sql into the Supabase SQL editor and run it once (it is safe to re-run), then press ↻ REFRESH.</p>'
+    : act ? `<p class="rt-phones">The phones show <b>${esc(act.name)}</b>${routeStops(act).length ? '' : ' — it has no stops yet'}.</p>`
+    : '<p class="rt-phones warn">No route is marked for the phones yet — they show every route on file. Press <b>Show on the phones</b> on the one the driver should see.</p>';
+  const note = routeNote
+    ? `<p class="route-msg${routeNote.busy ? ' busy' : ''}" id="route-msg">${esc(routeNote.text)}</p>`
+    : '<p class="route-msg" id="route-msg" hidden></p>';
+  const dis = routeBusy ? ' disabled' : '';
+  return `
+    <div class="rt-top">
+      <div class="rt-intro">
+        <b>Routes</b>
+        <p>A route is the list of doors one van works in a day. One route is on the phones: the driver's screen shows its stops, in order. Open a route to see its stops — add, remove or move them there.</p>
+        ${phones}
+        ${note}
+      </div>
+      <div class="top-actions rt-actions">
+        <button class="chip primary" type="button" data-rt="new"${routesMissing ? ' disabled title="Needs the routes table in the store — see above"' : dis}>+ NEW ROUTE</button>
+        ${demos.map(r => `<button class="chip" type="button" data-rt="load" data-route="${esc(r.id)}"${dis} title="${esc(`${r.stops.length} ${r.area} stops to ${r.walking ? 'walk' : 'drive'} — delivery and driver notes on file`)}">⇪ LOAD “${esc(String(r.name).toUpperCase())}” · ${r.stops.length} STOPS</button>`).join('')}
+        ${on.length ? `<button class="chip${routeShown ? '' : ' off'}" type="button" data-rt="pins" title="${routeShown ? 'Hide the route\'s pins on this map — a view choice for this browser; the phones keep theirs' : 'Show the route\'s pins on this map again'}">${routeShown ? 'PINS ON THE MAP' : 'PINS OFF'}</button>` : ''}
+      </div>
+      ${routeForm ? renderRouteForm() : ''}
+    </div>
+    ${on.length ? on.map(renderRouteCard).join('') : `
+    <div class="empty">
+      <b>No routes yet</b>
+      <p>Load a demo route — real Berlin addresses with notes on file — or make a new one and add its stops.</p>
+    </div>`}`;
+}
+function renderRouteForm() {
+  const f = routeForm;
+  return `
+    <div class="rt-form">
+      <span class="addr-tag">NEW ROUTE</span>
+      <div class="rt-grid">
+        <div><label>Name</label><input data-rf="name" value="${esc(f.name)}" autocomplete="off" placeholder="“Mitte 02”, “Tuesday north”"></div>
+        <div><label>Area (optional)</label><input data-rf="area" value="${esc(f.area)}" autocomplete="off" placeholder="“Berlin-Mitte”"></div>
+        <div class="full">
+          <label>How it is worked</label>
+          <div class="rt-opts">
+            <label><input type="radio" name="rf-walk" value="0"${f.walking ? '' : ' checked'}> By van</label>
+            <label><input type="radio" name="rf-walk" value="1"${f.walking ? ' checked' : ''}> On foot — Otto reads the notes closer to the door</label>
+          </div>
+        </div>
+      </div>
+      <div class="rt-form-foot">
+        <button class="sheet-btn primary" type="button" data-rt="save-route"${String(f.name).trim() && !routeBusy ? '' : ' disabled'}>Create the route</button>
+        <button class="sheet-btn" type="button" data-rt="cancel-route">Cancel</button>
+      </div>
+    </div>`;
+}
+function renderRouteCard(r) {
+  const list = routeStops(r);
+  const noted = list.filter(d => dispatchNotesOf(d).length).length;
+  const active = !!r.active;
+  const open = openRouteId === r.id;
+  const meta = [
+    `${list.length} stop${list.length === 1 ? '' : 's'}`,
+    noted ? `${noted} with notes` : '',
+    r.area || '',
+    r.walking ? 'on foot' : 'by van',
+  ].filter(Boolean).join(' · ');
+  const dis = routeBusy ? ' disabled' : '';
+  const noTable = routesMissing ? ' disabled title="Needs the routes table in the store — see above"' : '';
+  return `
+    <div class="rt${active ? ' active' : ''}${open ? ' open' : ''}" data-route="${esc(r.id)}">
+      <div class="rt-header" data-rt="open" title="${open ? 'Hide the stops' : 'Show the stops'}">
+        <button class="rt-radio${active ? ' on' : ''}" type="button" data-rt="activate" title="${active ? 'This route is on the phones' : 'Show this route on the phones'}"${active ? ' disabled' : noTable || dis}></button>
+        <div class="rt-head">
+          <h3>${esc(r.name)}</h3>
+          <div class="rt-meta">${esc(meta)}</div>
+        </div>
+        ${active ? '<span class="badge badge-pass">ON THE PHONES</span>' : ''}
+        <span class="rt-caret">${open ? '▴' : '▾'}</span>
+      </div>
+      <div class="rt-actions-row">
+        ${active ? '' : `<button class="mini-btn accent" type="button" data-rt="activate"${noTable || dis}>Show on the phones</button>`}
+        <button class="mini-btn" type="button" data-rt="open">${open ? 'Hide the stops' : `Stops · ${list.length}`}</button>
+        ${list.length ? '<button class="mini-btn" type="button" data-rt="center">Show on map</button>' : ''}
+        <button class="mini-btn danger" type="button" data-rt="remove"${dis}>Remove route</button>
+      </div>
+      ${open ? renderStopList(r, list) : ''}
+    </div>`;
+}
+function renderStopList(r, list) {
+  const rows = list.map((d, i) => {
+    const notes = dispatchNotesOf(d).length;
+    const kind = kindTag(d);
+    const who = stopWho(d);
+    return `
+      <div class="rt-stop${notes ? ' noted' : ''}" data-dest="${esc(d.id)}">
+        <span class="rt-num" title="Stop ${esc(d.stop)}">${esc(d.stop == null ? '·' : d.stop)}</span>
+        <div class="rt-stop-body" data-rt="stop" title="Open this door — name, entrance, floor, kind and the notes Otto reads">
+          <b>${esc(d.title || d.addr || `${d.lat}, ${d.lng}`)}</b>
+          <span class="rt-stop-sub">${esc(who || 'no name on file')}${notes ? ` · ${notes} note${notes === 1 ? '' : 's'}` : ''}</span>
+        </div>
+        ${kind ? `<span class="rt-kind${String(d.kind).toLowerCase() === 'food' ? ' food' : ''}">${kind}</span>` : ''}
+        <span class="rt-stop-tools">
+          <button class="rt-tool" type="button" data-rt="up" title="Move up"${i === 0 || routeBusy ? ' disabled' : ''}>↑</button>
+          <button class="rt-tool" type="button" data-rt="down" title="Move down"${i === list.length - 1 || routeBusy ? ' disabled' : ''}>↓</button>
+          <button class="rt-tool del" type="button" data-rt="del" title="Take this stop off the route"${routeBusy ? ' disabled' : ''}>✕</button>
+        </span>
+      </div>`;
+  }).join('');
+  const form = stopForm && stopForm.routeId === r.id ? renderStopForm(r, list) : '';
+  return `
+    <div class="rt-stops">
+      <div class="rt-stops-head">
+        <span class="addr-tag">STOPS — IN ${r.walking ? 'WALKING' : 'DRIVING'} ORDER</span>
+        ${form ? '' : `<button class="mini-btn accent" type="button" data-rt="add-stop"${routeBusy ? ' disabled' : ''}>+ Add a stop</button>`}
+      </div>
+      ${form}
+      ${rows || (form ? '' : '<p class="notes-hint">No stops yet — add the first one.</p>')}
+      ${list.length ? '<p class="notes-hint">Click a stop to open its door — the name, entrance, floor, kind of delivery and the notes Otto reads on approach. ↑ ↓ move a stop; ✕ takes it off the route.</p>' : ''}
+    </div>`;
+}
+function renderStopForm(r, list) {
+  const f = stopForm;
+  const n = list.length;
+  const opts = [`<option value="end"${f.after === 'end' ? ' selected' : ''}>At the end — as stop ${n + 1}</option>`]
+    .concat(list.map(d => `<option value="${esc(d.stop)}"${String(f.after) === String(d.stop) ? ' selected' : ''}>After stop ${esc(d.stop)} · ${esc(String(d.title || '').slice(0, 32))}</option>`));
+  const kindOpts = [['', 'Parcel'], ['bulky', 'Bulky — furniture or large electronics'], ['food', 'Fresh food']]
+    .map(([v, t]) => `<option value="${v}"${(f.kind || '') === v ? ' selected' : ''}>${t}</option>`).join('');
+  return `
+    <div class="rt-form">
+      <span class="addr-tag">NEW STOP ON “${esc(String(r.name).toUpperCase())}”</span>
+      <div class="rt-grid">
+        <div class="full">
+          <label>Address</label>
+          <input data-sf="q" value="${esc(f.q)}" autocomplete="off" placeholder="Search an address — “Goltzstraße 13, Berlin” — or paste coordinates “52.4890, 13.3540”">
+          <div class="rt-cands">${stopCandsHtml()}</div>
+          <div class="rt-hint">${esc(f.hint || '')}</div>
+        </div>
+        <div><label>Name — who it is for</label><input data-sf="consignee" value="${esc(f.consignee)}" autocomplete="off" placeholder="“Maria Weber”, “Café Herzstück”"></div>
+        <div><label>Floor</label><input data-sf="floor" value="${esc(f.floor)}" autocomplete="off" placeholder="“2”, “ground floor”, “top floor”"></div>
+        <div><label>Entrance</label><input data-sf="entrance" value="${esc(f.entrance)}" autocomplete="off" placeholder="“front building, left stairwell”, “courtyard gate”"></div>
+        <div><label>Kind of delivery</label><select data-sf="kind">${kindOpts}</select></div>
+        <div class="full"><label>Note for the driver — Otto reads it on approach (optional)</label><input data-sf="note" value="${esc(f.note)}" autocomplete="off" placeholder="“The bell is broken — knock”, “Leave it with the neighbour at 2”"></div>
+        <div class="full"><label>Place it</label><select data-sf="after">${opts.join('')}</select></div>
+      </div>
+      <div class="rt-form-foot">
+        <button class="sheet-btn primary" type="button" data-rt="save-stop"${f.cand && !routeBusy ? '' : ' disabled'}>Add the stop</button>
+        <button class="sheet-btn" type="button" data-rt="cancel-stop">Close</button>
+      </div>
+    </div>`;
+}
+
+/* the tab's clicks — every button carries data-rt */
+function onRoutesClick(e) {
+  const b = e.target.closest('[data-rt]');
+  if (!b) return;
+  const act = b.dataset.rt;
+  const card = b.closest('.rt');
+  const r = card ? routeOnFileById(card.dataset.route) : null;
+  const stopEl = b.closest('[data-dest]');
+  const d = stopEl ? destById(stopEl.dataset.dest) : null;
+  switch (act) {
+    case 'new':
+      routeForm = routeForm ? null : { name: '', area: '', walking: false };
+      render();
+      if (routeForm) focusIn('[data-rf="name"]');
+      break;
+    case 'cancel-route': routeForm = null; render(); break;
+    case 'save-route': createRoute(); break;
+    case 'load': loadRoute(demoRouteById(b.dataset.route)); break;
+    case 'pins': toggleRouteShown(); break;
+    case 'open':
+      if (!r) break;
+      if (openRouteId === r.id) { setOpenRoute(null); if (stopForm && stopForm.routeId === r.id) stopForm = null; }
+      else { setOpenRoute(r.id); centerOnRoute(r); }
+      render();
+      map.refresh();
+      break;
+    case 'activate': if (r && !r.active) setActiveRoute(r); break;
+    case 'center': if (r) centerOnRoute(r); break;
+    case 'remove': if (r) unloadRoute(r); break;
+    case 'add-stop': if (r) openStopForm(r); break;
+    case 'cancel-stop': stopForm = null; render(); break;
+    case 'pick': pickStopCand(parseInt(b.dataset.i, 10)); break;
+    case 'unpick':
+      if (stopForm) { stopForm.cand = null; stopForm.cands = []; stopForm.q = ''; render(); focusIn('[data-sf="q"]'); }
+      break;
+    case 'save-stop': addStop(); break;
+    case 'stop': if (d) { openStop(d); centerOn(d.lat, d.lng); } break;
+    case 'up': if (d) moveStop(d, -1); break;
+    case 'down': if (d) moveStop(d, 1); break;
+    case 'del': if (d) removeStop(d); break;
+    default: break;
+  }
+}
+/* the two forms' fields write straight into their drafts — no repaint,
+ * so a cursor mid-word stays where it is */
+function onRouteFormInput(e) {
+  const t = e.target;
+  if (!t || !t.getAttribute) return false;
+  const rf = t.getAttribute('data-rf');
+  if (rf && routeForm) {
+    routeForm[rf] = t.value;
+    const save = el('list').querySelector('[data-rt="save-route"]');
+    if (save) save.disabled = !String(routeForm.name || '').trim() || routeBusy;
+    return true;
+  }
+  if (t.name === 'rf-walk' && routeForm) { routeForm.walking = t.value === '1'; return true; }
+  const sf = t.getAttribute('data-sf');
+  if (sf && stopForm) {
+    /* the address field searches on INPUT only: its change event fires
+     * on blur — the very moment a candidate is being clicked — and a
+     * repaint of the candidates then would swallow that click */
+    if (sf === 'q') { if (e.type === 'input') onStopAddrInput(t.value); } else stopForm[sf] = t.value;
+    return true;
+  }
+  return false;
 }
 
 /* ---------- the stop sheet ----------
@@ -5257,14 +5943,21 @@ async function unloadRoute(r) {
  * the latest real driver debriefs, read-only. */
 let stopFor = null; // the tapped stop; the sheet shows its whole door
 
+/* the stop's tag line: number, name, entrance, floor, kind */
+const stopTag = s => `STOP ${s.stop == null ? '·' : s.stop}${s.consignee ? ' — ' + s.consignee : ''}${s.entrance ? ' · ' + s.entrance : ''}${floorWord(s.floor) ? ' · ' + floorWord(s.floor) : ''}${kindTag(s) ? ' · ' + kindTag(s) : ''}`;
+/* "Stop 7 · Goltzstraße 13" — "Stops 7 + 8" when the door has several */
+const stopSheetTitle = d => {
+  const here = destinations.filter(x => x.route && x.lat === d.lat && x.lng === d.lng).sort(byStopOrder);
+  return (here.length > 1 ? 'Stops ' + here.map(x => x.stop).join(' + ') : 'Stop ' + d.stop) + ' · ' + d.title;
+};
+
 function renderStopSheet() {
   const d = stopFor;
   if (!d) return;
   const here = destinations
     .filter(x => x.route && x.lat === d.lat && x.lng === d.lng)
     .sort((a, b) => (a.stop == null ? 1e9 : a.stop) - (b.stop == null ? 1e9 : b.stop));
-  el('stop-title').textContent =
-    (here.length > 1 ? 'Stops ' + here.map(x => x.stop).join(' + ') : 'Stop ' + d.stop) + ' · ' + d.title;
+  el('stop-title').textContent = stopSheetTitle(d);
   el('stop-addr').textContent = (d.addr || `${d.lat}, ${d.lng}`)
     + (here.length > 1 ? ` — ${here.length} parcels behind one door` : '');
   el('stop-links').innerHTML = `
@@ -5275,7 +5968,20 @@ function renderStopSheet() {
     const msgs = (messagesByDest[s.id] || []).filter(m => m && !m.demo && (m.title || m.transcript)).slice(0, 2);
     return `
     <div class="stop-sec" data-dest="${esc(s.id)}">
-      <span class="addr-tag">STOP ${esc(s.stop)}${s.consignee ? ' — ' + esc(s.consignee) : ''}${s.entrance ? ' · ' + esc(s.entrance) : ''}${s.floor ? ' · ' + esc(s.floor) : ''}${KIND_WORD[String(s.kind || '').toLowerCase()] ? ' · ' + KIND_WORD[String(s.kind || '').toLowerCase()] : ''}</span>
+      <span class="addr-tag">${esc(stopTag(s))}</span>
+      <div class="notes-grid stop-fields">
+        <div><label>Address line — on the pin</label><input data-stop-field="title" value="${esc(s.title || '')}" placeholder="&ldquo;Goltzstraße 13&rdquo;"></div>
+        <div><label>Name — who it is for</label><input data-stop-field="consignee" value="${esc(s.consignee || '')}" placeholder="&ldquo;Maria Weber&rdquo;, &ldquo;Café Herzstück&rdquo;"></div>
+        <div><label>Floor</label><input data-stop-field="floor" value="${esc(s.floor || '')}" placeholder="&ldquo;2&rdquo;, &ldquo;ground floor&rdquo;, &ldquo;top floor&rdquo;"></div>
+        <div><label>Entrance</label><input data-stop-field="entrance" value="${esc(s.entrance || '')}" placeholder="&ldquo;front building, left stairwell&rdquo;"></div>
+        <div><label>Kind of delivery</label>
+          <select data-stop-field="kind">
+            <option value=""${!s.kind || s.kind === 'parcel' ? ' selected' : ''}>Parcel</option>
+            <option value="bulky"${s.kind === 'bulky' ? ' selected' : ''}>Bulky — furniture or large electronics</option>
+            <option value="food"${s.kind === 'food' ? ' selected' : ''}>Fresh food</option>
+          </select>
+        </div>
+      </div>
       ${notes.map((n, i) => `
         <div class="note-item">
           <span class="note-text">${esc(n.text)}</span>
@@ -5291,6 +5997,9 @@ function renderStopSheet() {
       <div class="note-add">
         <input data-stop-note-new placeholder="Note for the next driver — read aloud on approach">
         <button class="mini-btn accent" type="button" data-stop-note-add>+ Add note</button>
+      </div>
+      <div class="stop-foot">
+        <button class="mini-btn danger" type="button" data-stop-del>Take stop ${esc(s.stop)} off the route</button>
       </div>
     </div>`;
   }).join('');
@@ -5310,11 +6019,14 @@ el('list').addEventListener('click', e => {
     if (act === 'new') openForm(null);
     else if (act === 'import') openImport();
     else if (act === 'sheet') loadSheet();
-    else if (act === 'route') loadSomeRoute();
+    else if (act === 'route') { setListTab('routes'); render(); }
     return;
   }
   const tab = e.target.closest('[data-tab]');
   if (tab) { setListTab(tab.dataset.tab); render(); return; }
+
+  /* ---- the routes tab ---- */
+  if (routesTabOn()) { onRoutesClick(e); return; }
 
   /* ---- the runs tab ----
    * Asked about before the cards: the "see the full reasons" link lives
@@ -5509,8 +6221,10 @@ el('list').addEventListener('click', e => {
 /* sliders, the feedback textarea and the proposal edits all live inside
  * the list — one delegated input handler, no re-render mid-typing */
 el('list').addEventListener('input', e => {
-  /* the situation card's fields write straight into the draft — no
-   * repaint, so a cursor mid-word stays where it is */
+  /* the ROUTES tab's two forms, then the situation card's fields —
+   * all write straight into their drafts, no repaint, so a cursor
+   * mid-word stays where it is */
+  if (onRouteFormInput(e)) return;
   if (onSitFieldInput(e)) return;
   if (onCallFieldInput(e)) return;
   const card = e.target.closest('.sc');
@@ -5552,7 +6266,8 @@ el('list').addEventListener('change', e => {
     return;
   }
   /* a <select> is the one field that can change without an input event
-   * on every browser — the same writer, once more on change */
+   * on every browser — the same writers, once more on change */
+  if (onRouteFormInput(e)) return;
   if (onSitFieldInput(e)) return;
   if (onCallFieldInput(e)) return;
   const k = e.target.getAttribute && e.target.getAttribute('data-note-field');
@@ -5586,6 +6301,15 @@ el('list').addEventListener('keydown', e => {
   if (sc) addDestNote(sc, card);
 });
 
+/* Enter in the new-route form creates the route; Enter in a new-stop
+ * field adds the stop once an address is picked */
+el('list').addEventListener('keydown', e => {
+  if (e.key !== 'Enter' || !e.target.getAttribute) return;
+  if (e.target.getAttribute('data-rf') != null) { e.preventDefault(); createRoute(); return; }
+  const sf = e.target.getAttribute('data-sf');
+  if (sf != null && sf !== 'q' && e.target.tagName !== 'SELECT') { e.preventDefault(); addStop(); }
+});
+
 el('new-open').onclick = () => openForm(null);
 el('new-situation').onclick = newSituation;
 if (el('new-call')) el('new-call').onclick = newCall;
@@ -5615,16 +6339,23 @@ el('f-params').addEventListener('click', e => {
 });
 el('spec-all').onclick = exportAllSpecs;
 el('import-open').onclick = openImport;
-el('import-cancel').onclick = () => { el('import-sheet').hidden = true; routeMsg(''); };
+el('import-cancel').onclick = () => { el('import-sheet').hidden = true; };
 el('import-go').onclick = runImport;
-el('sheet-load').onclick = loadSheet;
-el('route-toggles').onclick = e => {
-  const b = e.target.closest('[data-route]');
-  const r = b && routeById(b.dataset.route);
-  if (!r) return;
-  if (b.dataset.routeAct === 'unload') unloadRoute(r); else loadRoute(r);
-};
-el('route-chip').onclick = () => (routeStops().length ? toggleRouteShown() : loadSomeRoute());
+el('import-paste-close').onclick = () => { importMode = 'pick'; renderImportSheet(); };
+el('import-options').addEventListener('click', e => {
+  const b = e.target.closest('[data-imp]');
+  if (!b) return;
+  if (b.dataset.imp === 'sheet') loadSheet();
+  else if (b.dataset.imp === 'paste') showPasteBox();
+  else if (b.dataset.imp === 'routes') {
+    el('import-sheet').hidden = true;
+    setListTab('routes');
+    render();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+});
+/* the header chip is the way to the ROUTES tab from anywhere */
+el('route-chip').onclick = () => { setListTab('routes'); render(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
 el('stop-close').onclick = () => { el('stop-sheet').hidden = true; stopFor = null; };
 /* add / delete notes straight from the stop sheet — the map's amber
  * marking and the "with notes" count follow the edit live */
@@ -5633,6 +6364,8 @@ el('stop-body').addEventListener('click', e => {
   if (!sec) return;
   const d = destinations.find(x => x.id === sec.dataset.dest);
   if (!d) return;
+  /* the stop leaves the route from its own sheet too */
+  if (e.target.closest('[data-stop-del]')) { removeStop(d); return; }
   const del = e.target.closest('[data-stop-note-del]');
   if (del) {
     const notes = dispatchNotesOf(d);
@@ -5652,12 +6385,33 @@ el('stop-body').addEventListener('click', e => {
   renderStats();
   map.refresh();
 });
+/* the stop's own fields — the address line on the pin, the name, floor,
+ * entrance and kind — save on change; the tag line, the list row and
+ * the pin label follow, the sheet itself stays put (a repaint would
+ * take the focus off the next field) */
+el('stop-body').addEventListener('change', e => {
+  const k = e.target.getAttribute && e.target.getAttribute('data-stop-field');
+  if (!k) return;
+  const sec = e.target.closest('[data-dest]');
+  const d = sec && destinations.find(x => x.id === sec.dataset.dest);
+  if (!d) return;
+  const v = String(e.target.value).trim() || null;
+  if (k === 'title' && !v) { e.target.value = d.title || ''; return; } // the pin needs a name
+  if ((d[k] || null) === v) return;
+  saveDestPatch(d, { [k]: v });
+  const tag = sec.querySelector('.addr-tag');
+  if (tag) tag.textContent = stopTag(d);
+  if (stopFor) el('stop-title').textContent = stopSheetTitle(stopFor);
+  render();
+  map.refresh();
+});
 el('import-text').addEventListener('input', previewImport);
 el('addr-close').onclick = closeAddr;
 el('addr-input').addEventListener('input', e => onAddrInput(e.target.value));
 
 el('refresh').onclick = async () => {
   await loadAll();
+  await ensureRouteRows();
   await ensureRouteScenario();
   render();
   map.refresh();
@@ -5674,6 +6428,7 @@ document.addEventListener('keydown', e => {
 /* ---------- boot ---------- */
 (async () => {
   await loadAll();
+  await ensureRouteRows();
   await ensureRouteScenario();
   centerOnScenarios();
   render();

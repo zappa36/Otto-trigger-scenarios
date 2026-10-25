@@ -8,6 +8,7 @@
     "destination_lng": 13.41797,
     "destination_consignee": "E. Conti",
     "destination_floor": "2",
+    "destination_kind": "parcel",
     "destination_notes": "The courtyard door is temporarily closed — use the side entrance, there is a sign.",
     "scenario_num": 5,
     "scenario_title": "The wrong pin — the door is not where the map says",

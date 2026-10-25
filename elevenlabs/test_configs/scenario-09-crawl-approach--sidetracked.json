@@ -8,6 +8,7 @@
     "destination_lng": 13.41874,
     "destination_consignee": "L. Okafor",
     "destination_floor": "2",
+    "destination_kind": "parcel",
     "scenario_num": 9,
     "scenario_title": "Crawl approach — the last street costs minutes",
     "scenario_version": 1,

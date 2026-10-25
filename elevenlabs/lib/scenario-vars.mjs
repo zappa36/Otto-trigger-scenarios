@@ -161,6 +161,9 @@ export function agentGreeting(sc, d, { run = null, lang = 'en', saysIt = {} } = 
  * measured is what THIS run measured. */
 export function agentVars({ scenario: sc, destination: d, run: tr = null, activity = null, distance_to_pin_m = null, lang = 'en', saysIt = {}, call = null }) {
   const p = sc && sc.params;
+  const customerCall = !!(call && call.customer);
+  const notesStr = d ? notesOnFile(d).slice(0, NOTES.maxNotes)
+    .map(n => (n.by === 'driver' ? 'a driver reported: ' : '') + n.text).join('; ') : '';
   const v = {
     destination_title: d ? d.title : '',
     destination_address: d ? (d.addr || `${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}`) : '',
@@ -168,8 +171,9 @@ export function agentVars({ scenario: sc, destination: d, run: tr = null, activi
     destination_lng: d ? d.lng : '',
     destination_consignee: d ? String(d.consignee || '') : '',
     destination_floor: d ? String(d.floor || '') : '',
-    destination_notes: d ? notesOnFile(d).slice(0, NOTES.maxNotes)
-      .map(n => (n.by === 'driver' ? 'a driver reported: ' : '') + n.text).join('; ') : '',
+    destination_entrance: d ? String(d.entrance || (customerCall ? 'not on file' : '')) : '',
+    destination_kind: d ? String(d.kind || (customerCall ? 'parcel' : '')) : '',
+    destination_notes: d ? (notesStr || (customerCall ? 'none' : '')) : '',
     scenario_num: sc && sc.num != null ? sc.num : '',
     scenario_title: sc ? sc.title : '',
     scenario_version: sc ? (sc.version || 1) : '',
@@ -197,6 +201,8 @@ export function agentVars({ scenario: sc, destination: d, run: tr = null, activi
     call_to: call ? String(call.callee || '') : '',
     call_purpose: call ? String(call.purpose || '') : '',
     call_previous: call ? String(call.previous || '') : '',
+    /* the delivery window a customer call is about ("between 11 am and 1 pm today") */
+    call_window: call ? String(call.window || '') : '',
   };
   if (distance_to_pin_m != null && d) v.distance_to_pin_m = Math.round(distance_to_pin_m);
   return v;
@@ -215,8 +221,12 @@ export function callOf(row, previous = null) {
     callee: String(row.callee || '').toLowerCase() === 'driver' ? 'driver' : 'consignee',
     purpose: String(row.purpose || ''),
     previous: String(previous != null && String(previous).trim() ? previous : (row.previous_call || '')),
+    window: String(row.window || ''),
+    customer: !!row.destination_id, // the driver's screen's call about one loaded stop
   };
 }
+/* what is being delivered, in words — '' for a plain parcel (kindWords in app.js) */
+export const kindWords = k => ({ bulky: 'a bulky item — furniture or large electronics', food: 'fresh food' }[String(k || '').trim().toLowerCase()] || '');
 
 /* The line a call opens with — the agent's first message, overridden
  * the way a trigger debrief's "Otto says" is: the row's own opener when
@@ -248,6 +258,10 @@ export function callBriefing(v, lang = 'en') {
   if (v.call_title) lines.push(`The call${v.call_num !== '' && v.call_num != null ? ' #' + v.call_num : ''}: ${sentence(v.call_title)}`);
   if (v.call_purpose) lines.push(`Why you are calling: ${sentence(v.call_purpose)}`);
   if (v.call_previous) lines.push(`What the office learned before this call: ${sentence(v.call_previous)}`);
+  const what = kindWords(v.destination_kind);
+  if (v.call_window || what || v.destination_entrance) {
+    lines.push(`The delivery: ${what || 'a parcel'}${v.call_window ? ', coming ' + v.call_window : ''}${v.destination_entrance ? '; the door: ' + v.destination_entrance : ''}.`);
+  }
   if (v.destination_notes) lines.push(sentence(`Notes on file for this address: ${v.destination_notes}`));
   lines.push('Ask what you need to know, keep it to two or three short questions, confirm what was agreed in one line and say what happens next, then let them go.');
   if (lang === 'it') lines.push('This call is in Italian: conduct the whole call in Italian — every question and reply.');

@@ -8,6 +8,7 @@
     "destination_lng": 13.41639,
     "destination_consignee": "A. Novak",
     "destination_floor": "3",
+    "destination_kind": "parcel",
     "destination_notes": "a driver reported: The intercom is dead — knock on the ground-floor window on the left, they buzz you in.",
     "scenario_num": 8,
     "scenario_title": "Blocked street — got close, never arrived",

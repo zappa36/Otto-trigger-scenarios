@@ -8,6 +8,7 @@
     "destination_lng": 13.41817,
     "destination_consignee": "R. Fischer",
     "destination_floor": "5",
+    "destination_kind": "parcel",
     "destination_notes": "No lift — 5th floor. If nobody answers, neighbour Kern on the 4th takes it.",
     "scenario_num": 6,
     "scenario_title": "Nobody home — rang, waited, bounced",

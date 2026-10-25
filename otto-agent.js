@@ -308,6 +308,11 @@ const OttoAgent = (() => {
        * host names another — the back-office agent, for a call — and
        * what the chip says once the line is open */
       agent: null, chip: 'ELEVENLABS',
+      /* a CLIENT TOOL the agent calls mid-conversation (configured on
+       * the agent in ElevenLabs — name, parameters): onTool(name, params)
+       * does the work here and returns what the agent is told; the
+       * customer call's write_down puts what was agreed onto the stop */
+      onTool: null,
       extra: () => ({}), onSaved: null, onError: null, onFallback: null,
       ...(options || {}),
     };
@@ -626,8 +631,20 @@ const OttoAgent = (() => {
             case 'client_error':
               console.warn('OttoAgent: ' + JSON.stringify(d.error_event || {}).slice(0, 300));
               break;
+            case 'client_tool_call': {
+              /* the agent asks the page to do something — answer it, so
+               * a tool that waits for its result is never left hanging */
+              const c = d.client_tool_call || {};
+              let result = 'ok', isError = false;
+              try {
+                const r = opt.onTool ? opt.onTool(String(c.tool_name || ''), c.parameters || {}) : undefined;
+                if (r != null) result = String(r);
+              } catch (e) { isError = true; result = String((e && e.message) || e); }
+              try { ws.send(JSON.stringify({ type: 'client_tool_result', tool_call_id: c.tool_call_id, result, is_error: isError })); } catch { /* the line went */ }
+              break;
+            }
             default:
-              break; // tool calls, vad scores, agent_response_complete — nothing to draw
+              break; // vad scores, agent_response_complete — nothing to draw
           }
         };
 

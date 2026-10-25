@@ -375,6 +375,26 @@ create table if not exists public.accepted_findings (
   decided_at timestamptz not null default now()
 );
 
+-- One row per delivery route on file — the two demo routes the
+-- dashboard loads whole from their files (route-schoeneberg.js,
+-- route-kollwitz.js) and the routes made by hand on its ROUTES tab.
+-- The stops are destination rows above, carrying the route id and a
+-- stop number; this row carries what the stops cannot: the route's
+-- name, whether it is walked or driven, and the ONE flag the phones
+-- read — active. The dashboard keeps exactly one route active, and
+-- the driver's screen shows that route and no other. A store without
+-- this table still works: the phones show every route on file, and
+-- the dashboard's ROUTES tab says what to run here.
+create table if not exists public.routes (
+  id text primary key,              -- 'schoeneberg-01' from the file; 'r-…' for a route made on the dashboard
+  name text not null,               -- "Schöneberg 01", "Tuesday north"
+  area text,                        -- "Berlin-Schöneberg" (optional)
+  walking boolean not null default false,  -- on foot (Otto reads closer to the door) or by van
+  active boolean not null default false,   -- the route the phones show — one row at a time
+  active_at timestamptz,            -- when it was put on the phones
+  created_at timestamptz not null default now()
+);
+
 alter table public.destinations enable row level security;
 alter table public.messages enable row level security;
 alter table public.scenarios enable row level security;
@@ -385,6 +405,7 @@ alter table public.visits enable row level security;
 alter table public.dart_throws enable row level security;
 alter table public.agent_runs enable row level security;
 alter table public.accepted_findings enable row level security;
+alter table public.routes enable row level security;
 
 -- ------------------------------------------------------------
 -- OPEN PILOT POLICIES (the default in this kit)
@@ -545,6 +566,24 @@ create policy "anyone updates accepted_findings" on public.accepted_findings
 
 drop policy if exists "anyone deletes accepted_findings" on public.accepted_findings;
 create policy "anyone deletes accepted_findings" on public.accepted_findings
+  for delete to anon, authenticated using (true);
+
+-- the routes: the dashboard adds, renames, picks and removes them;
+-- the phones only read which one is active
+drop policy if exists "anyone reads routes" on public.routes;
+create policy "anyone reads routes" on public.routes
+  for select to anon, authenticated using (true);
+
+drop policy if exists "anyone adds routes" on public.routes;
+create policy "anyone adds routes" on public.routes
+  for insert to anon, authenticated with check (true);
+
+drop policy if exists "anyone updates routes" on public.routes;
+create policy "anyone updates routes" on public.routes
+  for update to anon, authenticated using (true) with check (true);
+
+drop policy if exists "anyone deletes routes" on public.routes;
+create policy "anyone deletes routes" on public.routes
   for delete to anon, authenticated using (true);
 
 -- ------------------------------------------------------------

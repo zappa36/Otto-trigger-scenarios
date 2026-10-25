@@ -69,11 +69,13 @@ columns, same wording:
 
 The loop:
 
-1. **Define** — "+ New scenario", copy rows straight out of the Excel
-   sheet and use "Paste from Excel" (tab-separated clipboard rows, quoted
-   multi-line cells and the header row both handled) — or load the
+1. **Define** — "+ New scenario", or **⇩ IMPORT**: a sheet with one
+   button per source — load the
    [ten-scenario starter sheet](#the-starter-sheet--ten-scenarios-on-file)
-   that ships with the kit.
+   that ships with the kit, paste rows copied straight out of the Excel
+   sheet (tab-separated clipboard rows, quoted multi-line cells and the
+   header row all handled; the paste box stays folded away until asked
+   for), or go to the ROUTES tab.
 2. **Pin** — every scenario gets a clear Google-Maps address: search one,
    or paste coordinates ("52.5346, 13.4109"). The dashboard shows the
    address, its exact coordinates, and keyless **Open in Google Maps** /
@@ -122,8 +124,10 @@ and every card is ready for the meeting.
 [`trigger-scenarios.js`](trigger-scenarios.js) ships the "Otto triggers"
 sheet ready to test: ten finished rows, every column filled, every
 number in every rule a slider. Load them from the empty list's **⇩ LOAD
-THE STARTER SHEET** chip or the link in the ⎘ PASTE FROM EXCEL sheet —
-keyless into localStorage, live as one insert. Loading is idempotent by
+THE STARTER SHEET** chip or the starter-sheet card in the **⇩ IMPORT**
+sheet, whose button says where things stand — "Load all 10", "Restore
+3", or "In the list ✓" — keyless into localStorage, live as one insert.
+Loading is idempotent by
 title: rows already in the list are skipped, so loading again restores
 a deleted row and never doubles one up (a list that started from the
 old single-sample load gains only the nine missing rows). Each row
@@ -643,6 +647,25 @@ three questions, and end by confirming what was agreed and what
 happens next — "nobody home before six, so the driver comes after six;
 I'll let him know".
 
+The driver's screen makes one such call from any stop — **Call the
+customer** — without a row on the dashboard: the row is built from the
+stop itself (consignee, address, entrance, floor, what is coming, the
+notes on file, and the window the van is heading for: six minutes a
+stop from the next one, two hours wide, on the hour). It rings a
+**third agent**, the customer-call agent (`ELEVENLABS_CUSTOMER_AGENT_ID`
+in `config.js`; the ParcelVox website's demo agent is the default, and
+`?customeragent=ID` tries another), handed the stop as dynamic
+variables (`destination_consignee`, `destination_address`,
+`destination_entrance`, `destination_floor`, `destination_kind`,
+`destination_notes`, `call_window`, `call_purpose`) and the same
+briefing as every call. That agent carries one **client tool**,
+`write_down(field, value)`, with the fields `home`, `time`, `handover`
+and `note`: each point the call settles comes back into the phone
+through it and lands on the stop as one dispatch note, grown as the
+call goes, so the driver's screen, the card, the dashboard's stop sheet
+and the next approach's reading all carry what was agreed. The call
+itself is filed against the stop like every other.
+
 So the dashboard grows a **CALLS** tab, and each row is one call:
 
 | Field | What it is for |
@@ -1066,14 +1089,40 @@ debriefs come from real walks instead of being invented. Its reading
 rings default to 40 m / 120 m — on foot, 350 m would arm the whole
 block at once.
 
-Load a route from the dashboard — the **⇪ ROUTE chip in the header**
-(with two routes on file it opens the ⎘ PASTE FROM EXCEL sheet, where
-each route has its own load / remove link). Once something is loaded,
-that chip is an **on/off switch for this dashboard's map** ("ROUTE ·
-100" ↔ "ROUTE OFF"), exactly like the phone's ROUTE chip is for its
-screen: hiding is a per-browser view choice, never a delete. Removing
-a route — stops, notes and debriefs — lives behind its link in the
-⎘ PASTE FROM EXCEL sheet (the empty state offers loading too). Loading also cuts **the route's own scenario
+Routes live on the dashboard's **ROUTES tab** (the **ROUTES · n** chip
+in the header jumps there from any tab, and the tab stays in the DEMO
+view — picking the route is part of running a demo). The tab is one
+card per route on file — name, stop count, how many stops carry
+notes, the area, on foot or by van — and three things happen there
+and nowhere else. **Which route the phones show:** press *Show on the
+phones* on a card and that route is the one the driver's screen opens
+on. The card wears ON THE PHONES, the other routes' stops leave the
+phones altogether (map, approach readings, driver's screen), and the
+choice reaches every phone — live through the `routes` table, keyless
+through the storage event. The first route on file goes to the phones
+by itself; a second one is a choice, made on its card. **Adding and
+removing routes:** *⇪ LOAD "…"* loads a demo route whole from its
+file; *+ NEW ROUTE* makes an empty one (a name, an area, by van or on
+foot) and opens the stop form straight away; *Remove route* takes a
+route off with all its stops, their notes and debriefs, and its
+scenario row.
+
+**Adding, moving and removing stops:** open a card and its stops are
+listed in order, each with its number, its door (name · entrance ·
+floor), a BULKY / FRESH FOOD tag and a notes count. ↑ ↓ move a stop,
+✕ takes it off (the stops after it move up one), and *+ Add a stop*
+is a small form: search an address or paste coordinates, the name,
+floor, entrance, kind of delivery, an optional first note, and where
+to place it — at the end, or after any stop. Clicking a stop opens
+the **stop sheet** (the same one a pin click opens), where the
+address line, name, floor, entrance and kind are edited in place next
+to the notes. PINS ON THE MAP / PINS OFF hides the route layer on
+this dashboard only — a per-browser view choice like the phone's
+ROUTE chip, never a delete; the map draws the route whose card is
+open, else the one on the phones. A store without the `routes` table
+yet still shows its routes, says in plain words which file to run,
+and lets the phones show every route on file until then. Loading a
+route also cuts **the route's own scenario
 row** — "Schöneberg 01 route", pinned at stop 1 — so the route has a
 proper place in the list: Show on map jumps to it, testers get the
 how-to on the stop-1 card, and its TUNABLE VALUES carry the reading
@@ -1105,9 +1154,9 @@ Route scale earned two small behaviours. When several armed stops sit
 inside the reading ring at once — in a Kiez they will — Otto reads
 the **nearest** one first; the rest keep their turn. And a tap on
 stacked same-address pins opens the **first stop still open** at that
-door, the way a courier works through parcels at a single bell. The
-same link that loaded the route removes it again — all stops, their
-notes and their debriefs at once.
+door, the way a courier works through parcels at a single bell.
+*Remove route* on the ROUTES tab takes a route off again — all stops,
+their notes and their debriefs at once.
 
 One phone is also two demos: with a route loaded, the phone's map
 screen grows a **ROUTE chip** ("ROUTE · 100 STOPS" / "ROUTE OFF") that hides
@@ -1131,7 +1180,9 @@ dashboard's analytics are rebuilt from.
 Keyless, the route lands in localStorage like everything else; live,
 it is one bulk insert — re-run
 [`supabase/schema.sql`](supabase/schema.sql) once first for the two
-route columns (`route`, `stop`) and the `visits` table.
+route columns (`route`, `stop`), the `visits` table and the `routes`
+table (the route's name, on foot or by van, and the one flag the
+phones read — which route is on them).
 
 ## The driver's screen — the route in the van
 
@@ -1147,14 +1198,16 @@ driver already holds. The files are [`driver.js`](driver.js) and
 [`driver.css`](driver.css); the look is scoped to the screen, so
 Otto's screen and the tester's map keep their own.
 
-The route is whatever the dashboard loaded: every stop the **⇪
-ROUTE** chip put on file (a route id and a stop number on the
-destination row) is a stop here. So **the route is built on the
-dashboard and driven on the phone** — nothing is typed in the van, and
-a route loaded while the screen is up shows up at the next ↻ (keyless,
-the dashboard in the next tab shows up by itself). With two routes on
-file the title opens a picker; the choice sticks per phone, and a
-phone that never chose shows the one loaded last.
+The route is the one the dashboard's **ROUTES tab** put on the
+phones: its stops (a route id and a stop number on each destination
+row) are the stops here, and no other route's. So **the route is
+built on the dashboard and driven on the phone** — nothing is typed
+in the van; a stop added while the screen is up shows up at the next
+↻ (keyless, the dashboard in the next tab shows up by itself), and
+switching the route on the dashboard switches the van. A store from
+before the dashboard could choose (no `routes` table yet) shows every
+route on file, and then the title opens a picker; that choice sticks
+per phone.
 
 What the driver sees:
 
@@ -1192,6 +1245,17 @@ What the driver sees:
   approach, in his voice), the other parcels at the same door,
   Delivered / Not delivered (or the time it was done, with undo), and
   **Report to Otto**.
+- **Call the customer**, on the next stop's card and on every stop's
+  sheet: the phone rings, you answer as that stop's consignee, and Otto
+  — the customer-call agent, with the stop's own details in front of
+  him (name, address, entrance, floor, what is coming, the notes on
+  file, the window the van is heading for) — checks that someone is
+  home and agrees a time or a place. What is settled lands on the stop
+  as one note ("Customer call 10:42: home from six · driver comes today
+  18:00–19:00 · in person, the driver rings · elevator still out"),
+  tagged CUSTOMER on this screen, read on the next approach like any
+  other note, visible on the card and the dashboard's stop sheet. See
+  [the calls](#the-calls--otto-rings-the-customer-then-the-driver).
 - **Otto** is one tap away either way. The mic in the header is the
   same press as Otto's own screen — filed against the stop the van is
   at, within 150 m, or against no stop — and Report to Otto on a sheet
@@ -1634,8 +1698,8 @@ The composition happens entirely through the kits' public seams:
 | `darts.js/.css` | The dart game after a report: the card, the flick, the rings, one throw per stop, only while still, the depot's best today |
 | `otto-agent.js` | Otto as a live ElevenLabs agent conversation — the kit's mount seams over a WebSocket, with the scenario as its context |
 | `otto-stream.js` | The reading voice's player: an ElevenLabs mp3 played from its first chunk while the rest is still being made (Media Source Extensions), whole where the browser cannot stream mp3 — `test/` holds its node tests, run by `agent-suite.yml` |
-| `dashboard.html` | Desktop shell: scenario list, map, form / address / import sheets |
-| `dashboard.js` | Trigger scenarios, situations and calls (each their own tab): CRUD, describe→draft, tunable-value sliders, voice feedback → proposed versions, history, spec export, Excel paste-import, address pinning, compare + verdict — and loading the starter sheets / demo route |
+| `dashboard.html` | Desktop shell: scenario list, map, form / address / import / stop sheets, the ROUTES tab's look |
+| `dashboard.js` | Trigger scenarios, situations and calls (each their own tab): CRUD, describe→draft, tunable-value sliders, voice feedback → proposed versions, history, spec export, Excel paste-import, address pinning, compare + verdict, loading the starter sheets — and the ROUTES tab: which route the phones show, routes and stops added, moved and removed, the demo routes loaded whole |
 | `situations-starter.js` | The starter situations: twenty things a driver reports after pressing REPORT — the driver's first words, what they know if asked, what a fitting follow-up covers, what is off topic, the tip to confirm; loadable in one tap into the dashboard's SITUATIONS tab |
 | `calls-starter.js` | The starter calls: ten calls Otto makes from the back office — a home check for a fresh-food box, the call that tells the driver, a late notice, a stop to skip, a wrong number — who is rung, why, what they say, what the call must establish, the outcome, and the call that follows; loadable in one tap into the dashboard's CALLS tab, and the phone's fallback list for ⚙ → TAKE A CALL |
 | `trigger-scenarios.js` | The starter sheet: ten finished "Otto triggers" rows — the deck's worked example, eight more situations, the clean-run control — loadable in one tap, idempotent by title |
@@ -1655,5 +1719,5 @@ The composition happens entirely through the kits' public seams:
 | `scripts/migrate_supabase.py` | Moves the rows to another Supabase project, ids intact (`schema.sql` does the tables) |
 | `voice-note.js/.css` | from voice-notes-kit + hands-free pause-to-send |
 | `geolocate.js`, `field-map.js/.css` | verbatim from field-map-kit |
-| `supabase/schema.sql` | `destinations` (incl. pre-arrival notes: consignee / floor / entrance / kind / notes, and route / stop) + `messages` (incl. the agent conversation, its ElevenLabs `conversation_id` and the dashboard's `grade` of it) + `scenarios` (incl. params / versions / feedback) + `situations` + `calls` (the calls Otto makes: who is rung, why, what they say, the outcome, the call that follows) + `runs` + `visits` (the Delivered tap) + `dart_throws` (one row per dart thrown after a report) + `agent_runs` (one row per suite run the agent loop published) + `accepted_findings`, RLS |
+| `supabase/schema.sql` | `destinations` (incl. pre-arrival notes: consignee / floor / entrance / kind / notes, and route / stop) + `messages` (incl. the agent conversation, its ElevenLabs `conversation_id` and the dashboard's `grade` of it) + `scenarios` (incl. params / versions / feedback) + `situations` + `calls` (the calls Otto makes: who is rung, why, what they say, the outcome, the call that follows) + `runs` + `visits` (the Delivered tap) + `routes` (one row per route: name, on foot or by van, and `active` — the route the phones show) + `dart_throws` (one row per dart thrown after a report) + `agent_runs` (one row per suite run the agent loop published) + `accepted_findings`, RLS |
 | `supabase/functions/` | `voice-note` (kit + trailing-"stop" strip + a text path for agent conversations) + `geocode` (verbatim) + `scenario-ai` (draft, revise & the 🇮🇹 question translation) + `elevenlabs-token` (signed URLs for a private agent) + `elevenlabs-tts` (the pre-arrival notes read in Otto's real voice, streamed as they are made) |

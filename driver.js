@@ -35,7 +35,7 @@
 window.DriverScreen = (() => {
   const $ = id => document.getElementById(id);
   const root = $('driver');
-  const stub = { open() {}, back() {}, hide() {}, refresh() {}, openStop() {}, readingDone() {}, get opened() { return false; } };
+  const stub = { open() {}, back() {}, hide() {}, refresh() {}, openStop() {}, readingDone() {}, callCustomer() {}, get opened() { return false; } };
   /* a phone can hold yesterday's app.js next to today's page (a WebView
    * that skipped revalidation) — without the app's seams, this screen
    * stays out of the way and the rest of the page boots as before */
@@ -87,6 +87,7 @@ window.DriverScreen = (() => {
     pencil: 'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.41-1.83z',
     route: 'M19 15.18V7c0-2.21-1.79-4-4-4s-4 1.79-4 4v10c0 1.1-.9 2-2 2s-2-.9-2-2V8.82C8.16 8.4 9 7.3 9 6c0-1.66-1.34-3-3-3S3 4.34 3 6c0 1.3.84 2.4 2 2.82V17c0 2.21 1.79 4 4 4s4-1.79 4-4V7c0-1.1.9-2 2-2s2 .9 2 2v8.18c-1.16.42-2 1.52-2 2.82 0 1.66 1.34 3 3 3s3-1.34 3-3c0-1.3-.84-2.4-2-2.82z',
     flag: 'M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z',
+    phone: 'M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z',
     couch: 'M21 10c-1.1 0-2 .9-2 2v3H5v-3c0-1.1-.9-2-2-2s-2 .9-2 2v5c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2v-5c0-1.1-.9-2-2-2zm-3-5H6c-1.1 0-2 .9-2 2v2.15c1.16.41 2 1.51 2 2.85v1h12v-1c0-1.34.84-2.44 2-2.85V7c0-1.1-.9-2-2-2z',
     food: 'M11 9H9V2H7v7H5V2H3v7c0 2.12 1.66 3.84 3.75 3.97V22h2.5v-9.03C11.34 12.84 13 11.12 13 9V2h-2v7zm5-3v8h2.5v8H21V2c-2.76 0-5 2.24-5 4z',
   };
@@ -108,7 +109,13 @@ window.DriverScreen = (() => {
    * show up here without a seam. */
   const byStop = (a, b) => ((a.stop == null ? 1e9 : a.stop) - (b.stop == null ? 1e9 : b.stop))
     || String(a.created_at || '').localeCompare(String(b.created_at || ''));
+  /* the routes on this phone: the one the dashboard put on the phones
+   * when it marked one (its ROUTES tab; activeRouteId in app.js), else
+   * every route the rows name — a store from before the dashboard
+   * could choose, where the title's picker still does the choosing */
   const routesOnFile = () => {
+    const act = typeof activeRouteId === 'function' ? activeRouteId() : null;
+    if (act) return [act];
     const seen = [];
     destinations.forEach(d => { if (d.route && !seen.includes(d.route)) seen.push(d.route); });
     return seen;
@@ -121,6 +128,9 @@ window.DriverScreen = (() => {
    * route's own scenario row's title ("Kollwitzkiez 01 route — …"),
    * else the id made readable */
   const routeNameOf = id => {
+    /* the routes table's own name first — a route made on the dashboard has no file */
+    const row = typeof routesMeta !== 'undefined' && Array.isArray(routesMeta) ? routesMeta.find(x => x && x.id === id) : null;
+    if (row && row.name) return row.name;
     const r = demoRoutes().find(x => x && x.id === id);
     if (r && r.name) return r.name;
     const sc = typeof routeScenarios !== 'undefined' && routeScenarios[id];
@@ -383,8 +393,8 @@ window.DriverScreen = (() => {
 
   /* ---------- the list ---------- */
   function noteEl(n) {
-    const row = h('p', 'dv-note' + (n.by === 'driver' ? ' driver' : ''));
-    row.appendChild(h('b', null, n.by === 'driver' ? 'DRIVER' : 'DISPATCH'));
+    const row = h('p', 'dv-note' + (n.by === 'driver' ? ' driver' : n.call ? ' call' : ''));
+    row.appendChild(h('b', null, n.call ? 'CUSTOMER' : n.by === 'driver' ? 'DRIVER' : 'DISPATCH'));
     row.appendChild(h('span', null, String(n.text)));
     return row;
   }
@@ -433,6 +443,13 @@ window.DriverScreen = (() => {
     bad.onclick = () => visit(d, 'failed');
     row.append(ok, bad);
     card.appendChild(row);
+    if (canCall()) {
+      const call = withIcon(h('button', 'dv-btn outline', 'Call the customer'), 'phone');
+      call.type = 'button';
+      call.title = 'Otto rings — you answer as the customer — and checks that someone is home for the delivery';
+      call.onclick = () => callCustomer(d);
+      card.appendChild(call);
+    }
     return card;
   }
   function rowEl(d, isNext) {
@@ -484,7 +501,7 @@ window.DriverScreen = (() => {
     if (!routeId) {
       if (!loaded) { box.appendChild(emptyEl('refresh', 'Loading today\'s route…', 'One moment — the stops are on their way from the store.')); return; }
       const e = emptyEl('route', 'No route on file',
-        'Load today\'s route on the dashboard — the ⇪ ROUTE chip — and its stops show up here, in driving order.');
+        'Load today\'s route on the dashboard — the ROUTES tab — and its stops show up here, in driving order.');
       const r = withIcon(h('button', 'dv-btn outline', 'Check again'), 'refresh');
       r.type = 'button';
       r.onclick = reload;
@@ -493,6 +510,18 @@ window.DriverScreen = (() => {
       return;
     }
     const list = stops();
+    if (!list.length) {
+      /* the route on the phones has no stops yet — a new one, still being built on the dashboard */
+      if (!loaded) { box.appendChild(emptyEl('refresh', 'Loading today\'s route…', 'One moment — the stops are on their way from the store.')); return; }
+      const e = emptyEl('route', 'No stops on this route yet',
+        'Add them on the dashboard — the ROUTES tab, “+ Add a stop” — and they show up here, in driving order.');
+      const r = withIcon(h('button', 'dv-btn outline', 'Check again'), 'refresh');
+      r.type = 'button';
+      r.onclick = reload;
+      e.appendChild(r);
+      box.appendChild(e);
+      return;
+    }
     const next = nextOf(list);
     const todo = list.filter(d => stateOf(d) === 'open');
     const done = list.filter(d => stateOf(d) !== 'open');
@@ -664,8 +693,8 @@ window.DriverScreen = (() => {
       body.appendChild(h('h3', 'dv-sec', 'On file for this door'));
       if (who) body.appendChild(kv('home', null, String(d.consignee || '').trim() || 'Delivery',
         [String(d.entrance || '').trim(), floorText(d.floor)].filter(Boolean).join(' · '), 'muted'));
-      notes.forEach(n => body.appendChild(kv(n.by === 'driver' ? 'person' : 'note', n.by === 'driver' ? 'green' : null,
-        n.by === 'driver' ? 'A driver reported' : 'From dispatch', String(n.text))));
+      notes.forEach(n => body.appendChild(kv(n.call ? 'phone' : n.by === 'driver' ? 'person' : 'note', n.by === 'driver' ? 'green' : n.call ? 'navy' : null,
+        n.call ? 'Agreed with the customer' : n.by === 'driver' ? 'A driver reported' : 'From dispatch', String(n.text))));
       reports.slice(0, 3).forEach(r => body.appendChild(kv('mic', 'green', 'Reported to Otto' + (r.category ? ' · ' + r.category : ''),
         String(r.title || r.transcript))));
       const lines = briefingLines(d);
@@ -700,8 +729,15 @@ window.DriverScreen = (() => {
       });
     }
 
-    /* Otto: the report, filed against this stop */
-    body.appendChild(h('h3', 'dv-sec', 'Something to report?'));
+    /* Otto: the customer call, and the report — both filed against this stop */
+    body.appendChild(h('h3', 'dv-sec', 'Otto'));
+    if (canCall()) {
+      const call = withIcon(h('button', 'dv-btn outline', 'Call the customer'), 'phone');
+      call.type = 'button';
+      call.onclick = () => callCustomer(d);
+      body.appendChild(call);
+      body.appendChild(h('p', 'dv-hint', `Otto rings ${String(d.consignee || '').trim() || 'the customer'} about this delivery — you answer as the customer. What is agreed lands here as a note for the driver.`));
+    }
     const otto = withIcon(h('button', 'dv-btn outline', 'Report to Otto'), 'mic');
     otto.type = 'button';
     otto.onclick = () => report(d);
@@ -733,6 +769,17 @@ window.DriverScreen = (() => {
      * simply stays underneath Otto's, as before. */
     try { ottoReturn = open; } catch { /* older app.js */ }
     openOtto(d || null, true);
+  }
+  /* "Call the customer": Otto rings about THIS stop — the row is built
+   * from the stop (customerCallRow in app.js), the phone rings now, the
+   * person answers as the consignee, and the conversation covers this
+   * screen and hands it back after, the stop now carrying what was agreed */
+  const canCall = () => typeof armCall === 'function' && typeof customerCallRow === 'function';
+  function callCustomer(d) {
+    if (!d || !canCall()) return;
+    closeSheet();
+    try { ottoReturn = open; } catch { /* older app.js */ }
+    armCall(customerCallRow(d), 0, '');
   }
   function reportNearest() {
     const p = LiveGeo.stale ? null : position();
@@ -899,5 +946,5 @@ window.DriverScreen = (() => {
   /* the dashboard's DRIVER ↗ link lands straight on this screen */
   if (location.hash === '#driver') open();
 
-  return { open, back, hide, refresh, openStop, readingDone, get opened() { return showing(); } };
+  return { open, back, hide, refresh, openStop, readingDone, callCustomer, get opened() { return showing(); } };
 })();
