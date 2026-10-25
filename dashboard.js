@@ -3670,7 +3670,7 @@ function render() {
         <p>Define what the tester should act out and what Otto should understand — then pin each scenario to a real address.</p>
         <div class="top-actions">
           <button class="chip primary" type="button" data-empty="new">+ NEW SCENARIO</button>
-          <button class="chip" type="button" data-empty="import">⎘ PASTE FROM EXCEL</button>
+          <button class="chip" type="button" data-empty="import">⇩ IMPORT</button>
           ${SHEET ? `<button class="chip" type="button" data-empty="sheet">⇩ LOAD THE STARTER SHEET · ${SHEET.scenarios.length}</button>` : ''}
           ${!routesOnFile().length ? '<button class="chip" type="button" data-empty="route">⇪ ROUTES — LOAD A DEMO ROUTE</button>' : ''}
         </div>
@@ -4618,16 +4618,75 @@ function rowsToScenarios(text) {
     .filter(s => s.title);
 }
 
+/* ---------- the import sheet ----------
+ * Three doors in, each a card with one button: the starter sheet, with
+ * its state (none loaded, some missing, all in); rows copied from
+ * Excel — the paste box, folded away until asked for, since most
+ * sessions never open it; and the way to the ROUTES tab, where the
+ * routes went. No links, no box on display that nobody uses. */
+let importMode = 'pick'; // pick | paste
+function renderImportSheet() {
+  const box = el('import-options');
+  const cards = [];
+  if (SHEET) {
+    const total = SHEET.scenarios.length;
+    const n = sheetMissing().length;
+    const status = n === total ? ''
+      : n ? `<span class="imp-status warn">${n} OF THE ${total} ARE NOT IN THE LIST</span>`
+      : `<span class="imp-status ok">ALL ${total} ARE IN THE LIST</span>`;
+    cards.push(`
+      <div class="imp-opt">
+        <div class="imp-ic">⇩</div>
+        <div class="imp-body">
+          <b>The starter sheet · ${total} scenarios</b>
+          <span>The deck's “${esc(SHEET.name)}” sheet — the ${total} scenarios the pilot started from, every column filled in.</span>
+          ${status}
+        </div>
+        <button class="sheet-btn primary" type="button" data-imp="sheet"${n ? '' : ' disabled'}>${n === total ? `Load all ${total}` : n ? `Restore ${n}` : 'In the list ✓'}</button>
+      </div>`);
+  }
+  cards.push(`
+      <div class="imp-opt">
+        <div class="imp-ic">⎘</div>
+        <div class="imp-body">
+          <b>Rows copied from Excel</b>
+          <span>Your own scenarios: copy the rows in the sheet and paste them here. Each still needs its test address afterwards.</span>
+        </div>
+        <button class="sheet-btn" type="button" data-imp="paste">Paste rows</button>
+      </div>`);
+  const on = routesOnFile();
+  const act = activeRoute();
+  cards.push(`
+      <div class="imp-opt">
+        <div class="imp-ic">⇪</div>
+        <div class="imp-body">
+          <b>Routes</b>
+          <span>The delivery routes live on the ROUTES tab: load a demo route, make a new one, add and move stops, pick the one the phones show.</span>
+          ${on.length ? `<span class="imp-status">${on.length} ROUTE${on.length === 1 ? '' : 'S'} ON FILE${act ? ` · “${esc(String(act.name).toUpperCase())}” ON THE PHONES` : ''}</span>` : ''}
+        </div>
+        <button class="sheet-btn" type="button" data-imp="routes">Open the ROUTES tab</button>
+      </div>`);
+  box.innerHTML = cards.join('');
+  box.hidden = importMode === 'paste';
+  el('import-paste').hidden = importMode !== 'paste';
+}
 function openImport() {
+  importMode = 'pick';
   el('import-text').value = '';
   el('import-preview').textContent = '';
-  renderSheetLink();
+  el('import-go').disabled = true;
+  renderImportSheet();
   el('import-sheet').hidden = false;
+}
+function showPasteBox() {
+  importMode = 'paste';
+  renderImportSheet();
   el('import-text').focus();
 }
 
 function previewImport() {
   const list = rowsToScenarios(el('import-text').value);
+  el('import-go').disabled = !list.length;
   el('import-preview').textContent = !list.length
     ? (el('import-text').value.trim() ? 'No scenario rows recognised — is the "Trigger scenario" column the second one?' : '')
     : `${list.length} scenario${list.length === 1 ? '' : 's'} recognised: `
@@ -4718,20 +4777,6 @@ const sheetMissing = () => {
   const have = new Set(scenarios.map(sc => normTitle(sc.title)));
   return SHEET.scenarios.filter(r => !have.has(normTitle(r.title)));
 };
-
-function renderSheetLink() {
-  const btn = el('sheet-load');
-  if (!SHEET) { btn.hidden = true; return; }
-  const n = sheetMissing().length;
-  const total = SHEET.scenarios.length;
-  btn.hidden = false;
-  btn.disabled = !n;
-  btn.textContent = n === total
-    ? `…or load the ${total}-scenario starter sheet (the deck's “${SHEET.name}”)`
-    : n
-      ? `…or restore the ${n} starter-sheet row${n === 1 ? '' : 's'} not in the list`
-      : `all ${total} starter-sheet scenarios are in the list`;
-}
 
 async function loadSheet() {
   const missing = sheetMissing();
@@ -6296,7 +6341,19 @@ el('spec-all').onclick = exportAllSpecs;
 el('import-open').onclick = openImport;
 el('import-cancel').onclick = () => { el('import-sheet').hidden = true; };
 el('import-go').onclick = runImport;
-el('sheet-load').onclick = loadSheet;
+el('import-paste-close').onclick = () => { importMode = 'pick'; renderImportSheet(); };
+el('import-options').addEventListener('click', e => {
+  const b = e.target.closest('[data-imp]');
+  if (!b) return;
+  if (b.dataset.imp === 'sheet') loadSheet();
+  else if (b.dataset.imp === 'paste') showPasteBox();
+  else if (b.dataset.imp === 'routes') {
+    el('import-sheet').hidden = true;
+    setListTab('routes');
+    render();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+});
 /* the header chip is the way to the ROUTES tab from anywhere */
 el('route-chip').onclick = () => { setListTab('routes'); render(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
 el('stop-close').onclick = () => { el('stop-sheet').hidden = true; stopFor = null; };

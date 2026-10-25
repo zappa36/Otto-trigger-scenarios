@@ -884,10 +884,63 @@
   .addr-current b { color: #cfe9f2; }
 
   /* import */
-  #import-text { min-height: 150px; font-family: ui-monospace, monospace; font-size: 12px; resize: vertical; }
+  /* ---------- the import sheet: three doors in, one button each ---------- */
+  .imp-opts { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+  .imp-opts[hidden] { display: none; }
+  .imp-opt {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap; /* a phone drops the button under the words, never squeezes them */
+    padding: 12px 14px;
+    border-radius: 13px;
+    border: 1px solid rgba(140,165,200,.16);
+    background: rgba(140,165,200,.05);
+  }
+  .imp-ic {
+    flex: none;
+    width: 36px; height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    border: 1px solid rgba(60,192,224,.35);
+    background: rgba(60,192,224,.08);
+    color: #7fd6ea;
+    font-size: 16px;
+  }
+  .imp-body { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 3px; }
+  .imp-body b { font-size: 14px; }
+  .imp-body span { font-size: 12.5px; color: #94a1b2; line-height: 1.45; }
+  .imp-body .imp-status { font-family: ui-monospace, monospace; font-size: 10px; letter-spacing: .08em; color: #8b97a8; margin-top: 2px; }
+  .imp-body .imp-status.ok { color: #7ce0b8; }
+  .imp-body .imp-status.warn { color: #ffd95e; }
+  .imp-opt .sheet-btn { flex: none; white-space: nowrap; }
+  .sheet-btn:disabled { opacity: .5; cursor: default; }
+  .imp-paste { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+  .imp-paste[hidden] { display: none; }
+  .imp-paste .addr-tag { color: #7fd6ea; margin: 0; }
+  .imp-how { margin: 0; font-size: 12px; color: #94a1b2; line-height: 1.5; }
+  #import-text { min-height: 110px; font-family: ui-monospace, monospace; font-size: 12px; resize: vertical; }
   #import-preview { font-size: 12.5px; color: #94a1b2; min-height: 1.2em; white-space: pre-wrap; }
-  .link-btn { background: none; border: none; padding: 0; color: #7fd6ea; font-size: 12px; cursor: pointer; text-decoration: underline; }
-  .link-btn:disabled { color: #8b97a8; text-decoration: none; cursor: default; }
+  .imp-foot { display: flex; gap: 8px; }
+  /* the quiet pill: the "…or restore" lines under a list, the "change"
+   * on a picked address — a button that looks like one, not a link */
+  .link-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 11px;
+    border-radius: 999px;
+    border: 1px solid rgba(60,192,224,.35);
+    background: rgba(60,192,224,.06);
+    color: #7fd6ea;
+    font-size: 12px;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .link-btn:hover { border-color: rgba(60,192,224,.6); background: rgba(60,192,224,.12); }
+  .link-btn:disabled { color: #8b97a8; border-color: rgba(140,165,200,.22); background: none; cursor: default; }
   .route-msg { margin: 10px 0 0; font-size: 12.5px; line-height: 1.5; color: #ffd95e; text-align: left; }
   .route-msg.busy { color: #7fd6ea; }
   .route-msg[hidden] { display: none; }
@@ -1702,7 +1755,7 @@
     <button class="chip" id="refresh" type="button" title="Reload scenarios and debriefs">↻ REFRESH</button>
     <button class="chip" id="spec-all" type="button" title="Download every scenario as a JSON spec — tuned values, versions, feedback, test results">⇩ SPECS</button>
     <button class="chip" id="route-chip" type="button" title="The delivery routes — which one the phones show, and the stops on each" hidden></button>
-    <button class="chip" id="import-open" type="button">⎘ PASTE FROM EXCEL</button>
+    <button class="chip" id="import-open" type="button" title="Load the starter sheet, paste rows copied from Excel, or go to the routes">⇩ IMPORT</button>
     <button class="chip primary" id="new-open" type="button">+ NEW SCENARIO</button>
     <button class="chip primary" id="new-situation" type="button" title="One more thing a driver reports — the card is the editor" hidden>+ NEW SITUATION</button>
     <button class="chip primary" id="new-call" type="button" title="One more call Otto makes — the card is the editor" hidden>+ NEW CALL</button>
@@ -1800,17 +1853,23 @@
 <!-- ---------- Excel paste import ---------- -->
 <div class="overlay" id="import-sheet" hidden>
   <div class="panel">
-    <h2>Paste scenarios from the Excel sheet</h2>
-    <span class="sub">Copy rows from the "Otto triggers" sheet (header row is fine too) and paste here. Column order:
-    # · Trigger scenario · Trigger rule (testable) · Activity Recognition states · Other signals needed · Timing to talk · Otto says · What Otto learns (tip type) · How to test it.</span>
-    <textarea id="import-text" placeholder="Paste the copied rows here…"></textarea>
-    <div id="import-preview"></div>
+    <h2>Import scenarios</h2>
+    <span class="sub">Pick a source. A row already in the list is skipped, so nothing doubles up.</span>
+    <!-- three doors in, one button each — rendered by renderImportSheet() -->
+    <div class="imp-opts" id="import-options"></div>
+    <!-- the paste box, folded away until "Paste rows" asks for it -->
+    <div class="imp-paste" id="import-paste" hidden>
+      <span class="addr-tag">ROWS COPIED FROM EXCEL</span>
+      <p class="imp-how">In the "Otto triggers" sheet, select the rows (the header row is fine too), copy, and paste them below. Column order: # · Trigger scenario · Trigger rule · Activity Recognition states · Other signals · Timing to talk · Otto says · What Otto learns · How to test it.</p>
+      <textarea id="import-text" placeholder="Paste the copied rows here…"></textarea>
+      <div id="import-preview"></div>
+      <div class="imp-foot">
+        <button class="sheet-btn primary" id="import-go" type="button" disabled>Import</button>
+        <button class="sheet-btn" id="import-paste-close" type="button">Back</button>
+      </div>
+    </div>
     <div class="panel-foot">
-      <span class="spacer">
-        <button class="link-btn" id="sheet-load" type="button" hidden></button>
-      </span>
-      <button class="sheet-btn" id="import-cancel" type="button">Cancel</button>
-      <button class="sheet-btn primary" id="import-go" type="button">Import</button>
+      <button class="sheet-btn" id="import-cancel" type="button">Close</button>
     </div>
   </div>
 </div>

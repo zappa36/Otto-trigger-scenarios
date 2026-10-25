@@ -69,11 +69,13 @@ columns, same wording:
 
 The loop:
 
-1. **Define** — "+ New scenario", copy rows straight out of the Excel
-   sheet and use "Paste from Excel" (tab-separated clipboard rows, quoted
-   multi-line cells and the header row both handled) — or load the
+1. **Define** — "+ New scenario", or **⇩ IMPORT**: a sheet with one
+   button per source — load the
    [ten-scenario starter sheet](#the-starter-sheet--ten-scenarios-on-file)
-   that ships with the kit.
+   that ships with the kit, paste rows copied straight out of the Excel
+   sheet (tab-separated clipboard rows, quoted multi-line cells and the
+   header row all handled; the paste box stays folded away until asked
+   for), or go to the ROUTES tab.
 2. **Pin** — every scenario gets a clear Google-Maps address: search one,
    or paste coordinates ("52.5346, 13.4109"). The dashboard shows the
    address, its exact coordinates, and keyless **Open in Google Maps** /
@@ -122,8 +124,10 @@ and every card is ready for the meeting.
 [`trigger-scenarios.js`](trigger-scenarios.js) ships the "Otto triggers"
 sheet ready to test: ten finished rows, every column filled, every
 number in every rule a slider. Load them from the empty list's **⇩ LOAD
-THE STARTER SHEET** chip or the link in the ⎘ PASTE FROM EXCEL sheet —
-keyless into localStorage, live as one insert. Loading is idempotent by
+THE STARTER SHEET** chip or the starter-sheet card in the **⇩ IMPORT**
+sheet, whose button says where things stand — "Load all 10", "Restore
+3", or "In the list ✓" — keyless into localStorage, live as one insert.
+Loading is idempotent by
 title: rows already in the list are skipped, so loading again restores
 a deleted row and never doubles one up (a list that started from the
 old single-sample load gains only the nine missing rows). Each row
