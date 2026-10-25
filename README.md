@@ -1048,16 +1048,17 @@ an approach that happened an hour ago. Live, the notes ride the
 keyless, localStorage — the dashboard and the phone keep each other
 fresh the same way scenarios do.
 
-## One route, a hundred doors — the Schöneberg demo route
+## One route, twenty doors — the Schöneberg demo route
 
-Pre-arrival notes were built pin by pin; a real driver meets them a
-hundred times a day. [`route-schoeneberg.js`](route-schoeneberg.js)
-ships that day: **one parcel tour through Berlin-Schöneberg** — 100
-stops in driving order across 87 real addresses, a ~17 km loop from
-Nollendorfplatz through the Akazienkiez, the Bülow quarter and the
-Rote Insel, back into the Bayerisches Viertel. Eleven buildings hold
-more than one stop — one front door, several parcels, so the same
-address appears back to back exactly as a courier works it — and 40
+Pre-arrival notes were built pin by pin; a real driver meets them
+all day long. [`route-schoeneberg.js`](route-schoeneberg.js) ships
+a demo's worth of that day: **one parcel tour through
+Berlin-Schöneberg** — 20 stops in driving order across 17 real
+addresses, a ~7 km loop from Nollendorfplatz down through the
+Akazienkiez and the Crellekiez, up Goltzstraße and out to Potsdamer
+Straße. Three buildings hold two stops — one front door, several
+deliveries, so the same address appears back to back exactly as a
+courier works it — and 13
 stops carry notes on file: **delivery info from dispatch** ("ring
 GOODS-IN, not the front bell") and **what drivers reported on earlier
 tours** ("the stair light is on a short timer — you climb the last
@@ -1068,8 +1069,11 @@ in plain English, so the driver knows which door before the van stops;
 the entrance is read out with
 the name and the floor, shown on every card and row, and edited in the
 stop sheet like the rest. Each stop also says **what kind of delivery**
-it is — a parcel, a bulky item (furniture or large electronics, 13
-stops) or fresh food (11 stops): an icon on every row, pin and card
+it is — a parcel (11 stops), a bulky item (furniture or large
+electronics, 4 stops: a top-floor flat with no lift, a goods-in bay)
+or fresh food (5 stops: flowers, a café's kitchen door, a wine shop)
+— a deliberate mix, so every few stops the van carries something
+else: an icon on every row, pin and card
 (box, couch, fork and knife), a word from Otto on approach ("It is a
 bulky one"), a pick-list in the stop sheet (the `kind` column; a
 parcel is the default). (The `entrance` column — re-run
@@ -1141,7 +1145,7 @@ the briefing keeps the voices apart: consignee, entrance and floor first, then
 on file reads exactly like a real debrief filed against the pin, and
 the card shows the split as DISPATCH / DRIVER tags). Which stops
 carry notes is visible before anyone drives: **amber pins** on the
-dashboard map (the header counts them — "40 with notes"), and a **✎**
+dashboard map (the header counts them — "13 with notes"), and a **✎**
 pin icon on the phone until the stop is debriefed, when ✓ takes over.
 Click a route pin on the dashboard and the **stop sheet** opens:
 every stop behind that door (stacked pins are one building, several
@@ -1159,7 +1163,7 @@ door, the way a courier works through parcels at a single bell.
 their notes and their debriefs at once.
 
 One phone is also two demos: with a route loaded, the phone's map
-screen grows a **ROUTE chip** ("ROUTE · 100 STOPS" / "ROUTE OFF") that hides
+screen grows a **ROUTE chip** ("ROUTE · 20 STOPS" / "ROUTE OFF") that hides
 or shows the route's stops **on this device only** — pins, approach
 readings and taps alike, while scenario pins stay put. Flip it off
 for a clean trigger-scenario test, back on for the route demo; the
@@ -1710,7 +1714,7 @@ The composition happens entirely through the kits' public seams:
 | `elevenlabs/generate-tests.mjs` | One ElevenLabs simulation test per sheet row and persona (`--sheet` the starter sheet, `--supabase` your rows; `--situations` the situation suite, `--calls` the call suite — Otto ringing the customer or the driver, the person on the line simulated in four voices), carrying the dynamic variables a phone would send, a simulated tester who knows what they found, and success conditions derived from the row; deterministic |
 | `elevenlabs/test_configs/` | The generated suite, committed (33 files: ten rows × three personas, plus Italian variants of row #1), one create-test request body each; `regressions/` holds the next-reply tests `cut` makes from debriefs graded bad; `situations/` and `calls/` are cut from the live rows at run time and gitignored; `tests.lock.json` next to it maps test names to ElevenLabs ids once pushed |
 | `elevenlabs/analysis.json` | What `configure` puts on the agent: five evaluation criteria and four data-collection fields ElevenLabs runs on every real call, and the overrides the phone and the loop need enabled |
-| `route-schoeneberg.js` | The Schöneberg demo route: 100 stops in driving order, 87 real geocoded addresses, dispatch + driver notes on file at 40 of them |
+| `route-schoeneberg.js` | The Schöneberg demo route: 20 stops in driving order, 17 real geocoded addresses, 11 parcels / 5 fresh food / 4 bulky, dispatch + driver notes on file at 13 of them |
 | `route-kollwitz.js` | The Kollwitzkiez walking route: 12 stops on foot around Kollwitzplatz, 11 real geocoded addresses, notes on file at 8 — the tour a tester walks so the dispatcher dashboard gets real tours |
 | `activity-rec.js` | Google-AR-style activity states from web signals; `inject()`/`feed()` seams for the real Android API |
 | `backend.js` | Merged Supabase client for both kits + this app's tables |
