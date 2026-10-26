@@ -20,7 +20,7 @@ import {
   type MapPin,
 } from '../data/map';
 import type { TipCategory } from '../data/queue';
-import { doorLabel, type DepotDoor, type DepotRouteLine } from '../otto/doors';
+import { type DepotDoor, type DepotRouteLine, doorLabel } from '../otto/doors';
 import { OttoOrb } from './OttoOrb';
 import styles from './BerlinMap.module.css';
 
@@ -153,6 +153,26 @@ export interface LiveScene {
   focus: { at: LngLat; seq: number } | null;
   onSelectDoor: (key: string) => void;
 }
+
+/* The flat dot's colour: the driver's tap first (green delivered, amber not
+ * delivered — the driver's screen's own colours), a debrief next, white else. */
+const dotFill = (door: DepotDoor) =>
+  door.state === 'done'
+    ? 'var(--pv-done)'
+    : door.state === 'failed'
+      ? 'var(--pv-fail)'
+      : door.debriefed
+        ? 'var(--pv-green)'
+        : '#fff';
+/** " — delivered" / " — not delivered" / " — 1 of 3 done" for a title; '' while every stop is open. */
+const stateWord = (door: DepotDoor) =>
+  door.state === 'done'
+    ? ' — delivered'
+    : door.state === 'failed'
+      ? ' — not delivered'
+      : door.delivered + door.failed > 0
+        ? ` — ${door.delivered + door.failed} of ${door.rows.length} done${door.failed ? `, ${door.failed} not delivered` : ''}`
+        : '';
 
 interface BerlinMapProps {
   /** Null shows every stale-tip pin; otherwise only pins with that tip type. Sample mode only. */
@@ -311,10 +331,20 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
         countries,
         districts,
         live: {
-          routes: liveRoutes.map((route) => {
-            const [sx, sy] = project(route.points[0]);
-            return { id: route.id, d: routeLine(route.points) ?? '', labelX: sx + 9, labelY: sy - 9 };
-          }),
+          /* the route on the phones draws last, so it sits on top where routes cross */
+          routes: [...liveRoutes]
+            .sort((a, b) => Number(a.active) - Number(b.active))
+            .map((route) => {
+              const [sx, sy] = project(route.points[0]);
+              return {
+                id: route.id,
+                name: route.name,
+                active: route.active,
+                d: routeLine(route.points) ?? '',
+                labelX: sx + 9,
+                labelY: sy - 9,
+              };
+            }),
           doors,
           /* stops currently outside the card — drives the "show all" pill */
           beyond: doors.filter(({ x, y }) => x < 0 || x > width || y < 0 || y > height).length,
@@ -459,6 +489,9 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
   const visible = (pin: MapPin) => filter === null || pin.categories.includes(filter);
 
   const selectDoor = (key: string) => live && live.onSelectDoor(key);
+  /* with a route on the phones, the other routes step back in grey —
+   * the sample's own convention (selected route, other routes) */
+  const dimOthers = !!scene?.live && scene.live.routes.some((r) => r.active);
   const doorKeyDown = (key: string) => (e: KeyboardEvent) => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
     e.preventDefault();
@@ -631,8 +664,8 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
                       key={route.id}
                       d={route.d}
                       fill="none"
-                      stroke="var(--pv-green)"
-                      strokeWidth={3}
+                      stroke={dimOthers && !route.active ? 'var(--pv-route-grey)' : 'var(--pv-green)'}
+                      strokeWidth={dimOthers && !route.active ? 2.5 : 3}
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       opacity={0.9}
@@ -646,10 +679,11 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
                       fontFamily="Inter, sans-serif"
                       fontSize={11.5}
                       fontWeight={700}
-                      fill="var(--pv-green-dark)"
+                      fill={dimOthers && !route.active ? 'var(--pv-map-label)' : 'var(--pv-green-dark)'}
                       style={{ paintOrder: 'stroke', stroke: 'var(--pv-map-land)', strokeWidth: 4 }}
                     >
-                      {route.id}
+                      <title>{route.active ? `${route.name} — on the phones` : route.name}</title>
+                      {route.active ? `${route.name} · on the phones` : route.name}
                     </text>
                   ))}
 
@@ -684,17 +718,17 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
                         className={styles.doorDot}
                         role="button"
                         tabIndex={0}
-                        aria-label={doorLabel(door)}
+                        aria-label={doorLabel(door) + stateWord(door)}
                         onClick={() => selectDoor(door.key)}
                         onKeyDown={doorKeyDown(door.key)}
                       >
-                        <title>{doorLabel(door)}</title>
+                        <title>{doorLabel(door) + stateWord(door)}</title>
                         <circle
                           cx={x}
                           cy={y}
                           r={4.5}
-                          fill={door.debriefed ? 'var(--pv-green)' : '#fff'}
-                          stroke={door.debriefed ? '#fff' : 'var(--pv-route-grey)'}
+                          fill={dotFill(door)}
+                          stroke={door.state !== 'open' || door.debriefed ? '#fff' : 'var(--pv-route-grey)'}
                           strokeWidth={1.6}
                         />
                       </g>
@@ -746,9 +780,10 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
                       style={{ left: x, top: y }}
                       role="button"
                       tabIndex={0}
-                      aria-label={doorLabel(door)}
+                      aria-label={doorLabel(door) + stateWord(door)}
                       title={
                         (door.hasNotes ? `${doorLabel(door)} — notes on file` : doorLabel(door)) +
+                        stateWord(door) +
                         (door.analytics && door.analytics.reports > 0
                           ? ` — ${door.analytics.reports} report${door.analytics.reports === 1 ? '' : 's'} in 90 days`
                           : '')
@@ -760,7 +795,15 @@ export function BerlinMap({ filter, live }: BerlinMapProps) {
                       <div className={styles.pinUp}>
                         {selected && <div className={styles.chip}>{doorLabel(door)}</div>}
                         <div
-                          className={`${styles.pinHead} ${door.hasNotes ? '' : styles.pinHeadPlain}`}
+                          className={`${styles.pinHead} ${
+                            door.state === 'done'
+                              ? styles.pinHeadDone
+                              : door.state === 'failed'
+                                ? styles.pinHeadFailed
+                                : door.hasNotes
+                                  ? ''
+                                  : styles.pinHeadPlain
+                          }`}
                         />
                         <div className={styles.pinStem} />
                       </div>

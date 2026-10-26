@@ -48,7 +48,10 @@ function LiveAsk({
   openingQuestion,
   onOpeningQuestionAsked,
 }: AskViewProps & { depot: DepotSnapshot }) {
-  const doors = useMemo(() => groupDoors(depot.stops, depot.debriefs), [depot.stops, depot.debriefs]);
+  const doors = useMemo(
+    () => groupDoors(depot.stops, depot.debriefs, depot.visits),
+    [depot.stops, depot.debriefs, depot.visits],
+  );
   const entries = useMemo(() => buildIndex(doors, depot.debriefs), [doors, depot.debriefs]);
   const [turns, setTurns] = useState<LiveTurn[]>([]);
   const [busy, setBusy] = useState(false);
@@ -60,8 +63,8 @@ function LiveAsk({
   const handedOver = useRef(false);
   const idRef = useRef(0);
   /* the freshest data for an in-flight answer, without re-sending on updates */
-  const groundRef = useRef({ entries, stops: depot.stops });
-  groundRef.current = { entries, stops: depot.stops };
+  const groundRef = useRef({ entries, stops: depot.stops, routes: depot.routes, visits: depot.visits });
+  groundRef.current = { entries, stops: depot.stops, routes: depot.routes, visits: depot.visits };
 
   useEffect(() => {
     const node = scrollerRef.current;
@@ -83,14 +86,14 @@ function LiveAsk({
     ];
     setTurns((t) => [...t, { id: ++idRef.current, role: 'operator', text: q }]);
     setBusy(true);
-    const { entries: ground, stops } = groundRef.current;
+    const { entries: ground, stops, routes, visits } = groundRef.current;
     let answer: OttoAnswer;
     try {
-      answer = await askDispatch(history, buildContext(ground, stops));
+      answer = await askDispatch(history, buildContext(ground, stops, routes, visits));
     } catch {
       /* keyless, function not deployed, or a timeout — the deterministic
        * answerer covers lookups and summaries, and says what it is */
-      answer = localAnswer(q, ground, stops);
+      answer = localAnswer(q, ground, stops, routes, visits);
     }
     setTurns((t) => [...t, { id: ++idRef.current, role: 'otto', answer }]);
     setBusy(false);

@@ -232,7 +232,10 @@ window.DriverScreen = (() => {
     });
     const out = [];
     groups.forEach(door => {
-      const lead = door.find(d => stateOf(d) === 'open') || door[0];
+      /* the first stop still open leads; a finished door shows a parcel
+       * not delivered before the ones that were — the dispatcher's map
+       * reads the door the same way */
+      const lead = door.find(d => stateOf(d) === 'open') || door.find(d => stateOf(d) === 'failed') || door[0];
       const st = stateOf(lead);
       const isNext = !!next && door.some(d => d.id === next.id);
       const isSel = !!selected && door.some(d => d.id === selected);

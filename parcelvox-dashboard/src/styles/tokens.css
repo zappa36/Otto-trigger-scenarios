@@ -30,6 +30,15 @@
   --pv-honey-border: #f3dcb6;
   --pv-honey-panel: #fff8ee;
 
+  /* Delivered / not delivered — the driver's screen's own green and amber
+     (driver.css: --pn-green, --pn-amber), so a finished stop looks the
+     same on the phone and here */
+  --pv-done: #1a7f3d;
+  --pv-done-soft: #e4f4ea;
+  --pv-done-border: #bfe3cb;
+  --pv-fail: #a35500;
+  --pv-fail-soft: #fff1dc;
+
   /* Surfaces */
   --pv-page: #f3f5f8;
   --pv-surface: #ffffff;

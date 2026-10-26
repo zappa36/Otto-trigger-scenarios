@@ -4,13 +4,19 @@ import type { DepotDoor } from './doors';
 /*
  * One search over the store, shared by the finder pane and Otto's
  * deterministic fallback answers: every word of the query must match
- * somewhere on a door; title and address hits rank above consignees,
- * which rank above notes and debriefs.
+ * somewhere on a door; title and address hits rank above consignees and
+ * entrances, which rank above notes, debriefs, the kind of delivery and
+ * the day's state ("delivered", "not delivered").
  */
+
+/* a parcel goes unsaid, as on the phone — null and 'parcel' are the same thing */
+const KIND_WORD: Record<string, string> = { bulky: 'bulky', food: 'fresh food' };
 
 export interface DoorEntry {
   door: DepotDoor;
   consignees: string[];
+  /** Which door, per stop — "rear building, staircase B" — as the bell panel says it. */
+  entrances: string[];
   notes: DepotNote[];
   filed: DepotDebrief[];
   hay: { strong: string; mid: string; weak: string };
@@ -27,19 +33,27 @@ export function buildIndex(
     const notes = rows.flatMap((r) => notesOf(r));
     const filed = rows.flatMap((r) => debriefs[r.id] || []);
     const consignees = rows.map((r) => String(r.consignee || '').trim()).filter(Boolean);
+    const entrances = rows.map((r) => String(r.entrance || '').trim()).filter(Boolean);
+    const kinds = rows.map((r) => KIND_WORD[String(r.kind || '').toLowerCase()] || '').filter(Boolean);
+    /* the day's state in words — a door with one parcel not delivered is
+     * found by "not delivered" whatever its other parcels did */
+    const state = [door.delivered > 0 ? 'delivered' : '', door.failed > 0 ? 'not delivered' : ''].filter(Boolean).join(' ');
     return {
       door,
       consignees,
+      entrances,
       notes,
       filed,
       hay: {
         strong: [door.title, rows[0].addr || '', door.stopNos.map((n) => `stop ${n}`).join(' ')]
           .join(' ')
           .toLowerCase(),
-        mid: consignees.join(' ').toLowerCase(),
+        mid: [...consignees, ...entrances].join(' ').toLowerCase(),
         weak: [
           rows.map((r) => r.floor || '').join(' '),
           rows.map((r) => r.route || '').join(' '),
+          kinds.join(' '),
+          state,
           notes.map((n) => n.text).join(' '),
           filed.map((m) => m.title || m.transcript || '').join(' '),
         ]

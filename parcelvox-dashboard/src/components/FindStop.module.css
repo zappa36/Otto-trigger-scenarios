@@ -135,6 +135,19 @@
   background: var(--pv-mint);
 }
 
+/* the driver's tap — the driver's screen's own green and amber */
+.chipDone {
+  color: var(--pv-done);
+  border-color: var(--pv-done-border);
+  background: var(--pv-done-soft);
+}
+
+.chipFailed {
+  color: var(--pv-fail);
+  border-color: var(--pv-honey-border);
+  background: var(--pv-fail-soft);
+}
+
 .preview {
   font-size: 11.5px;
   line-height: 1.4;

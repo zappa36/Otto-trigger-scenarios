@@ -1,6 +1,15 @@
 import type { OttoAnswer } from '../data/chat';
-import { callFn, callTtsStream, storeMode, type DepotStop } from './depot';
-import { doorLabel } from './doors';
+import {
+  activeRoute,
+  callFn,
+  callTtsStream,
+  storeMode,
+  visitState,
+  type DepotRoute,
+  type DepotStop,
+  type DepotVisit,
+} from './depot';
+import { doorLabel, routeName } from './doors';
 import { searchIndex, type DoorEntry } from './search';
 import { playStream } from './stream';
 
@@ -22,17 +31,67 @@ const fmtDay = (iso?: string) => {
   const t = new Date(iso || 0);
   return isNaN(t.getTime()) ? '' : t.toLocaleDateString([], { day: '2-digit', month: 'short' });
 };
+const fmtClock = (iso?: string) => {
+  const t = new Date(iso || 0);
+  return isNaN(t.getTime()) ? '' : t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+const KIND_WORD: Record<string, string> = { bulky: 'a bulky item', food: 'fresh food' };
+const kindWord = (s: DepotStop) => KIND_WORD[String(s.kind || '').toLowerCase()] || '';
+/** "floor 3" for a number, "Apt 4B" as written — the phone's own rule. */
+const floorWord = (f: string) => (/^\d+$/.test(f) ? `floor ${f}` : f);
+const floorWords = (rows: DepotStop[]) =>
+  rows.map((r) => String(r.floor || '').trim()).filter(Boolean).map(floorWord);
+/** "Delivered 10:42" / "Not delivered 10:50" — the driver's tap on one stop, '' while open. */
+const tapWord = (s: DepotStop, visits: Record<string, DepotVisit>) => {
+  const v = visits[s.id];
+  if (!v) return '';
+  const at = fmtClock(v.delivered_at || v.created_at);
+  return (v.outcome === 'failed' ? 'Not delivered' : 'Delivered') + (at ? ' ' + at : '');
+};
+
+/** The day's count on the route the phones show — the active row, else (nothing
+ * marked yet) the last route on file, which is the phone's own fallback. */
+function progress(stops: DepotStop[], routes: DepotRoute[], visits: Record<string, DepotVisit>) {
+  const act = activeRoute(routes);
+  const ids = [...routes.map((r) => r.id), ...stops.map((s) => s.route)].filter((id): id is string => !!id);
+  const id = act ? act.id : [...new Set(ids)].pop() || null;
+  const onRoute = id ? stops.filter((s) => s.route === id) : [];
+  const delivered = onRoute.filter((s) => visitState(s, visits) === 'done').length;
+  const failed = onRoute.filter((s) => visitState(s, visits) === 'failed').length;
+  const n = onRoute.length;
+  return {
+    act,
+    name: id ? routeName(id, routes) : '',
+    onRoute,
+    stopsWord: `${n} stop${n === 1 ? '' : 's'}`,
+    delivered,
+    failed,
+    open: n - delivered - failed,
+  };
+}
 
 /* ---------- STOP DATA for the model ---------- */
 
-export function buildContext(entries: DoorEntry[], stops: DepotStop[]): string {
+export function buildContext(
+  entries: DoorEntry[],
+  stops: DepotStop[],
+  routes: DepotRoute[] = [],
+  visits: Record<string, DepotVisit> = {},
+): string {
   const withNotes = entries.filter((e) => e.notes.length > 0).length;
   const debriefed = entries.filter((e) => e.filed.length > 0).length;
-  const routes = [...new Set(stops.map((s) => s.route).filter(Boolean))];
+  const routeIds = [...new Set(stops.map((s) => s.route).filter((r): r is string => !!r))];
+  const p = progress(stops, routes, visits);
+  const routeWords = routeIds.map(
+    (id) => routeName(id, routes) + (p.act && p.act.id === id ? " (ON THE PHONES — the driver's screen opens on it)" : ''),
+  );
   const head =
     `${stops.length} stops · ${entries.length} addresses on file · ${withNotes} with notes · ` +
     `${debriefed} debriefed` +
-    (routes.length ? ` · route ${routes.join(', ')} (stop numbers are driving order)` : '');
+    (routeIds.length ? ` · route${routeIds.length === 1 ? '' : 's'} ${routeWords.join(', ')} (stop numbers are driving order)` : '') +
+    (p.delivered || p.failed
+      ? ` · today ${p.delivered} of ${p.stopsWord} delivered${p.failed ? `, ${p.failed} not delivered` : ''}, ${p.open} still open`
+      : '');
 
   /* noted and debriefed doors first — if the block must be cut, the quiet
    * stops go, and the tail says how many were dropped */
@@ -48,8 +107,13 @@ export function buildContext(entries: DoorEntry[], stops: DepotStop[]): string {
       `${doorLabel(e.door)}${first.addr ? ` (${first.addr})` : ''}` +
         (e.consignees.length ? ` — for ${e.consignees.join(', ')}` : ''),
     ];
-    const floors = e.door.rows.map((r) => r.floor).filter(Boolean);
-    if (floors.length) parts.push(`floor ${floors.join(', ')}`);
+    if (e.entrances.length) parts.push(`entrance: ${e.entrances.join(', ')}`);
+    const floors = floorWords(e.door.rows);
+    if (floors.length) parts.push(floors.join(', '));
+    const kinds = e.door.rows.map(kindWord).filter(Boolean);
+    if (kinds.length) parts.push(kinds.join(', '));
+    const taps = e.door.rows.map((r) => tapWord(r, visits)).filter(Boolean);
+    if (taps.length) parts.push(taps.map((t) => t.toUpperCase()).join(', '));
     if (e.notes.length) {
       parts.push(
         'NOTES: ' +
@@ -134,14 +198,35 @@ const FALLBACK_SOURCE =
 
 export const ASK_OTTO_SUGGESTIONS = [
   'Summary of the situation',
+  'How far is the route?',
   'Which stops have notes?',
   'Latest driver debriefs',
 ];
 
-function summaryAnswer(entries: DoorEntry[], stops: DepotStop[]): OttoAnswer {
+/** "“Schöneberg 01” is on the phones — 7 of 20 stops delivered, 1 not delivered, 12 still open." */
+function routeSentence(stops: DepotStop[], routes: DepotRoute[], visits: Record<string, DepotVisit>): string {
+  const p = progress(stops, routes, visits);
+  if (!p.onRoute.length) return '';
+  const who = p.act
+    ? `“${p.act.name}” is on the phones`
+    : `“${p.name}” is what the phones open on while no route is marked for them`;
+  if (!p.delivered && !p.failed) return ` ${who} — ${p.stopsWord}, none delivered yet.`;
+  return (
+    ` ${who} — ${p.delivered} of ${p.stopsWord} delivered` +
+    (p.failed ? `, ${p.failed} not delivered` : '') +
+    (p.open ? `, ${p.open} still open.` : ', the route is done.')
+  );
+}
+
+function summaryAnswer(
+  entries: DoorEntry[],
+  stops: DepotStop[],
+  routes: DepotRoute[],
+  visits: Record<string, DepotVisit>,
+): OttoAnswer {
   const noted = entries.filter((e) => e.notes.length > 0);
   const debriefed = entries.filter((e) => e.filed.length > 0);
-  const routes = [...new Set(stops.map((s) => s.route).filter(Boolean))];
+  const routeIds = [...new Set(stops.map((s) => s.route).filter((r): r is string => !!r))];
   const fresh = [...noted]
     .sort((a, b) => b.newestAt.localeCompare(a.newestAt))
     .slice(0, 3)
@@ -152,13 +237,53 @@ function summaryAnswer(entries: DoorEntry[], stops: DepotStop[]): OttoAnswer {
   return {
     lead:
       `${stops.length} stops across ${entries.length} addresses on file` +
-      (routes.length ? `, route ${routes.join(', ')} in driving order` : '') +
+      (routeIds.length
+        ? `, route${routeIds.length === 1 ? '' : 's'} ${routeIds.map((id) => routeName(id, routes)).join(', ')} in driving order`
+        : '') +
       `. ${noted.length} address${noted.length === 1 ? ' carries' : 'es carry'} notes Otto reads on approach; ` +
-      `${debriefed.length} ${debriefed.length === 1 ? 'has' : 'have'} a driver debrief on file.`,
+      `${debriefed.length} ${debriefed.length === 1 ? 'has' : 'have'} a driver debrief on file.` +
+      routeSentence(stops, routes, visits),
     bullets: fresh.length ? fresh : undefined,
     tail: fresh.length ? 'Those are the freshest notes on file.' : undefined,
     sources: [FALLBACK_SOURCE],
-    actions: ['Which stops have notes?', 'Latest driver debriefs'],
+    actions: ['How far is the route?', 'Which stops have notes?', 'Latest driver debriefs'],
+  };
+}
+
+/** How the day is going: the driver's taps on the route the phones show. */
+function progressAnswer(
+  entries: DoorEntry[],
+  stops: DepotStop[],
+  routes: DepotRoute[],
+  visits: Record<string, DepotVisit>,
+): OttoAnswer {
+  const p = progress(stops, routes, visits);
+  if (!p.onRoute.length) {
+    return {
+      lead: p.act
+        ? `“${p.act.name}” is on the phones but has no stops yet — add them on the trigger dashboard, behind the ROUTE door.`
+        : 'No route is on the phones yet — load one on the trigger dashboard, behind the ROUTE door.',
+      sources: [FALLBACK_SOURCE],
+    };
+  }
+  const entryOf = (s: DepotStop) => entries.find((e) => e.door.rows.some((r) => r.id === s.id));
+  const label = (s: DepotStop) => {
+    const e = entryOf(s);
+    return e ? doorLabel(e.door) : `Stop ${s.stop ?? ''} · ${s.title || s.addr || ''}`.trim();
+  };
+  const byStop = (a: DepotStop, b: DepotStop) => (a.stop ?? 1e9) - (b.stop ?? 1e9);
+  const failed = p.onRoute.filter((s) => visitState(s, visits) === 'failed').sort(byStop);
+  const next = p.onRoute.filter((s) => visitState(s, visits) === 'open').sort(byStop)[0];
+  const bullets: OttoAnswer['bullets'] = [
+    ...failed.map((s) => ({ tone: 'honey' as const, text: `**${label(s)}** — ${tapWord(s, visits)}` })),
+    ...(next ? [{ tone: 'green' as const, text: `Next open stop: **${label(next)}**` }] : []),
+  ];
+  return {
+    lead: routeSentence(stops, routes, visits).trim(),
+    bullets: bullets.length ? bullets : undefined,
+    tail: p.delivered || p.failed ? 'Counted from the Delivered and Not delivered taps on the driver\'s screen.' : undefined,
+    sources: [FALLBACK_SOURCE],
+    actions: failed.length ? ['Which stops have notes?'] : undefined,
   };
 }
 
@@ -205,12 +330,20 @@ function debriefsAnswer(entries: DoorEntry[]): OttoAnswer {
   };
 }
 
-function stopAnswer(e: DoorEntry): OttoAnswer {
+function stopAnswer(e: DoorEntry, visits: Record<string, DepotVisit>): OttoAnswer {
   const first = e.door.rows[0];
+  const where = [...e.entrances, ...floorWords(e.door.rows)].join(', ');
+  const kinds = [...new Set(e.door.rows.map(kindWord).filter(Boolean))];
   const bullets: OttoAnswer['bullets'] = [
+    ...e.door.rows
+      .filter((r) => visits[r.id])
+      .map((r) => ({
+        tone: visits[r.id].outcome === 'failed' ? ('honey' as const) : ('green' as const),
+        text: `${visits[r.id].outcome === 'failed' ? '✕' : '✓'} ${tapWord(r, visits)}${e.door.rows.length > 1 && r.stop != null ? ` (stop ${r.stop})` : ''}`,
+      })),
     ...e.notes.map((n) => ({
       tone: 'honey' as const,
-      text: `${n.by === 'driver' ? 'A driver reported' : 'From dispatch'}: ${n.text}`,
+      text: `${n.call ? 'Agreed with the customer' : n.by === 'driver' ? 'A driver reported' : 'From dispatch'}: ${n.text}`,
     })),
     ...e.filed.slice(0, 2).map((m) => ({
       tone: 'green' as const,
@@ -221,14 +354,14 @@ function stopAnswer(e: DoorEntry): OttoAnswer {
     lead:
       `**${doorLabel(e.door)}**${first.addr ? ` — ${first.addr}` : ''}.` +
       (e.consignees.length
-        ? ` Delivery for ${e.consignees.join(' and ')}` +
-          (e.door.rows.some((r) => r.floor) ? ` (floor ${e.door.rows.map((r) => r.floor).filter(Boolean).join(', ')})` : '') +
-          '.'
-        : ''),
+        ? ` Delivery for ${e.consignees.join(' and ')}` + (where ? ` (${where})` : '') + (kinds.length ? ` — ${kinds.join(', ')}` : '') + '.'
+        : where || kinds.length
+          ? ` Delivery${where ? ` to ${where}` : ''}${kinds.length ? ` — ${kinds.join(', ')}` : ''}.`
+          : ''),
     bullets: bullets.length ? bullets : undefined,
-    tail: bullets.length
-      ? 'That is exactly what Otto reads aloud on approach.'
-      : 'Nothing on file here yet — Otto would read only the consignee.',
+    tail: e.notes.length || e.filed.length
+      ? 'The notes and debriefs are exactly what Otto reads aloud on approach.'
+      : 'Nothing on file here yet — Otto would read only the consignee, the entrance and the floor.',
     sources: [FALLBACK_SOURCE],
   };
 }
@@ -240,10 +373,37 @@ const FILLER = new Set([
   'stop', 'stops', 'note', 'notes', 'file', 'have', 'has', 'with', 'info', 'on', 'at',
 ]);
 
-export function localAnswer(question: string, entries: DoorEntry[], stops: DepotStop[]): OttoAnswer {
+/** True when the question names a stop: a word of four letters or more that
+ * sits in the title or address of a few doors (not of all of them, like
+ * "Berlin"), or "stop 7". */
+function namesAStop(entries: DoorEntry[], q: string): boolean {
+  if (!entries.length) return false;
+  const words = q.split(/[^\p{L}\p{N}]+/u).filter((t) => /^\p{L}{4,}$/u.test(t) && !FILLER.has(t));
+  const few = Math.max(2, Math.ceil(entries.length / 3));
+  const named = words.some((w) => {
+    const hits = entries.filter((e) => e.hay.strong.includes(w)).length;
+    return hits > 0 && hits <= few;
+  });
+  const stopNo = (q.match(/\bstop (\d+)\b/) || [])[1];
+  return named || (!!stopNo && entries.some((e) => e.door.stopNos.includes(Number(stopNo))));
+}
+
+export function localAnswer(
+  question: string,
+  entries: DoorEntry[],
+  stops: DepotStop[],
+  routes: DepotRoute[] = [],
+  visits: Record<string, DepotVisit> = {},
+): OttoAnswer {
   const q = question.trim().toLowerCase();
+  /* the day's progress — before the stop lookup, so "not delivered" is a
+   * question about the route and not a search for a stop with those words;
+   * a question that names a stop ("did we deliver to Maaßenstraße 8?") is
+   * about that stop, whatever else it says, and goes on to the lookup */
+  if (!namesAStop(entries, q) && /(how far|progress|deliver|still open|left to do|remaining|how many.*(done|left)|route going)/.test(q))
+    return progressAnswer(entries, stops, routes, visits);
   if (/(summar|situation|overview|status|how.*(look|going|doing)|update)/.test(q))
-    return summaryAnswer(entries, stops);
+    return summaryAnswer(entries, stops, routes, visits);
   if (/debrief/.test(q)) return debriefsAnswer(entries);
   if (/(which|what|list|show).*(note|tip)|notes\?$|stops with notes/.test(q))
     return notedAnswer(entries);
@@ -266,11 +426,11 @@ export function localAnswer(question: string, entries: DoorEntry[], stops: Depot
     }
     if (top) best = top.e;
   }
-  if (best) return stopAnswer(best);
+  if (best) return stopAnswer(best, visits);
   return {
     lead:
       'I could not match that to a stop on file. Ask me about a stop by street or consignee, ' +
-      'or for a summary of the situation.',
+      'for a summary of the situation, or how far the route is.',
     sources: [FALLBACK_SOURCE],
     actions: ASK_OTTO_SUGGESTIONS,
   };

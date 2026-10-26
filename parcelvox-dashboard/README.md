@@ -56,7 +56,7 @@ its own document wrapper. Deploy the first; publish the second (it has no
 
 | View | What it does |
 | --- | --- |
-| **Map** (default) | Live when the surrounding app has stops on file: the real destinations from the shared store, framed on the data — route lines in driving order, amber pins where pre-arrival notes wait, green where a driver debriefed; click a stop to read and edit its notes ([see below](#connected-to-the-real-app-map-and-notes)). The side pane is then **Find a stop** — a real search over the store; a pick flies the map there and opens the notes. Empty store → the fictional citywide sample: all 8 routes fanning out from the Nordhaven depot, Rte 14 highlighted, Kranweg 12 marked with Otto's orb, and the scripted Ask panel beside it. |
+| **Map** (default) | Live when the surrounding app has stops on file: the real destinations from the shared store, framed on the data — route lines in driving order, amber pins where pre-arrival notes wait, blue where a driver debriefed, green once delivered; click a stop to read and edit its notes ([see below](#connected-to-the-real-app-map-and-notes)). The side pane is then **Find a stop** — a real search over the store; a pick flies the map there and opens the notes. Empty store → the fictional citywide sample: all 8 routes fanning out from the Nordhaven depot, Rte 14 highlighted, Kranweg 12 marked with Otto's orb, and the scripted Ask panel beside it. |
 | **Routes** | Coverage, failed stops and ETA accuracy per route, with a note on every route that runs late. Rows open the route detail. |
 | **Route detail** | Rte 14 stop by stop: tips on file, last confirmed, and the last four Mondays. |
 | **Curation queue** | Tips from Otto debriefs awaiting review — approve, edit or reject. The nav badge tracks what is left. |
@@ -67,24 +67,40 @@ its own document wrapper. Deploy the first; publish the second (it has no
 ## Connected to the real app: map and notes
 
 The two surfaces around this repo — the phone (`index.html`) and the trigger-scenarios dashboard
-(`dashboard.html`) — share one store of destinations and pre-arrival notes. The dispatcher
-dashboard's **Map view reads and writes that same store**, through `src/otto/depot.ts`, which
-mirrors the app's `backend.js` and decides once at load:
+(`dashboard.html`) — share one store: destinations and pre-arrival notes, the `routes` table
+(which route the Route door put on the phones) and the `visits` table (the driver's Delivered /
+Not delivered taps). The dispatcher dashboard's **Map view reads and writes that same store**,
+through `src/otto/depot.ts`, which mirrors the app's `backend.js` and decides once at load:
 
 - **Supabase**, when the deployed page carries real values in `config.js` (the standalone bundle
   loads it from its own origin; deploy-time injection fills it — see [How it ships](#how-it-ships)).
-  Reads poll every 30 s, REST only, exactly like `dashboard.js`; writes `PATCH` the
-  `destinations` row.
-- **localStorage** otherwise, under the same keys the other two pages use (`od_destinations` /
-  `od_messages`). Same origin means same store: load the Schöneberg demo route on
-  `dashboard.html` and this map goes live off the storage event, no reload.
+  Reads poll every 30 s, REST only, exactly like `dashboard.js` (and, since the phone re-reads the
+  store on the same cadence, like the phone); writes `PATCH` the `destinations` row. A store from
+  before the `routes` or `visits` table still shows its stops and notes — those two ride their
+  own requests.
+- **localStorage** otherwise, under the same keys the other two pages use (`od_destinations`,
+  `od_messages`, `od_routes`, `od_visits`). Same origin means same store: load the Schöneberg demo
+  route on `dashboard.html` and this map goes live off the storage event, no reload.
 
 With stops on file, the map frames itself on the data and draws the real thing: route lines in
-driving order, flat dots for plain stops (green once a driver has debriefed), standing **amber
+driving order, flat dots for plain stops (blue once a driver has debriefed), standing **amber
 pins where pre-arrival notes are on file**. Click any stop and the **stop panel** opens — every
-parcel behind that door, its consignee and floor (editable), the dispatch notes Otto reads aloud
-on approach (add and remove them right here), and the latest real driver debriefs, read-only. A
-note added here is read out on the driver's phone on its next approach.
+parcel behind that door, its consignee, entrance, floor and kind of delivery (editable — the same
+four fields the driver's screen shows and the trigger dashboard's stop sheet edits), the dispatch
+notes Otto reads aloud on approach (add and remove them right here), and the latest real driver
+debriefs, read-only. A note added here is read out on the driver's phone on its next approach.
+
+Two more things keep this page in step with the van:
+
+- **The route on the phones.** The trigger dashboard's Route door marks one `routes` row active
+  and the driver's screen opens on it. Here that route is drawn in PostNord blue and named in the
+  legend ("Schöneberg 01 — on the phones"); any other route on file steps back in grey. With no
+  route marked (or no `routes` table yet) every route draws alike and the legend says so.
+- **The driver's taps.** Every ✓ Delivered / ✕ Not delivered on the phone is a `visits` row; the
+  newest tap per stop counts, exactly as the phone keeps it. A finished door's dot turns green, a
+  missed one amber (the driver's screen's own colours), the legend counts them, the stop panel
+  shows "✓ Delivered · 10:42" on each stop, the finder tags the stops done, and Otto's Ask view
+  answers "how far is the route?" from the same rows.
 
 The map moves: drag to pan, scroll to zoom, `+` / `−` / `⌖` controls. Every stop is drawn
 wherever it is — a Natural Earth countries backdrop (see
@@ -181,7 +197,7 @@ src/
   components/          BerlinMap, StopPanel (the live stop sheet), Chat bubbles, Composer, VoiceCapture, OttoOrb, Icons, EtaTrendChart
   views/               one file per view, each with its CSS module
   data/                sample content — routes, stops, queue, drivers, analytics, map geometry, chat script
-  otto/                the wire to the real app: depot.ts (shared store, Supabase / localStorage), doors.ts (door + route grouping, API places matched in), useDepot;
+  otto/                the wire to the real app: depot.ts (shared store, Supabase / localStorage — stops, notes, debriefs, the routes table, the visits), doors.ts (door + route grouping with the route on the phones and each door's delivery state, API places matched in), useDepot;
                        analytics.ts (the analytics API contract: envelope, cursors, errors) and useAnalytics (places + hotspots for the map, one place's numbers for the panel)
   hooks/               useOttoThread (scripted conversation), useVoiceCapture (timer + partial transcript)
   state/               useCurationQueue (review state behind the nav badge)

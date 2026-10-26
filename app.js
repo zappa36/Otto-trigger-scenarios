@@ -56,6 +56,7 @@ const NO_STOP = '__no_stop__';
 /* the Delivered / Not delivered tap per route stop — the latest visit
  * row by destination id; the scan stand-in a tour is rebuilt from */
 let visitsByDest = {};
+let lastVisitChange = 0;   // the moment of the last tap or undo on THIS phone (the live check reads it)
 const LS_VISITS = 'od_visits';
 const VISIT = { arriveRadius: 30 }; // m — inside this ring the phone counts as "at the door"
 const nearSince = new Map(); // destination id -> first fix time inside the arrival ring
@@ -2593,6 +2594,7 @@ async function markVisit(outcome, dest) {
   if (!row.id) row = { ...row, id: localId('v') };
   if (!row.created_at) row.created_at = row.delivered_at;
   recordVisit(row);
+  lastVisitChange = Date.now();
   persistLocal();
   if (current && current.id === d.id) renderCardVisit(current);
   map.refresh();
@@ -2605,7 +2607,10 @@ async function undoVisit(dest) {
   const v = d && visitsByDest[d.id];
   if (!v) return;
   delete visitsByDest[d.id];
-  if (Backend.enabled && v.id) Backend.deleteVisit(v.id).catch(e => console.warn('undo failed', e.message));
+  lastVisitChange = Date.now();
+  /* …and again once the row is really gone, so a store read that left
+   * before the delete landed is skipped too (the live check, below) */
+  if (Backend.enabled && v.id) Backend.deleteVisit(v.id).then(() => { lastVisitChange = Date.now(); }, e => console.warn('undo failed', e.message));
   persistLocal();
   if (current && current.id === d.id) renderCardVisit(current);
   map.refresh();
@@ -2962,6 +2967,10 @@ document.addEventListener('pointerdown', () => {
   } catch { /* optional */ }
 }, { once: true, capture: true });
 
+/* what the store last answered the phone — the live check (at the end of
+ * this file) repaints only when the next answer differs from it */
+let liveStamp = '';
+
 async function boot() {
   /* boot doubles as reload (the ↻ chip) — start from a clean slate or
    * every re-run would stack the same messages onto the lists again */
@@ -2980,15 +2989,22 @@ async function boot() {
     try {
       scenarios = (await Backend.listScenarios()) || [];
     } catch (e) { console.warn('no scenarios — re-run schema.sql to add the table?', e.message); }
+    /* the visits and the routes as the store answered — the live check
+     * starts from this stamp, so its first round repaints only when
+     * something really changed since boot */
+    let visitsRaw = null, routesRaw = null;
     try {
+      visitsRaw = (await Backend.listVisits(1000)) || [];
       visitsByDest = {};
-      ((await Backend.listVisits(1000)) || []).forEach(recordVisit);
+      visitsRaw.forEach(recordVisit);
     } catch (e) { console.warn('no visits — re-run schema.sql to add the table?', e.message); }
     /* which route the dashboard put on the phones — without the table,
      * every route on file shows */
     try {
-      routesMeta = (await Backend.listRoutes()) || [];
+      routesRaw = (await Backend.listRoutes()) || [];
+      routesMeta = routesRaw;
     } catch (e) { routesMeta = []; console.warn('no routes table — every route on file shows', e.message); }
+    liveStamp = JSON.stringify([destinations, routesRaw, visitsRaw]);
   } else {
     try { destinations = JSON.parse(localStorage.getItem(LS_DEST) || '[]'); } catch { /* private mode */ }
     try { routesMeta = JSON.parse(localStorage.getItem(LS_ROUTES) || '[]'); } catch { /* private mode */ }
@@ -3038,6 +3054,69 @@ if (!Backend.enabled) {
       else { el('card').hidden = true; current = null; }
     }
   });
+}
+
+/* Live mode: the two dashboards poll the store every 30 s, and the phone
+ * did not — "Show on the phones" on the ROUTE door, a stop added there,
+ * a note written on the dispatcher dashboard reached a phone already
+ * open only at its ↻. Now the phone checks the same way: the routes
+ * table, the stops and the visits — three small reads, only while the
+ * page is on screen and nobody is talking to Otto — and repaints only
+ * when something changed, exactly as the storage event does keyless.
+ * Scenarios, debriefs and the calls stay with the ↻ chip: a tester
+ * mid-run keeps the definition they started with. */
+if (Backend.enabled) {
+  const syncLive = async () => {
+    if (document.hidden) return;
+    /* a debrief or a call on the screen, the phone ringing, or ↻ already
+     * at it: next time (`calling` is no guard — it stands after a call
+     * until the row is filed, and would stop the checks for good) */
+    if (!el('otto-screen').hidden || ringing || el('reload').dataset.busy) return;
+    const since = Date.now(); // a tap or undo made after this is fresher than the answer
+    let de, rt, vs;
+    try {
+      [de, rt, vs] = await Promise.all([
+        Backend.listDestinations(),
+        Backend.listRoutes().catch(() => null),   // no routes table yet: what is there stays
+        Backend.listVisits(1000).catch(() => null),
+      ]);
+    } catch (e) { console.warn('store check skipped', e.message); return; }
+    if (!Array.isArray(de)) return;
+    /* the same order boot() keeps: a route's rows share a created_at,
+     * the stop number breaks the tie */
+    de.sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || ''))
+      || ((a.stop == null ? 1e9 : a.stop) - (b.stop == null ? 1e9 : b.stop)));
+    const stamp = JSON.stringify([de, rt, vs]);
+    if (stamp === liveStamp) return;
+    liveStamp = stamp;
+    destinations = de;
+    if (Array.isArray(rt)) routesMeta = rt;
+    /* the visits as the store has them — a tap undone on another phone
+     * leaves here too; unless this phone tapped or undid while the read
+     * was out, when its own change is the fresher truth until next time */
+    if (Array.isArray(vs) && lastVisitChange < since) { visitsByDest = {}; vs.forEach(recordVisit); }
+    rebuildScenarioIndex();
+    renderRouteChip();
+    renderEmpty();
+    map.refresh();
+    if (window.DriverScreen) DriverScreen.refresh();
+    /* an open card follows its stop onto the fresh row — or closes when
+     * the stop was taken off the route */
+    if (current) {
+      const d = destinations.find(x => x.id === current.id);
+      if (d) {
+        current = d;
+        if (!el('card').hidden) {
+          const onSteps = el('sc-tab-steps').classList.contains('on'); // a tester reading HOW TO TEST IT stays on it
+          openCard(d);
+          if (onSteps && el('card-sc-steps').textContent) setScTab('steps');
+        }
+      } else { el('card').hidden = true; current = null; }
+    }
+  };
+  setInterval(syncLive, 30000);
+  /* back from the pocket or another app: what changed meanwhile, now */
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncLive(); });
 }
 
 boot();

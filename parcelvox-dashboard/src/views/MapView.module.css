@@ -111,6 +111,21 @@
   border: 1.5px solid var(--pv-route-grey);
 }
 
+/* the driver's taps — the driver's screen's own green and amber */
+.legendDotDone {
+  width: 9px;
+  height: 9px;
+  border-radius: 99px;
+  background: var(--pv-done);
+}
+
+.legendDotFailed {
+  width: 9px;
+  height: 9px;
+  border-radius: 99px;
+  background: var(--pv-fail);
+}
+
 .legendNote {
   border-top: 1px solid var(--pv-line-soft);
   margin-top: 9px;
