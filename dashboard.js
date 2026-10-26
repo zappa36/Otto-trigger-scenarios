@@ -5723,7 +5723,7 @@ function renderRoutesTab() {
   const demos = DEMO_ROUTES.filter(r => !on.some(x => x.id === r.id));
   const phones = !on.length ? ''
     : routesMissing ? '<p class="rt-phones warn">The store has no <b>routes</b> table yet, so the phones cannot be told which route to show — they show every route on file. Paste supabase/schema.sql into the Supabase SQL editor and run it once (it is safe to re-run), then press ↻ REFRESH.</p>'
-    : act ? `<p class="rt-phones">The phones show <b>${esc(act.name)}</b>${routeStops(act).length ? '' : ' — it has no stops yet'}.</p>`
+    : act ? `<p class="rt-phones">The phones open on <b>${esc(act.name)}</b>${routeStops(act).length ? '' : ' — it has no stops yet'}.</p>`
     : '<p class="rt-phones warn">No route is marked for the phones yet — they show every route on file. Press <b>Show on the phones</b> on the one the driver should see.</p>';
   const note = routeNote
     ? `<p class="route-msg${routeNote.busy ? ' busy' : ''}" id="route-msg">${esc(routeNote.text)}</p>`
@@ -5733,7 +5733,7 @@ function renderRoutesTab() {
     <div class="rt-top">
       <div class="rt-intro">
         <b>Routes</b>
-        <p>A route is the list of doors one van works in a day. One route is on the phones: the driver's screen shows its stops, in order. Open a route to see its stops — add, remove or move them there.</p>
+        <p>A route is the list of doors one van works in a day. One route is on the phones: the driver's screen opens on it, in stop order. A driver can still switch to another route from the title of their screen — the newer choice wins. Open a route here to see its stops — add, remove or move them there.</p>
         ${phones}
         ${note}
       </div>
