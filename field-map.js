@@ -22,32 +22,32 @@
 const FieldMap = (() => {
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-  /* Dark styling, in the two shapes Google demands: objects for the JS API,
-   * pipe-delimited strings for the static endpoint. Same palette, so the
-   * backend swap is invisible. */
+  /* Dark styling in ink blue, in the two shapes Google demands: objects for
+   * the JS API, pipe-delimited strings for the static endpoint. Same
+   * palette, so the backend swap is invisible. */
   const DARK_JS = [
-    { elementType: 'geometry', stylers: [{ color: '#0e1b17' }] },
-    { elementType: 'labels.text.fill', stylers: [{ color: '#6b8f85' }] },
-    { elementType: 'labels.text.stroke', stylers: [{ color: '#081513' }] },
+    { elementType: 'geometry', stylers: [{ color: '#0a1730' }] },
+    { elementType: 'labels.text.fill', stylers: [{ color: '#8b8f95' }] },
+    { elementType: 'labels.text.stroke', stylers: [{ color: '#0a1730' }] },
     { elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
-    { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#1e3a33' }] },
-    { featureType: 'road.arterial', elementType: 'geometry', stylers: [{ color: '#24443c' }] },
-    { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#2c5148' }] },
-    { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0e3346' }] },
-    { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#123f2c' }] },
+    { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#1a2d4d' }] },
+    { featureType: 'road.arterial', elementType: 'geometry', stylers: [{ color: '#213758' }] },
+    { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#2a4468' }] },
+    { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0d2b4d' }] },
+    { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#122a45' }] },
     { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
     { featureType: 'transit', stylers: [{ visibility: 'off' }] },
   ];
   const DARK_STATIC = [
-    'feature:all|element:geometry|color:0x0e1b17',
-    'feature:all|element:labels.text.fill|color:0x6b8f85',
-    'feature:all|element:labels.text.stroke|color:0x081513',
+    'feature:all|element:geometry|color:0x0a1730',
+    'feature:all|element:labels.text.fill|color:0x8b8f95',
+    'feature:all|element:labels.text.stroke|color:0x0a1730',
     'feature:all|element:labels.icon|visibility:off',
-    'feature:road|element:geometry|color:0x1e3a33',
-    'feature:road.arterial|element:geometry|color:0x24443c',
-    'feature:road.highway|element:geometry|color:0x2c5148',
-    'feature:water|element:geometry|color:0x0e3346',
-    'feature:poi.park|element:geometry|color:0x123f2c',
+    'feature:road|element:geometry|color:0x1a2d4d',
+    'feature:road.arterial|element:geometry|color:0x213758',
+    'feature:road.highway|element:geometry|color:0x2a4468',
+    'feature:water|element:geometry|color:0x0d2b4d',
+    'feature:poi.park|element:geometry|color:0x122a45',
     'feature:poi|element:labels|visibility:off',
     'feature:transit|visibility:off',
   ];
@@ -171,21 +171,23 @@ const FieldMap = (() => {
 
     /* ---------- default marker ----------
      * translate() anchors the ICON CENTRE on the coordinate. The label above
-     * and the glow below are decoration and must not shift it: a marker that
-     * sits next to its coordinate is worse than no marker. */
+     * is decoration and must not shift it: a marker that sits next to its
+     * coordinate is worse than no marker.
+     *
+     * The disc is flat — no gradient, glow or shadow. The ground is dark
+     * and the fill is light; that contrast is the whole marker. */
     function defaultMarker(m, showLabel) {
-      const color = m.color || '60,192,224';
+      const color = m.color || '244,241,232';
       const size = m.size || 38;
       const icon = m.icon || '';
       const label = showLabel && m.label
-        ? `<span class="fm-label" style="border-color:rgba(${color},.55);color:${m.labelColor || '#cfe9f2'};transform:translateX(${m.labelShift || 0}px);">${esc(m.label)}</span>`
+        ? `<span class="fm-label" style="border-color:rgba(${color},.55);color:${m.labelColor || '#F4F1E8'};transform:translateX(${m.labelShift || 0}px);">${esc(m.label)}</span>`
         : '';
       return `
         <div class="fm-pin-inner">
           ${label}
-          <div class="fm-icon" style="width:${size}px;height:${size}px;background:${m.background || `linear-gradient(180deg,rgba(${color},.95),rgba(${color},.6))`};box-shadow:0 7px 16px rgba(${color},.5),inset 0 1px 0 rgba(255,255,255,.4);">${icon}</div>
-        </div>
-        <div class="fm-glow" style="background:radial-gradient(circle,rgba(${color},.45),transparent 70%);"></div>`;
+          <div class="fm-icon" style="width:${size}px;height:${size}px;font-size:${Math.round(size * .42)}px;background:${m.background || `rgb(${color})`};">${icon}</div>
+        </div>`;
     }
 
     function renderPins() {
@@ -317,7 +319,7 @@ const FieldMap = (() => {
             clickableIcons: false,
             keyboardShortcuts: false,
             gestureHandling: 'greedy',
-            backgroundColor: '#0e1b17',
+            backgroundColor: '#0a1730',
             styles: DARK_JS,
           });
         } catch { return; /* API surprise — the static image stays */ }

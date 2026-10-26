@@ -6,6 +6,9 @@
 <title>Companion</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='%237c8cff'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="field-map.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="voice-note.css">
 <link rel="stylesheet" href="darts.css">
 <link rel="stylesheet" href="driver.css">
@@ -15,10 +18,24 @@
     /* the Companion screen's palette: the navy of the design, white
        for what matters, one muted tone for the quiet lines. Otto wears
        his own blue (the voice widget's, voice-note.css) on top of it. */
-    --bg: #0f1e38;
-    --bg-deep: #0b1628;
-    --ink: #ffffff;
-    --dim: #8b96ab;
+    --bg: #0E2138;        /* ParcelVox Ink Blue */
+    --bg-deep: #0A1730;   /* Deep Ink Blue */
+    --ink: #F4F1E8;       /* Oat — text on ink */
+    --dim: rgba(244,241,232,.64);
+    --coral: #FF4D3A;     /* the one coral hit: Otto himself, the mic */
+    --coral-deep: #BE3E24;
+    --hair: rgba(244,241,232,.16);
+    --font-head: 'Space Grotesk', system-ui, sans-serif;
+    --font-body: 'Source Sans 3', system-ui, sans-serif;
+    /* the voice widget (voice-note.css, verbatim) reads these */
+    --vn-accent: #FF4D3A;
+    --vn-accent-2: #BE3E24;
+    --vn-ink: #F4F1E8;
+    --vn-dim: rgba(244,241,232,.64);
+    --vn-good: #46d39a;
+    --vn-gold: #ffd95e;
+    --vn-font: 'Source Sans 3', system-ui, sans-serif;
+    --vn-mono: 'Space Grotesk', system-ui, sans-serif;
   }
   * { box-sizing: border-box; }
   body {
@@ -27,9 +44,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #060d1a;
-    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-    color: #eef2f7;
+    background: #0A1730;
+    font-family: var(--font-body);
+    color: var(--ink);
   }
 
   /* Phone-first: full-bleed on a phone, a centered phone frame on desktop. */
@@ -43,7 +60,7 @@
     background: var(--bg);
   }
   @media (min-width: 460px) and (min-height: 700px) {
-    .phone { border-radius: 42px; box-shadow: 0 40px 90px rgba(0,0,0,.6), 0 0 0 1px rgba(140,165,200,.14); }
+    .phone { border-radius: 42px; box-shadow: 0 40px 90px rgba(0,0,0,.6), 0 0 0 1px rgba(244,241,232,.12); }
   }
 
   /* inset:0, and the kit's recenter button sits under the zoom pair (which
@@ -66,7 +83,7 @@
     gap: 8px;
     padding: 18px 16px;
     pointer-events: none;
-    background: linear-gradient(180deg, rgba(5,10,9,.85), transparent);
+    background: linear-gradient(180deg, rgba(10,23,48,.85), transparent); /* a scrim for the chips over the map, not a ground */
   }
   .chip {
     pointer-events: auto;
@@ -74,13 +91,14 @@
     align-items: center;
     gap: 6px;
     padding: 7px 12px;
-    border-radius: 999px;
-    border: 1px solid rgba(60,192,224,.35);
-    background: rgba(8,18,16,.8);
-    color: #7fd6ea;
-    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-    font-size: 10px;
-    letter-spacing: .1em;
+    border-radius: 6px;
+    border: 1px solid rgba(244,241,232,.26);
+    background: rgba(10,23,48,.82);
+    color: var(--ink);
+    font-family: var(--font-head);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .09em;
     cursor: pointer;
     max-width: 70%;
     overflow: hidden;
@@ -92,7 +110,7 @@
      route loaded */
   .chip[hidden] { display: none; }
   .chip.warn { border-color: rgba(255,204,0,.4); color: #ffd95e; }
-  .chip.plain { cursor: default; border-color: rgba(140,165,200,.22); color: #94a1b2; }
+  .chip.plain { cursor: default; border-color: rgba(244,241,232,.16); color: var(--dim); }
   a.chip { text-decoration: none; cursor: pointer; }
 
   /* second HUD row: activity recognition */
@@ -107,7 +125,7 @@
     pointer-events: none;
   }
   #ar, #route { pointer-events: auto; cursor: pointer; }
-  #ar.off, #route.off { border-color: rgba(140,165,200,.22); color: #94a1b2; }
+  #ar.off, #route.off { border-color: rgba(244,241,232,.16); color: var(--dim); }
 
   /* Taps land on what you can SEE — the icon and its label chip —
    * never on a pin's invisible shell, whose label-wide box would steal
@@ -125,9 +143,9 @@
     align-items: center;
     gap: 11px;
     padding: 12px 14px;
-    border-radius: 14px;
+    border-radius: 10px;
     border: 1px solid rgba(255,217,94,.55);
-    background: linear-gradient(180deg, rgba(64,52,10,.96), rgba(38,30,8,.96));
+    background: rgba(10,23,48,.97);
     cursor: pointer;
     animation: tb-pulse 1.6s ease-in-out infinite;
   }
@@ -139,13 +157,13 @@
   #tb-body { flex: 1; min-width: 0; }
   #tb-title {
     display: block;
-    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-    font-size: 9.5px;
+    font-family: var(--font-head);
+    font-size: 11px;
     letter-spacing: .14em;
     color: #ffd95e;
     margin-bottom: 2px;
   }
-  #tb-text { font-size: 13px; color: #f4ead0; }
+  #tb-text { font-size: 13px; color: var(--ink); }
   #tb-close {
     flex: none;
     width: 28px; height: 28px;
@@ -171,29 +189,29 @@
     align-items: center;
     gap: 11px;
     padding: 12px 14px;
-    border-radius: 14px;
-    border: 1px solid rgba(60,192,224,.55);
-    background: linear-gradient(180deg, rgba(9,42,50,.96), rgba(6,24,30,.96));
+    border-radius: 10px;
+    border: 1px solid rgba(244,241,232,.4);
+    background: rgba(10,23,48,.97);
     cursor: pointer;
   }
   #notes-banner[hidden] { display: none; }
   #nb-body { flex: 1; min-width: 0; }
   #nb-title {
     display: block;
-    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-    font-size: 9.5px;
+    font-family: var(--font-head);
+    font-size: 11px;
     letter-spacing: .14em;
-    color: #7fd6ea;
+    color: var(--ink);
     margin-bottom: 2px;
   }
-  #nb-text { font-size: 13px; color: #d8eef4; }
+  #nb-text { font-size: 13px; color: var(--ink); }
   #nb-close {
     flex: none;
     width: 28px; height: 28px;
     border-radius: 50%;
-    border: 1px solid rgba(60,192,224,.4);
+    border: 1px solid rgba(244,241,232,.3);
     background: transparent;
-    color: #7fd6ea;
+    color: var(--ink);
     font-size: 14px;
     line-height: 1;
     cursor: pointer;
@@ -207,25 +225,25 @@
     left: 12px; right: 12px; top: 100px;
     z-index: 13;
     padding: 12px 14px;
-    border-radius: 14px;
+    border-radius: 10px;
     border: 1px solid rgba(95,224,176,.5);
-    background: linear-gradient(180deg, rgba(10,44,34,.96), rgba(7,26,20,.96));
+    background: rgba(10,23,48,.97);
   }
   #verdict-banner[hidden] { display: none; }
   #vb-title {
     display: block;
-    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-    font-size: 9.5px;
+    font-family: var(--font-head);
+    font-size: 11px;
     letter-spacing: .14em;
     color: #7ce0b8;
     margin-bottom: 2px;
   }
-  #vb-text { font-size: 13px; color: #d9f2e6; }
+  #vb-text { font-size: 13px; color: var(--ink); }
   .vb-btns { display: flex; gap: 8px; margin-top: 10px; }
   .vb-btn {
     flex: 1;
     padding: 10px 8px;
-    border-radius: 10px;
+    border-radius: 6px;
     border: 1px solid rgba(95,224,176,.45);
     background: rgba(95,224,176,.1);
     color: #7ce0b8;
@@ -238,10 +256,10 @@
   #vb-skip {
     flex: none;
     width: 38px;
-    border-radius: 10px;
-    border: 1px solid rgba(140,165,200,.25);
+    border-radius: 6px;
+    border: 1px solid rgba(244,241,232,.18);
     background: transparent;
-    color: #94a1b2;
+    color: var(--dim);
     font-size: 14px;
     cursor: pointer;
   }
@@ -259,10 +277,10 @@
   .zoom-btn {
     width: 42px; height: 42px;
     border-radius: 50%;
-    border: 1px solid rgba(60,192,224,.45);
-    background: rgba(8,18,16,.74);
+    border: 1px solid rgba(244,241,232,.32);
+    background: rgba(10,23,48,.85);
     backdrop-filter: blur(6px);
-    color: #dfe6ee;
+    color: var(--ink);
     font-size: 22px;
     line-height: 1;
     cursor: pointer;
@@ -281,9 +299,9 @@
     max-height: calc(100% - 120px);
     overflow-y: auto;
     padding: 15px 16px;
-    border-radius: 18px;
-    background: rgba(9,17,26,.94);
-    border: 1px solid rgba(140,165,200,.2);
+    border-radius: 10px;
+    background: rgba(10,23,48,.96);
+    border: 1px solid rgba(244,241,232,.16);
     backdrop-filter: blur(8px);
   }
   #card[hidden] { display: none; }
@@ -294,19 +312,19 @@
     top: 12px; right: 12px;
     width: 30px; height: 30px;
     border-radius: 50%;
-    border: 1px solid rgba(140,165,200,.3);
+    border: 1px solid rgba(244,241,232,.22);
     background: transparent;
-    color: #cfe9f2;
+    color: var(--ink);
     font-size: 15px;
     line-height: 1;
     cursor: pointer;
   }
   #card h3 { margin: 0 0 2px; font-size: 17px; padding-right: 36px; }
-  #card-addr { margin: 0; font-size: 13px; color: #94a1b2; }
+  #card-addr { margin: 0; font-size: 13px; color: var(--dim); }
   #card-dist {
     display: inline-block;
     margin-top: 7px;
-    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-family: var(--font-head);
     font-size: 10px;
     letter-spacing: .1em;
     color: #ffd95e;
@@ -315,15 +333,15 @@
   #card-scenario {
     margin-top: 10px;
     padding: 10px 12px;
-    border-radius: 12px;
+    border-radius: 10px;
     border: 1px solid rgba(255,217,94,.35);
     background: rgba(255,217,94,.07);
   }
   #card-scenario[hidden] { display: none; }
   .sc-chip {
     display: block;
-    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-    font-size: 9px;
+    font-family: var(--font-head);
+    font-size: 10.5px;
     letter-spacing: .13em;
     color: #ffd95e;
     margin-bottom: 4px;
@@ -339,8 +357,8 @@
     background: none;
     padding: 0 1px 6px;
     margin-bottom: -1px;
-    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-    font-size: 9.5px;
+    font-family: var(--font-head);
+    font-size: 11px;
     letter-spacing: .11em;
     text-transform: uppercase;
     color: rgba(255,217,94,.55);
@@ -348,14 +366,14 @@
     cursor: pointer;
   }
   .sc-tab.on { color: #ffd95e; border-bottom-color: #ffd95e; }
-  #card-sc-story { margin: 8px 0 0; font-size: 13.5px; line-height: 1.55; color: #e8edf4; }
+  #card-sc-story { margin: 8px 0 0; font-size: 13.5px; line-height: 1.55; color: var(--ink); }
   #card-sc-story[hidden] { display: none; }
-  #card-sc-steps { margin: 8px 0 0; font-size: 12.5px; line-height: 1.5; color: #c9d2de; }
+  #card-sc-steps { margin: 8px 0 0; font-size: 12.5px; line-height: 1.5; color: rgba(244,241,232,.86); }
   #card-sc-steps[hidden] { display: none; }
   .sc-track-row { display: flex; align-items: center; gap: 9px; margin-top: 9px; flex-wrap: wrap; }
   #card-sc-start {
     padding: 8px 12px;
-    border-radius: 9px;
+    border-radius: 6px;
     border: 1px solid rgba(255,217,94,.45);
     background: rgba(255,217,94,.12);
     color: #ffd95e;
@@ -363,8 +381,8 @@
     cursor: pointer;
   }
   #card-sc-track {
-    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-    font-size: 9.5px;
+    font-family: var(--font-head);
+    font-size: 11px;
     letter-spacing: .07em;
     color: #ffd95e;
   }
@@ -373,7 +391,7 @@
   #card-sc-lang {
     display: inline-flex;
     border: 1px solid rgba(255,217,94,.35);
-    border-radius: 9px;
+    border-radius: 6px;
     overflow: hidden;
   }
   #card-sc-lang button {
@@ -395,36 +413,36 @@
   #card-notes {
     margin-top: 10px;
     padding: 10px 12px;
-    border-radius: 12px;
-    border: 1px solid rgba(60,192,224,.3);
-    background: rgba(60,192,224,.06);
+    border-radius: 10px;
+    border: 1px solid rgba(244,241,232,.22);
+    background: rgba(244,241,232,.07);
   }
   #card-notes[hidden] { display: none; }
   .cn-chip {
     display: block;
-    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-    font-size: 9px;
+    font-family: var(--font-head);
+    font-size: 10.5px;
     letter-spacing: .13em;
-    color: #7fd6ea;
+    color: var(--ink);
     margin-bottom: 4px;
   }
   .cn-line { font-size: 13.5px; }
-  .cn-note { margin: 5px 0 0; font-size: 12.5px; color: #c9d2de; }
+  .cn-note { margin: 5px 0 0; font-size: 12.5px; color: rgba(244,241,232,.86); }
   .cn-note b {
-    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-    font-size: 9px;
+    font-family: var(--font-head);
+    font-size: 10.5px;
     letter-spacing: .1em;
     font-weight: 400;
-    color: #7fd6ea;
+    color: var(--ink);
     margin-right: 6px;
   }
   #card-notes-play {
     margin-top: 9px;
     padding: 7px 11px;
-    border-radius: 9px;
-    border: 1px solid rgba(60,192,224,.45);
-    background: rgba(60,192,224,.09);
-    color: #7fd6ea;
+    border-radius: 6px;
+    border: 1px solid rgba(244,241,232,.32);
+    background: rgba(244,241,232,.1);
+    color: var(--ink);
     font-size: 12px;
     cursor: pointer;
   }
@@ -435,13 +453,13 @@
     gap: 9px;
     align-items: baseline;
     padding: 8px 10px;
-    border-radius: 10px;
-    background: rgba(140,165,200,.07);
-    border: 1px solid rgba(140,165,200,.14);
+    border-radius: 6px;
+    background: rgba(244,241,232,.07);
+    border: 1px solid rgba(244,241,232,.12);
     font-size: 13px;
   }
-  .msg-cat { flex: none; font-family: ui-monospace, monospace; font-size: 9px; letter-spacing: .1em; color: #5fe0b0; }
-  #card-empty { margin: 10px 0 0; font-size: 12.5px; color: #94a1b2; }
+  .msg-cat { flex: none; font-family: var(--font-head); font-size: 10.5px; letter-spacing: .1em; color: #5fe0b0; }
+  #card-empty { margin: 10px 0 0; font-size: 12.5px; color: var(--dim); }
   #card-empty[hidden] { display: none; }
   .card-actions { display: flex; gap: 8px; margin-top: 12px; }
   .card-btn {
@@ -451,18 +469,19 @@
     justify-content: center;
     gap: 6px;
     padding: 11px 8px;
-    border-radius: 11px;
-    border: 1px solid rgba(140,165,200,.25);
+    border-radius: 6px;
+    border: 1px solid rgba(244,241,232,.18);
     background: transparent;
-    color: #cfe9f2;
+    color: var(--ink);
     font-size: 12.5px;
     text-decoration: none;
     cursor: pointer;
   }
   .card-btn.primary {
-    border-color: rgba(124,140,255,.5);
-    background: linear-gradient(180deg, rgba(124,140,255,.25), rgba(68,88,216,.25));
-    color: #dbe2ff;
+    border-color: var(--ink);
+    background: var(--ink);
+    color: #1B2536;
+    font-weight: 600;
   }
   /* the Delivered tap on a route stop — the scan moment */
   #card-visit { margin-top: 12px; }
@@ -470,8 +489,8 @@
   .visit-btn {
     flex: 1;
     padding: 10px 8px;
-    border-radius: 11px;
-    border: 1px solid rgba(140,165,200,.25);
+    border-radius: 6px;
+    border: 1px solid rgba(244,241,232,.18);
     background: transparent;
     font-size: 12.5px;
     cursor: pointer;
@@ -479,14 +498,14 @@
   .visit-btn.ok { border-color: rgba(70,211,154,.5); background: rgba(70,211,154,.12); color: #7ce0b8; }
   .visit-btn.bad { border-color: rgba(255,217,94,.45); background: rgba(255,217,94,.1); color: #ffd95e; }
   #card-visit-text {
-    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-family: var(--font-head);
     font-size: 10.5px;
     letter-spacing: .08em;
     color: #7ce0b8;
   }
   #card-visit-text.failed { color: #ffd95e; }
   .card-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
-  .card-link { background: none; border: none; padding: 0; font-size: 11.5px; color: #8b97a8; cursor: pointer; }
+  .card-link { background: none; border: none; padding: 0; font-size: 11.5px; color: var(--dim); cursor: pointer; }
 
   /* ---------- settings (this phone) ----------
      a sheet over Otto's screen, behind the ⚙ in its header: the first
@@ -501,26 +520,26 @@
     max-height: calc(100% - 100px);
     overflow-y: auto;
     padding: 15px 16px;
-    border-radius: 18px;
-    background: rgba(9,17,26,.94);
-    border: 1px solid rgba(140,165,200,.2);
+    border-radius: 10px;
+    background: rgba(10,23,48,.96);
+    border: 1px solid rgba(244,241,232,.16);
     backdrop-filter: blur(8px);
   }
   #settings[hidden], #reports[hidden] { display: none; }
   .st-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
   .st-title {
-    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-    font-size: 9.5px;
+    font-family: var(--font-head);
+    font-size: 11px;
     letter-spacing: .14em;
     font-weight: 400;
-    color: #7fd6ea;
+    color: var(--ink);
   }
   #st-close, #reports-close {
     width: 30px; height: 30px;
     border-radius: 50%;
-    border: 1px solid rgba(140,165,200,.3);
+    border: 1px solid rgba(244,241,232,.22);
     background: transparent;
-    color: #cfe9f2;
+    color: var(--ink);
     font-size: 15px;
     line-height: 1;
     cursor: pointer;
@@ -531,29 +550,29 @@
     justify-content: space-between;
     gap: 12px;
     padding: 11px 0;
-    border-top: 1px solid rgba(140,165,200,.14);
+    border-top: 1px solid rgba(244,241,232,.12);
   }
   .st-label { flex: 1; min-width: 0; font-size: 14px; }
-  .st-label small { display: block; margin-top: 2px; font-size: 11.5px; color: #94a1b2; }
+  .st-label small { display: block; margin-top: 2px; font-size: 11.5px; color: var(--dim); }
   #st-name {
     flex: none;
     width: 128px;
     padding: 9px 10px;
-    border-radius: 10px;
-    border: 1px solid rgba(140,165,200,.3);
+    border-radius: 6px;
+    border: 1px solid rgba(244,241,232,.22);
     background: rgba(255,255,255,.05);
-    color: #eef2f7;
+    color: var(--ink);
     font: inherit;
     font-size: 14px;
   }
-  #st-name:focus { outline: none; border-color: rgba(124,140,255,.7); }
+  #st-name:focus { outline: none; border-color: rgba(244,241,232,.7); }
   /* the switch: a plain checkbox underneath, drawn as a toggle */
   .st-switch { position: relative; flex: none; width: 48px; height: 28px; }
   .st-switch input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
   .st-switch i {
     position: absolute; inset: 0;
     border-radius: 999px;
-    background: rgba(140,165,200,.28);
+    background: rgba(244,241,232,.2);
     transition: background .2s;
     pointer-events: none;
   }
@@ -573,20 +592,20 @@
     width: 100%;
     margin-top: 6px;
     padding: 11px 8px;
-    border-radius: 11px;
+    border-radius: 6px;
     border: 1px solid rgba(255,217,94,.45);
     background: rgba(255,217,94,.1);
     color: #ffd95e;
     font-size: 12.5px;
     cursor: pointer;
   }
-  .st-foot { margin: 10px 0 0; font-size: 11.5px; color: #8b97a8; }
+  .st-foot { margin: 10px 0 0; font-size: 11.5px; color: var(--dim); }
   /* a choice of a few words, drawn like the card's language picker */
   .st-seg {
     display: inline-flex;
     flex: none;
     border: 1px solid rgba(255,217,94,.35);
-    border-radius: 9px;
+    border-radius: 6px;
     overflow: hidden;
   }
   .st-seg button {
@@ -611,14 +630,14 @@
     width: 78%;
     text-align: center;
     padding: 18px 16px;
-    border-radius: 16px;
-    background: rgba(9,17,26,.85);
-    border: 1px solid rgba(140,165,200,.18);
+    border-radius: 10px;
+    background: rgba(10,23,48,.92);
+    border: 1px solid rgba(244,241,232,.14);
     pointer-events: none;
   }
   #hint[hidden] { display: none; }
   #hint b { display: block; font-size: 15px; margin-bottom: 5px; }
-  #hint span { font-size: 12.5px; color: #94a1b2; }
+  #hint span { font-size: 12.5px; color: var(--dim); }
 
   /* ---------- Otto's screen — the Companion, home ----------
      What the design calls Companion: a header, Otto in the middle, one
@@ -710,8 +729,7 @@
     position: absolute;
     inset: 0;
     border-radius: 42% 58% 56% 44% / 48% 42% 58% 52%;
-    background: linear-gradient(140deg, #aab6ff, #7c8cff 38%, #3cc0e0 80%, #0498ba);
-    box-shadow: 0 28px 64px rgba(68,88,216,.42), inset 0 10px 28px rgba(255,255,255,.32);
+    background: var(--coral);
     animation: otto-morph 8s ease-in-out infinite, otto-float 5.2s ease-in-out infinite;
     transition: transform .12s ease;
   }
@@ -719,8 +737,8 @@
     position: absolute;
     inset: 14px;
     border-radius: 50%;
-    background: radial-gradient(circle at 36% 28%, rgba(255,255,255,.5), transparent 56%);
-    opacity: .75;
+    background: none;
+    opacity: 0;
     animation: otto-morph 8s ease-in-out infinite reverse, otto-float 5.2s ease-in-out infinite;
     transition: transform .12s ease;
     pointer-events: none;
@@ -775,7 +793,7 @@
     margin: 0 0 calc(24px + env(safe-area-inset-bottom, 0px));
     padding: 8px 28px 10px;
     border: none;
-    border-radius: 24px;
+    border-radius: 10px;
     background: transparent;
     color: var(--ink);
     font: inherit;
@@ -816,17 +834,17 @@
      the tally's details: one row per report this phone filed, newest
      first — when, Otto's category, the title he gave it, the stop */
   #reports-list { margin-top: 4px; }
-  .rp-row { padding: 10px 0; border-top: 1px solid rgba(140,165,200,.14); }
+  .rp-row { padding: 10px 0; border-top: 1px solid rgba(244,241,232,.12); }
   .rp-when {
     display: block;
-    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-    font-size: 9.5px;
+    font-family: var(--font-head);
+    font-size: 11px;
     letter-spacing: .12em;
-    color: #7fd6ea;
+    color: var(--ink);
     margin-bottom: 3px;
   }
   .rp-text { display: block; font-size: 14px; line-height: 1.4; }
-  .rp-stop { display: block; margin-top: 2px; font-size: 11.5px; color: #94a1b2; }
+  .rp-stop { display: block; margin-top: 2px; font-size: 11.5px; color: var(--dim); }
   #reports-empty[hidden] { display: none; }
 
   /* ---------- Otto screen ---------- */
@@ -836,7 +854,7 @@
     z-index: 14;
     display: flex;
     flex-direction: column;
-    background: radial-gradient(130% 60% at 50% 0%, #17294a 0%, var(--bg) 55%, var(--bg-deep) 100%);
+    background: var(--bg);
   }
   #otto-screen[hidden] { display: none; }
   .otto-top {
@@ -850,7 +868,7 @@
   #otto-dest {
     flex: 1;
     text-align: right;
-    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-family: var(--font-head);
     font-size: 10.5px;
     letter-spacing: .12em;
     color: #ff9b9b;
@@ -872,16 +890,16 @@
     align-items: center;
     justify-content: center;
     padding: 24px;
-    background: radial-gradient(130% 60% at 50% 0%, #12382b 0%, var(--bg) 55%, var(--bg-deep) 100%);
+    background: var(--bg);
   }
   #ring-screen[hidden] { display: none; }
   .ring-card {
     width: min(360px, 100%);
     text-align: center;
     padding: 28px 22px 24px;
-    border-radius: 24px;
+    border-radius: 10px;
     border: 1px solid rgba(70,211,154,.35);
-    background: rgba(9,17,26,.9);
+    background: rgba(10,23,48,.96);
     box-shadow: 0 0 0 0 rgba(70,211,154,.35);
     animation: ring-pulse 1.6s ease-out infinite;
   }
@@ -892,7 +910,7 @@
   }
   .ring-from {
     display: block;
-    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-family: var(--font-head);
     font-size: 10px;
     letter-spacing: .16em;
     color: #7ce0b8;
@@ -903,15 +921,15 @@
     65% { transform: rotate(-14deg); } 75% { transform: rotate(12deg); } 85% { transform: rotate(-8deg); }
   }
   #ring-title { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: .02em; }
-  #ring-sub { margin: 8px 0 0; font-size: 14px; color: #cfe9f2; }
+  #ring-sub { margin: 8px 0 0; font-size: 14px; color: var(--ink); }
   #ring-as { margin: 10px 0 0; font-size: 13px; color: #ffd95e; }
-  #ring-prev { margin: 10px 0 0; font-size: 12px; color: #94a1b2; line-height: 1.45; }
+  #ring-prev { margin: 10px 0 0; font-size: 12px; color: var(--dim); line-height: 1.45; }
   #ring-prev[hidden] { display: none; }
   .ring-btns { display: flex; gap: 14px; justify-content: center; margin-top: 24px; }
   .ring-btns button {
     flex: 1;
     padding: 15px 10px;
-    border-radius: 18px;
+    border-radius: 10px;
     border: 1px solid transparent;
     font-size: 15px;
     font-weight: 700;
@@ -920,7 +938,7 @@
     -webkit-tap-highlight-color: transparent;
   }
   .ring-btns button:active { transform: scale(.97); }
-  #ring-answer { background: linear-gradient(180deg, #46d39a, #1f9b69); color: #06130d; border-color: rgba(70,211,154,.6); }
+  #ring-answer { background: #46d39a; color: #06130d; border-color: rgba(70,211,154,.6); }
   #ring-decline { background: rgba(255,107,107,.12); color: #ff9b9b; border-color: rgba(255,107,107,.4); }
   /* the countdown chip while Otto has not rung yet — over either
      screen, in the banners' slot: under the map's HUD, over Otto's head
@@ -942,10 +960,10 @@
     width: min(360px, 100%);
     margin: 0 0 14px;
     padding: 13px 16px;
-    border-radius: 18px;
+    border-radius: 10px;
     border: 1px solid rgba(70,211,154,.5);
     background: rgba(70,211,154,.12);
-    color: #eef2f7;
+    color: var(--ink);
     text-align: center;
     font: inherit;
     cursor: pointer;
@@ -955,25 +973,36 @@
   .home-call[hidden] { display: none; }
   .home-call:active { transform: scale(.985); }
   .home-call b { display: block; font-size: 17px; letter-spacing: .05em; color: #7ce0b8; }
-  .home-call small { display: block; margin-top: 3px; font-size: 13px; color: #94a1b2; line-height: 1.35; }
+  .home-call small { display: block; margin-top: 3px; font-size: 13px; color: var(--dim); line-height: 1.35; }
   /* the TAKE A CALL section of the ⚙ sheet: one button per call */
-  .st-calls { margin: 0 0 12px; padding-bottom: 12px; border-bottom: 1px solid rgba(140,165,200,.14); }
-  .st-sub { margin: 6px 0 2px; font-size: 12px; color: #94a1b2; line-height: 1.45; }
+  .st-calls { margin: 0 0 12px; padding-bottom: 12px; border-bottom: 1px solid rgba(244,241,232,.12); }
+  .st-sub { margin: 6px 0 2px; font-size: 12px; color: var(--dim); line-height: 1.45; }
   #st-call-list { display: flex; flex-direction: column; gap: 7px; margin-top: 8px; }
   .st-call {
     width: 100%;
     text-align: left;
     padding: 10px 12px;
-    border-radius: 13px;
+    border-radius: 10px;
     border: 1px solid rgba(70,211,154,.3);
     background: rgba(70,211,154,.06);
-    color: #eef2f7;
+    color: var(--ink);
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
   }
   .st-call:active { transform: scale(.985); }
   .st-call b { display: block; font-size: 13.5px; }
-  .st-call small { display: block; margin-top: 2px; font-size: 11.5px; color: #94a1b2; line-height: 1.4; }
+  .st-call small { display: block; margin-top: 2px; font-size: 11.5px; color: var(--dim); line-height: 1.4; }
+
+  /* ---------- ParcelVox: the rules that cut across the phone (not the driver's screen, which is PostNord's) ---------- */
+  .top h1, #ring-title, #card h3, #hint b, .tally b, .home-call b, .st-call b, .rp-text { font-family: var(--font-head); }
+  .tally b, #card-dist { font-variant-numeric: tabular-nums; }
+  #lang-flag { font-family: var(--font-head); font-size: 13px; font-weight: 600; letter-spacing: .06em; }
+  .ring-avatar svg { width: 44px; height: 44px; fill: none; stroke: var(--ink); stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+  .home-call b { letter-spacing: 0; text-transform: none; font-weight: 600; }
+  #home-hint { font-family: var(--font-body); }
+  .otto-eye { background: var(--ink); }
+  .otto-eye i { background: var(--bg-deep); }
+  .vb-btn, .visit-btn, .card-btn, .st-btn, .ring-btns button, #card-sc-start, #card-notes-play, .st-call, .home-call { transition: background .15s cubic-bezier(.2,.7,.3,1), border-color .15s cubic-bezier(.2,.7,.3,1); }
 </style>
 </head>
 <body>
@@ -1049,10 +1078,10 @@
       <p id="card-sc-story"></p>
       <p id="card-sc-steps"></p>
       <div class="sc-track-row">
-        <button id="card-sc-start" type="button">▶ Start test tracking</button>
+        <button id="card-sc-start" type="button">Start test tracking</button>
         <span id="card-sc-lang" role="group" aria-label="Debrief language — Otto asks, listens and answers in this language">
-          <button id="lang-en" type="button" title="Debrief in English">🇬🇧 EN</button>
-          <button id="lang-it" type="button" title="Debrief in Italian">🇮🇹 IT</button>
+          <button id="lang-en" type="button" title="Debrief in English">EN</button>
+          <button id="lang-it" type="button" title="Debrief in Italian">IT</button>
         </span>
         <span id="card-sc-track"></span>
       </div>
@@ -1060,7 +1089,7 @@
     <div id="card-notes" hidden>
       <span class="cn-chip">PRE-ARRIVAL NOTES — OTTO READS THESE ON APPROACH</span>
       <div id="card-notes-body"></div>
-      <button id="card-notes-play" type="button">🔊 Hear the briefing</button>
+      <button id="card-notes-play" type="button">Hear the briefing</button>
     </div>
     <div id="card-visit" hidden>
       <span class="cn-chip">DELIVERY — THIS TAP STANDS IN FOR THE SCAN</span>
@@ -1092,7 +1121,7 @@
       <button id="st-close" type="button" aria-label="Close">×</button>
     </div>
     <div class="st-calls" id="st-calls">
-      <b class="st-title">📞 TAKE A CALL FROM OTTO</b>
+      <b class="st-title">TAKE A CALL FROM OTTO</b>
       <p class="st-sub">Tap a call below and Otto rings you from the back office. You answer as the person called — the customer, or the driver — and say what you like: not home before six, running late, fine. The call is saved like a report; the dashboard's CALLS tab lists it under the call.</p>
       <label class="st-row">
         <span class="st-label">When you tap a call, Otto rings<small>pick 30 s or 2 min to put the phone down and wait for it</small></span>
@@ -1120,9 +1149,9 @@
         <button type="button" data-pace="slow">slow</button><button type="button" data-pace="normal">normal</button><button type="button" data-pace="fast">fast</button>
       </span>
     </label>
-    <button id="st-practice" type="button" class="st-btn">🎯 Practice throw — not counted</button>
+    <button id="st-practice" type="button" class="st-btn">Practice throw — not counted</button>
     <p class="st-foot">How to play: three times, Otto says "two", keeps a silent beat, then says "four" — and you say "stop". Side: on two for left, in the silence for the middle, on four for right. Height: two is the top, the silence the middle, four the bottom. Strength: the silence is just right; two falls short, four flies over. Say nothing and he takes four. Stop in the silence three times for a bullseye; a miss is nothing. Otto explains this himself the first three times.</p>
-    <button id="st-rules" type="button" class="st-btn">🔊 Hear the rules</button>
+    <button id="st-rules" type="button" class="st-btn">Hear the rules</button>
   </div>
 
   <!-- Otto's screen: home. Otto is the report button; the header's five
@@ -1141,7 +1170,7 @@
       <button id="open-driver" class="icon-btn" type="button" title="The driver's screen — today's deliveries, in the van" aria-label="Deliveries — the driver's screen">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>
       </button>
-      <button id="lang-flag" class="icon-btn" type="button" title="Debrief language — tap to switch" aria-label="Debrief language">🇬🇧</button>
+      <button id="lang-flag" class="icon-btn" type="button" title="Debrief language — tap to switch" aria-label="Debrief language">EN</button>
       <button id="settings-chip" class="icon-btn" type="button" title="Settings — your name and the dart game" aria-label="Settings">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.43 12.98c.04-.32.07-.64.07-.98 0-.34-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.09-.16-.26-.25-.44-.25-.06 0-.12.01-.17.03l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.06-.02-.12-.03-.18-.03-.17 0-.34.09-.43.25l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98 0 .33.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.09.16.26.25.44.25.06 0 .12-.01.17-.03l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.06.02.12.03.18.03.17 0 .34-.09.43-.25l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zm-1.98-1.71c.04.31.05.52.05.73 0 .21-.02.43-.05.73l-.14 1.13.89.7 1.08.84-.7 1.21-1.27-.51-1.04-.42-.9.68c-.43.32-.84.56-1.25.73l-1.06.43-.16 1.13-.2 1.35h-1.4l-.19-1.35-.16-1.13-1.06-.43c-.43-.18-.83-.41-1.23-.71l-.91-.7-1.06.43-1.27.51-.7-1.21 1.08-.84.89-.7-.14-1.13c-.03-.31-.05-.54-.05-.74s.02-.43.05-.73l.14-1.13-.89-.7-1.08-.84.7-1.21 1.27.51 1.04.42.9-.68c.43-.32.84-.56 1.25-.73l1.06-.43.16-1.13.2-1.35h1.39l.19 1.35.16 1.13 1.06.43c.43.18.83.41 1.23.71l.91.7 1.06-.43 1.27-.51.7 1.21-1.07.85-.89.7.14 1.13zM12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm0 6c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>
       </button>
@@ -1154,7 +1183,7 @@
       </button>
       <p id="home-hint">Press Otto to report something…</p>
       <button id="home-call" class="home-call" type="button" hidden title="Otto rings you from the back office — answer as the customer or the driver">
-        <b>📞 TEST CALL</b>
+        <b>Test call</b>
         <small id="home-call-sub">Otto rings you now</small>
       </button>
       <button id="reports-tally" class="tally" type="button" title="The reports filed from this phone — tap for the list">
@@ -1187,14 +1216,14 @@
   <section id="ring-screen" hidden>
     <div class="ring-card">
       <span class="ring-from">INCOMING CALL</span>
-      <span class="ring-avatar" aria-hidden="true">📞</span>
+      <span class="ring-avatar" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg></span>
       <h2 id="ring-title">Otto · back office</h2>
       <p id="ring-sub"></p>
       <p id="ring-as"></p>
       <p id="ring-prev" hidden></p>
       <div class="ring-btns">
-        <button id="ring-decline" type="button">✕ Decline</button>
-        <button id="ring-answer" type="button">📞 Answer</button>
+        <button id="ring-decline" type="button">Decline</button>
+        <button id="ring-answer" type="button">Answer</button>
       </div>
     </div>
   </section>

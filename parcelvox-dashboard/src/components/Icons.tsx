@@ -92,13 +92,13 @@ export function AskIcon({ size = 18 }: IconProps) {
 export function OperatorIcon({ size = 15 }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 20 20" fill="none" aria-hidden focusable={false}>
-      <g stroke="#0E8A5C" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <g stroke="#005d92" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
         <circle cx="10" cy="8.2" r="2.6" />
         <path d="M5 16c1-2.2 2.9-3.4 5-3.4s4 1.2 5 3.4" />
         <path d="M5.2 8.2a4.8 4.8 0 0 1 9.6 0" />
       </g>
-      <rect x="3.9" y="7.4" width="1.9" height="3.1" rx="0.95" fill="#0E8A5C" />
-      <rect x="14.2" y="7.4" width="1.9" height="3.1" rx="0.95" fill="#0E8A5C" />
+      <rect x="3.9" y="7.4" width="1.9" height="3.1" rx="0.95" fill="#005d92" />
+      <rect x="14.2" y="7.4" width="1.9" height="3.1" rx="0.95" fill="#005d92" />
     </svg>
   );
 }
@@ -106,7 +106,7 @@ export function OperatorIcon({ size = 15 }: IconProps) {
 export function KeyboardIcon({ size = 17 }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 20 20" fill="none" aria-hidden focusable={false}>
-      <g stroke="#5B6660" strokeWidth={1.5} strokeLinecap="round">
+      <g stroke="#66717f" strokeWidth={1.5} strokeLinecap="round">
         <rect x="2.5" y="5" width="15" height="10" rx="2" />
         <path d="M5.5 8h.01M8.5 8h.01M11.5 8h.01M14.5 8h.01M6.5 12h7" />
       </g>
@@ -117,7 +117,7 @@ export function KeyboardIcon({ size = 17 }: IconProps) {
 export function CloseIcon({ size = 15 }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 20 20" fill="none" aria-hidden focusable={false}>
-      <path d="M5 5l10 10M15 5L5 15" stroke="#5B6660" strokeWidth={1.7} strokeLinecap="round" />
+      <path d="M5 5l10 10M15 5L5 15" stroke="#66717f" strokeWidth={1.7} strokeLinecap="round" />
     </svg>
   );
 }
@@ -125,7 +125,7 @@ export function CloseIcon({ size = 15 }: IconProps) {
 export function MicIcon({ size = 17 }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 20 20" fill="none" aria-hidden focusable={false}>
-      <g stroke="#0E8A5C" strokeWidth={1.7} strokeLinecap="round">
+      <g stroke="#005d92" strokeWidth={1.7} strokeLinecap="round">
         <rect x="7.5" y="2.5" width="5" height="9" rx="2.5" />
         <path d="M4.5 9.5a5.5 5.5 0 0 0 11 0M10 15v2.5" />
       </g>

@@ -1441,6 +1441,12 @@ el('route').onclick = () => {
 };
 
 /* ---------- map ---------- */
+/* The live marker's glyphs — Lucide's car and footprints as 1.75px strokes,
+ * drawn in the pin's ink. No emoji on the map. */
+const LIVE_SVG = (paths) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+const LIVE_CAR = LIVE_SVG('<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>');
+const LIVE_WALK = LIVE_SVG('<path d="M4 16v-2.38C4 11.5 2.97 10.5 3 8c.03-2.72 1.49-6 4.5-6C9.37 2 10 3.8 10 5.5c0 3.11-2 5.66-2 8.68V16a2 2 0 1 1-4 0Z"/><path d="M20 20v-2.38c0-2.12 1.03-3.12 1-5.62-.03-2.72-1.49-6-4.5-6C14.63 6 14 7.8 14 9.5c0 3.11 2 5.66 2 8.68V20a2 2 0 1 0 4 0Z"/><path d="M16 17h4"/><path d="M4 13h4"/>');
+
 const map = FieldMap.mount({
   el: '#map',
   geo: LiveGeo, // Geo, plus ActivityRec's continuous fixes while tracking
@@ -1471,9 +1477,9 @@ const map = FieldMap.mount({
       const st = ActivityRec.state;
       list.push({
         id: '__live', lat: liveFix.lat, lng: liveFix.lng,
-        icon: st === 'IN_VEHICLE' ? '🚗'
-          : (st === 'ON_FOOT' || st === 'WALKING' || st === 'RUNNING') ? '🚶' : '●',
-        color: '96,165,250',
+        icon: st === 'IN_VEHICLE' ? LIVE_CAR
+          : (st === 'ON_FOOT' || st === 'WALKING' || st === 'RUNNING') ? LIVE_WALK : '●',
+        color: '255,77,58', // coral: the one live thing on this map
         size: 34,
         priority: 3,
       });
@@ -1823,9 +1829,9 @@ function openOtto(d, asReport, call) {
   /* the flag rides along so mid-debrief there is no doubt which
    * language this conversation was opened in — and a report says which
    * door it will be filed against, or that it will be filed against none */
-  el('otto-dest').textContent = (testLang === 'it' ? '🇮🇹 ' : '🇬🇧 ')
+  el('otto-dest').textContent = (testLang === 'it' ? 'IT · ' : 'EN · ')
     + (calling
-      ? '📞 CALL' + (calling.row.num != null && calling.row.num !== '' ? ' #' + calling.row.num : '') + ' · ' + (d ? d.title : String(calling.row.title || ''))
+      ? 'CALL' + (calling.row.num != null && calling.row.num !== '' ? ' #' + calling.row.num : '') + ' · ' + (d ? d.title : String(calling.row.title || ''))
       : (reporting ? 'REPORT · ' : '')
         + (d ? (d.stop != null ? 'Stop ' + d.stop + ' · ' : '') + scenarioNumPrefix(d) + d.title
           : 'no stop nearby'));
@@ -2235,7 +2241,7 @@ function armCall(row, delaySec, previous) {
     if (!ringing) return;
     const left = Math.max(0, Math.round((ringing.at - Date.now()) / 1000));
     if (left <= 0) { showRing(); return; }
-    if (chip) { chip.textContent = `📞 OTTO RINGS IN ${left} S · TAP TO CANCEL`; chip.hidden = false; }
+    if (chip) { chip.textContent = `OTTO RINGS IN ${left} S · TAP TO CANCEL`; chip.hidden = false; }
     ringing.timer = setTimeout(tick, 1000);
   };
   tick();
@@ -2879,7 +2885,7 @@ function renderLang() {
   /* the flag in Otto's header shows the pick; a tap there flips it */
   const flag = el('lang-flag');
   if (flag) {
-    flag.textContent = testLang === 'it' ? '🇮🇹' : '🇬🇧';
+    flag.textContent = testLang === 'it' ? 'IT' : 'EN';
     flag.title = (testLang === 'it' ? 'Otto debriefs in Italian' : 'Otto debriefs in English') + ' — tap to switch';
   }
 }
