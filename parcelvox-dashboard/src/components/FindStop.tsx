@@ -119,8 +119,9 @@ export function FindStop({ doors, debriefs, total, onOpen, onAskOtto, hotspots, 
                 <span className={`${styles.chip} ${styles.chipFailed}`}>not delivered</span>
               )}
               {e.door.state === 'open' && e.door.delivered + e.door.failed > 0 && (
-                <span className={`${styles.chip} ${styles.chipDone}`}>
+                <span className={`${styles.chip} ${e.door.failed > 0 ? styles.chipFailed : styles.chipDone}`}>
                   {e.door.delivered + e.door.failed} of {e.door.rows.length} done
+                  {e.door.failed > 0 ? `, ${e.door.failed} not delivered` : ''}
                 </span>
               )}
               {e.notes.length > 0 && (

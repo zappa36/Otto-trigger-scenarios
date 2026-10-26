@@ -37,6 +37,10 @@ const fmtClock = (iso?: string) => {
 };
 const KIND_WORD: Record<string, string> = { bulky: 'a bulky item', food: 'fresh food' };
 const kindWord = (s: DepotStop) => KIND_WORD[String(s.kind || '').toLowerCase()] || '';
+/** "floor 3" for a number, "Apt 4B" as written — the phone's own rule. */
+const floorWord = (f: string) => (/^\d+$/.test(f) ? `floor ${f}` : f);
+const floorWords = (rows: DepotStop[]) =>
+  rows.map((r) => String(r.floor || '').trim()).filter(Boolean).map(floorWord);
 /** "Delivered 10:42" / "Not delivered 10:50" — the driver's tap on one stop, '' while open. */
 const tapWord = (s: DepotStop, visits: Record<string, DepotVisit>) => {
   const v = visits[s.id];
@@ -45,13 +49,25 @@ const tapWord = (s: DepotStop, visits: Record<string, DepotVisit>) => {
   return (v.outcome === 'failed' ? 'Not delivered' : 'Delivered') + (at ? ' ' + at : '');
 };
 
-/** The day's count on the route the phones show (every route stop when none is marked). */
+/** The day's count on the route the phones show — the active row, else (nothing
+ * marked yet) the last route on file, which is the phone's own fallback. */
 function progress(stops: DepotStop[], routes: DepotRoute[], visits: Record<string, DepotVisit>) {
   const act = activeRoute(routes);
-  const onRoute = stops.filter((s) => (act ? s.route === act.id : !!s.route));
+  const ids = [...routes.map((r) => r.id), ...stops.map((s) => s.route)].filter((id): id is string => !!id);
+  const id = act ? act.id : [...new Set(ids)].pop() || null;
+  const onRoute = id ? stops.filter((s) => s.route === id) : [];
   const delivered = onRoute.filter((s) => visitState(s, visits) === 'done').length;
   const failed = onRoute.filter((s) => visitState(s, visits) === 'failed').length;
-  return { act, onRoute, delivered, failed, open: onRoute.length - delivered - failed };
+  const n = onRoute.length;
+  return {
+    act,
+    name: id ? routeName(id, routes) : '',
+    onRoute,
+    stopsWord: `${n} stop${n === 1 ? '' : 's'}`,
+    delivered,
+    failed,
+    open: n - delivered - failed,
+  };
 }
 
 /* ---------- STOP DATA for the model ---------- */
@@ -74,7 +90,7 @@ export function buildContext(
     `${debriefed} debriefed` +
     (routeIds.length ? ` · route${routeIds.length === 1 ? '' : 's'} ${routeWords.join(', ')} (stop numbers are driving order)` : '') +
     (p.delivered || p.failed
-      ? ` · today ${p.delivered} of ${p.onRoute.length} stops delivered${p.failed ? `, ${p.failed} not delivered` : ''}, ${p.open} still open`
+      ? ` · today ${p.delivered} of ${p.stopsWord} delivered${p.failed ? `, ${p.failed} not delivered` : ''}, ${p.open} still open`
       : '');
 
   /* noted and debriefed doors first — if the block must be cut, the quiet
@@ -92,8 +108,8 @@ export function buildContext(
         (e.consignees.length ? ` — for ${e.consignees.join(', ')}` : ''),
     ];
     if (e.entrances.length) parts.push(`entrance: ${e.entrances.join(', ')}`);
-    const floors = e.door.rows.map((r) => r.floor).filter(Boolean);
-    if (floors.length) parts.push(`floor ${floors.join(', ')}`);
+    const floors = floorWords(e.door.rows);
+    if (floors.length) parts.push(floors.join(', '));
     const kinds = e.door.rows.map(kindWord).filter(Boolean);
     if (kinds.length) parts.push(kinds.join(', '));
     const taps = e.door.rows.map((r) => tapWord(r, visits)).filter(Boolean);
@@ -191,10 +207,12 @@ export const ASK_OTTO_SUGGESTIONS = [
 function routeSentence(stops: DepotStop[], routes: DepotRoute[], visits: Record<string, DepotVisit>): string {
   const p = progress(stops, routes, visits);
   if (!p.onRoute.length) return '';
-  const who = p.act ? `“${p.act.name}” is on the phones` : 'The route';
-  if (!p.delivered && !p.failed) return ` ${who} — ${p.onRoute.length} stops, none delivered yet.`;
+  const who = p.act
+    ? `“${p.act.name}” is on the phones`
+    : `“${p.name}” is what the phones open on while no route is marked for them`;
+  if (!p.delivered && !p.failed) return ` ${who} — ${p.stopsWord}, none delivered yet.`;
   return (
-    ` ${who} — ${p.delivered} of ${p.onRoute.length} stops delivered` +
+    ` ${who} — ${p.delivered} of ${p.stopsWord} delivered` +
     (p.failed ? `, ${p.failed} not delivered` : '') +
     (p.open ? `, ${p.open} still open.` : ', the route is done.')
   );
@@ -242,7 +260,9 @@ function progressAnswer(
   const p = progress(stops, routes, visits);
   if (!p.onRoute.length) {
     return {
-      lead: 'No route is on the phones yet — load one on the trigger dashboard, behind the ROUTE door.',
+      lead: p.act
+        ? `“${p.act.name}” is on the phones but has no stops yet — add them on the trigger dashboard, behind the ROUTE door.`
+        : 'No route is on the phones yet — load one on the trigger dashboard, behind the ROUTE door.',
       sources: [FALLBACK_SOURCE],
     };
   }
@@ -312,10 +332,7 @@ function debriefsAnswer(entries: DoorEntry[]): OttoAnswer {
 
 function stopAnswer(e: DoorEntry, visits: Record<string, DepotVisit>): OttoAnswer {
   const first = e.door.rows[0];
-  const where = [
-    ...e.entrances,
-    ...(e.door.rows.some((r) => r.floor) ? [`floor ${e.door.rows.map((r) => r.floor).filter(Boolean).join(', ')}`] : []),
-  ].join(', ');
+  const where = [...e.entrances, ...floorWords(e.door.rows)].join(', ');
   const kinds = [...new Set(e.door.rows.map(kindWord).filter(Boolean))];
   const bullets: OttoAnswer['bullets'] = [
     ...e.door.rows
@@ -356,6 +373,21 @@ const FILLER = new Set([
   'stop', 'stops', 'note', 'notes', 'file', 'have', 'has', 'with', 'info', 'on', 'at',
 ]);
 
+/** True when the question names a stop: a word of four letters or more that
+ * sits in the title or address of a few doors (not of all of them, like
+ * "Berlin"), or "stop 7". */
+function namesAStop(entries: DoorEntry[], q: string): boolean {
+  if (!entries.length) return false;
+  const words = q.split(/[^\p{L}\p{N}]+/u).filter((t) => /^\p{L}{4,}$/u.test(t) && !FILLER.has(t));
+  const few = Math.max(2, Math.ceil(entries.length / 3));
+  const named = words.some((w) => {
+    const hits = entries.filter((e) => e.hay.strong.includes(w)).length;
+    return hits > 0 && hits <= few;
+  });
+  const stopNo = (q.match(/\bstop (\d+)\b/) || [])[1];
+  return named || (!!stopNo && entries.some((e) => e.door.stopNos.includes(Number(stopNo))));
+}
+
 export function localAnswer(
   question: string,
   entries: DoorEntry[],
@@ -365,8 +397,10 @@ export function localAnswer(
 ): OttoAnswer {
   const q = question.trim().toLowerCase();
   /* the day's progress — before the stop lookup, so "not delivered" is a
-   * question about the route and not a search for a stop with those words */
-  if (/(how far|progress|deliver|still open|left to do|remaining|how many.*(done|left)|route going)/.test(q))
+   * question about the route and not a search for a stop with those words;
+   * a question that names a stop ("did we deliver to Maaßenstraße 8?") is
+   * about that stop, whatever else it says, and goes on to the lookup */
+  if (!namesAStop(entries, q) && /(how far|progress|deliver|still open|left to do|remaining|how many.*(done|left)|route going)/.test(q))
     return progressAnswer(entries, stops, routes, visits);
   if (/(summar|situation|overview|status|how.*(look|going|doing)|update)/.test(q))
     return summaryAnswer(entries, stops, routes, visits);

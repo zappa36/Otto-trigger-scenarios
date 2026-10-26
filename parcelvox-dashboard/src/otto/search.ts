@@ -9,7 +9,8 @@ import type { DepotDoor } from './doors';
  * the day's state ("delivered", "not delivered").
  */
 
-const KIND_WORD: Record<string, string> = { bulky: 'bulky', food: 'fresh food', parcel: 'parcel' };
+/* a parcel goes unsaid, as on the phone — null and 'parcel' are the same thing */
+const KIND_WORD: Record<string, string> = { bulky: 'bulky', food: 'fresh food' };
 
 export interface DoorEntry {
   door: DepotDoor;
@@ -34,7 +35,9 @@ export function buildIndex(
     const consignees = rows.map((r) => String(r.consignee || '').trim()).filter(Boolean);
     const entrances = rows.map((r) => String(r.entrance || '').trim()).filter(Boolean);
     const kinds = rows.map((r) => KIND_WORD[String(r.kind || '').toLowerCase()] || '').filter(Boolean);
-    const state = door.state === 'done' ? 'delivered' : door.state === 'failed' ? 'not delivered' : '';
+    /* the day's state in words — a door with one parcel not delivered is
+     * found by "not delivered" whatever its other parcels did */
+    const state = [door.delivered > 0 ? 'delivered' : '', door.failed > 0 ? 'not delivered' : ''].filter(Boolean).join(' ');
     return {
       door,
       consignees,

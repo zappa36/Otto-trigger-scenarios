@@ -1411,8 +1411,9 @@ cards, the system sans (see *The looks* below). Most of it is a design
 demo on fictional sample data; **its map and its notes are wired to this app's
 real store.** With stops on file, its Map view frames itself on the
 data and shows the same destinations as every other surface — route
-lines in driving order, amber pins where pre-arrival notes wait, green
-where a driver has debriefed — and clicking a stop opens the stop
+lines in driving order, amber pins where pre-arrival notes wait, blue
+where a driver has debriefed, green once the driver tapped Delivered —
+and clicking a stop opens the stop
 panel: every parcel behind that door, consignee, entrance, floor and
 kind of delivery (editable — the same four fields the driver's screen
 shows and the Route door's stop sheet edits), the dispatch notes [Otto

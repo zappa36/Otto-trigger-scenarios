@@ -1640,7 +1640,7 @@ function renderScenario(sc) {
       ${notes.map((n, i) => `
         <div class="note-item">
           <span class="note-text">${esc(n.text)}</span>
-          <span class="note-meta">${esc(String(n.by || 'dispatch').toUpperCase())}${n.at ? ' · ' + esc(fmtTime(n.at)) : ''}</span>
+          <span class="note-meta">${esc((n.call ? 'customer' : String(n.by || 'dispatch')).toUpperCase())}${n.at ? ' · ' + esc(fmtTime(n.at)) : ''}</span>
           <button class="note-del" type="button" data-note-del="${i}" title="Remove this note">×</button>
         </div>`).join('')}
       <div class="note-add">
@@ -6038,7 +6038,7 @@ function renderStopSheet() {
       ${notes.map((n, i) => `
         <div class="note-item">
           <span class="note-text">${esc(n.text)}</span>
-          <span class="note-meta">${esc(String(n.by || 'dispatch').toUpperCase())}${n.at ? ' · ' + esc(fmtTime(n.at)) : ''}</span>
+          <span class="note-meta">${esc((n.call ? 'customer' : String(n.by || 'dispatch')).toUpperCase())}${n.at ? ' · ' + esc(fmtTime(n.at)) : ''}</span>
           <button class="note-del" type="button" data-stop-note-del="${i}" title="Remove this note">×</button>
         </div>`).join('')}
       ${msgs.map(m => `

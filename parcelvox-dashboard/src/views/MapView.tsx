@@ -75,9 +75,14 @@ export function MapView({ onAskOtto }: MapViewProps) {
   const lines = useMemo(() => routeLines(depot.stops, depot.routes), [depot.stops, depot.routes]);
   /* the route the ROUTE door put on the phones — the one the driver's screen opens on */
   const onPhones = useMemo(() => activeRoute(depot.routes), [depot.routes]);
-  /* the driver's taps, counted the way the driver's screen counts them: per stop */
+  /* the driver's taps, counted the way the driver's screen counts them: per
+   * stop — the legend over every stop the map draws, the status line over
+   * the route on the phones, in the words of the driver's own header */
   const delivered = depot.stops.filter((s) => visitState(s, depot.visits) === 'done').length;
   const failed = depot.stops.filter((s) => visitState(s, depot.visits) === 'failed').length;
+  const onRouteStops = onPhones ? depot.stops.filter((s) => s.route === onPhones.id) : [];
+  const routeDone = onRouteStops.filter((s) => visitState(s, depot.visits) !== 'open').length;
+  const routeFailed = onRouteStops.filter((s) => visitState(s, depot.visits) === 'failed').length;
 
   /* The analytics API's view of the same doors — report counts and the hotspot
    * ranking over its range — fetched for the doors' bounding box and matched
@@ -189,8 +194,12 @@ export function MapView({ onAskOtto }: MapViewProps) {
       : depot.stops.length === 0
         ? `Nothing on file yet — pin scenarios or load the demo route on the trigger-scenarios dashboard (${store})`
         : `${depot.stops.length} stops · ${doors.length} addresses on file — live from ${store}` +
-          (onPhones ? ` · “${onPhones.name}” on the phones` : '') +
-          (delivered + failed > 0 ? ` · ${delivered} delivered${failed ? `, ${failed} not delivered` : ''}` : '') +
+          (onPhones
+            ? ` · “${onPhones.name}” on the phones` +
+              (routeDone ? ` · ${routeDone} of ${onRouteStops.length} done${routeFailed ? ` · ${routeFailed} not delivered` : ''}` : '')
+            : delivered + failed > 0
+              ? ` · ${delivered} delivered${failed ? `, ${failed} not delivered` : ''}`
+              : '') +
           ` · click a stop to read and edit what Otto says on approach · drag or scroll to move the map` +
           (analytics.status === 'ready' ? ` · report counts from the analytics ${analyticsIsMock ? 'mock' : 'API'}` : '') +
           (depot.offline ? ' · connection lost, retrying' : '');

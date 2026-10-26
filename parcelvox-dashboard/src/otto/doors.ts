@@ -38,7 +38,7 @@ export interface DepotDoor {
   /** Stops behind this door the driver tapped Delivered on, and Not delivered on. */
   delivered: number;
   failed: number;
-  /** 'open' while any stop here still waits; then 'done', or 'failed' when one was not delivered. */
+  /** 'open' while any stop here still waits; then 'failed' when one was not delivered, else 'done' — the phone's pin reads the door the same way. */
   state: 'open' | 'done' | 'failed';
   /** What the analytics API knows about this door, when one is configured. */
   analytics?: DoorAnalytics;

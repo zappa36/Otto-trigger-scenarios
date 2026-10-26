@@ -171,7 +171,7 @@ const stateWord = (door: DepotDoor) =>
     : door.state === 'failed'
       ? ' — not delivered'
       : door.delivered + door.failed > 0
-        ? ` — ${door.delivered + door.failed} of ${door.rows.length} done`
+        ? ` — ${door.delivered + door.failed} of ${door.rows.length} done${door.failed ? `, ${door.failed} not delivered` : ''}`
         : '';
 
 interface BerlinMapProps {
