@@ -67,6 +67,30 @@ columns, same wording:
 | # | Trigger scenario | Trigger rule (testable) | Activity Recognition states | Other signals needed | Timing to talk | Otto says | What Otto learns (tip type) | How to test it |
 |---|---|---|---|---|---|---|---|---|
 
+The page opens on **three doors** — three big buttons under the title,
+one for each thing the page is about:
+
+- **Driver** — the driver's screen itself, live, in a phone frame: a
+  preview of the page the van sees, and nothing else. One click on it
+  opens the page in a new tab.
+- **Route** — which route the phones show and the stops on each, with
+  the map on the left; the whole of
+  [the routes section](#one-route-twenty-doors--the-schöneberg-demo-route)
+  lives here.
+- **Dispatcher** — the dispatcher dashboard, live, in a browser frame:
+  a preview, one click opens it in a new tab.
+
+Otto's workshop — the tabs for your scenarios, the starter sheet,
+situations, calls and test runs, with their buttons (+ NEW …, ⇩ IMPORT,
+⇩ SPECS) above the list — sits behind the **⚙ WORKSHOP** chip in the
+header, next to ↻ REFRESH. The previews load only while their door is
+open, and they are not touchable: the whole frame is the link.
+
+The map is on the left under Route only — the route's numbered pins
+with the scenario pins around them (a scenario card's *Show on map*
+goes there; a scenario pin clicked there opens its card back in the
+workshop). Elsewhere the content has the whole width.
+
 The loop:
 
 1. **Define** — "+ New scenario", or **⇩ IMPORT**: a sheet with one
@@ -75,7 +99,7 @@ The loop:
    that ships with the kit, paste rows copied straight out of the Excel
    sheet (tab-separated clipboard rows, quoted multi-line cells and the
    header row all handled; the paste box stays folded away until asked
-   for), or go to the ROUTES tab.
+   for), or go to the Route door.
 2. **Pin** — every scenario gets a clear Google-Maps address: search one,
    or paste coordinates ("52.5346, 13.4109"). The dashboard shows the
    address, its exact coordinates, and keyless **Open in Google Maps** /
@@ -1093,12 +1117,11 @@ debriefs come from real walks instead of being invented. Its reading
 rings default to 40 m / 120 m — on foot, 350 m would arm the whole
 block at once.
 
-Routes live on the dashboard's **ROUTES tab** (the **ROUTES · n** chip
-in the header jumps there from any tab, and the tab stays in the DEMO
-view — picking the route is part of running a demo). The tab is one
-card per route on file — name, stop count, how many stops carry
-notes, the area, on foot or by van — and three things happen there
-and nowhere else. **Which route the phones show:** press *Show on the
+Routes live behind the dashboard's **Route** door — one of the three
+big buttons under the title; it stays in the DEMO view, since picking
+the route is part of running a demo. Behind it is one card per route
+on file — name, stop count, how many stops carry notes, the area, on
+foot or by van — and three things happen there and nowhere else. **Which route the phones show:** press *Show on the
 phones* on a card and that route is the one the driver's screen opens
 on. The card wears ON THE PHONES, the other routes' stops leave the
 phones altogether (map, approach readings, driver's screen), and the
@@ -1161,7 +1184,7 @@ inside the reading ring at once — in a Kiez they will — Otto reads
 the **nearest** one first; the rest keep their turn. And a tap on
 stacked same-address pins opens the **first stop still open** at that
 door, the way a courier works through parcels at a single bell.
-*Remove route* on the ROUTES tab takes a route off again — all stops,
+*Remove route* behind the Route door takes a route off again — all stops,
 their notes and their debriefs at once.
 
 One phone is also two demos: with a route loaded, the phone's map
@@ -1195,7 +1218,7 @@ phones read — which route is on them).
 Everything above is built for the people who test Otto. The driver who
 actually drives the route needs one screen of their own, and it is the
 **van icon** in Otto's header (or `index.html#driver`, which the
-dashboard's **DRIVER ↗** chip opens): today's deliveries, in driving
+dashboard's **Driver** door previews and opens): today's deliveries, in driving
 order, as a list and on a map. It is drawn in the PostNord app's
 design language — a PostNord-blue bar with TO DO / DONE tabs, white
 cards on a light page, a dotted timeline down the list, numbered blue
@@ -1204,7 +1227,7 @@ driver already holds. The files are [`driver.js`](driver.js) and
 [`driver.css`](driver.css); the look is scoped to the screen, so
 Otto's screen and the tester's map keep their own.
 
-The route is the one the dashboard's **ROUTES tab** put on the
+The route is the one the dashboard's **Route** door put on the
 phones — unless the driver picks another. With more than one route on
 file the **title is a selector**: tap the name and every route on
 file is listed, with its stop count, the one on the van ticked and
@@ -1364,7 +1387,7 @@ the phone plays and warns in the console that nothing was saved.
 
 [`parcelvox-dashboard.html`](parcelvox-dashboard.html) is the ParcelVox
 route-knowledge dashboard — dispatch's own surface, linked from the
-trigger dashboard's header as **DISPATCHER ↗**, built as a separate
+trigger dashboard's **Dispatcher** door (a live preview; one click opens it), built as a separate
 React app in [`parcelvox-dashboard/`](parcelvox-dashboard/) and
 committed as one self-contained page. Most of it is a design demo on
 fictional sample data; **its map and its notes are wired to this app's
@@ -1708,8 +1731,8 @@ The composition happens entirely through the kits' public seams:
 | `darts.js/.css` | The dart game after a report: the card, the flick, the rings, one throw per stop, only while still, the depot's best today |
 | `otto-agent.js` | Otto as a live ElevenLabs agent conversation — the kit's mount seams over a WebSocket, with the scenario as its context |
 | `otto-stream.js` | The reading voice's player: an ElevenLabs mp3 played from its first chunk while the rest is still being made (Media Source Extensions), whole where the browser cannot stream mp3 — `test/` holds its node tests, run by `agent-suite.yml` |
-| `dashboard.html` | Desktop shell: scenario list, map, form / address / import / stop sheets, the ROUTES tab's look |
-| `dashboard.js` | Trigger scenarios, situations and calls (each their own tab): CRUD, describe→draft, tunable-value sliders, voice feedback → proposed versions, history, spec export, Excel paste-import, address pinning, compare + verdict, loading the starter sheets — and the ROUTES tab: which route the phones show, routes and stops added, moved and removed, the demo routes loaded whole |
+| `dashboard.html` | Desktop shell: the three doors (Driver, Route, Dispatcher), map, scenario list, form / address / import / stop sheets, the routes' look |
+| `dashboard.js` | Behind the Driver door — trigger scenarios, situations and calls (each their own tab): CRUD, describe→draft, tunable-value sliders, voice feedback → proposed versions, history, spec export, Excel paste-import, address pinning, compare + verdict, loading the starter sheets. Behind the Route door — which route the phones show, routes and stops added, moved and removed, the demo routes loaded whole |
 | `situations-starter.js` | The starter situations: twenty things a driver reports after pressing REPORT — the driver's first words, what they know if asked, what a fitting follow-up covers, what is off topic, the tip to confirm; loadable in one tap into the dashboard's SITUATIONS tab |
 | `calls-starter.js` | The starter calls: ten calls Otto makes from the back office — a home check for a fresh-food box, the call that tells the driver, a late notice, a stop to skip, a wrong number — who is rung, why, what they say, what the call must establish, the outcome, and the call that follows; loadable in one tap into the dashboard's CALLS tab, and the phone's fallback list for ⚙ → TAKE A CALL |
 | `trigger-scenarios.js` | The starter sheet: ten finished "Otto triggers" rows — the deck's worked example, eight more situations, the clean-run control — loadable in one tap, idempotent by title |
