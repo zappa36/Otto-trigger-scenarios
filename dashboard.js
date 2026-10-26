@@ -3595,8 +3595,14 @@ function render() {
   const callsTab = callsTabOn();
   const runs = runsTabOn();
   const routesTab = routesTabOn();
-  if (el('phone-links')) el('phone-links').hidden = routesTab;
-  if (el('workshop-head')) el('workshop-head').hidden = routesTab;
+  /* DRIVER and DISPATCHER are a preview and nothing else; the workshop's
+   * chips and tabs show only behind the ⚙ WORKSHOP chip */
+  const preview = section === 'driver' || section === 'dispatcher';
+  if (el('preview-driver')) el('preview-driver').hidden = section !== 'driver';
+  if (el('preview-dispatcher')) el('preview-dispatcher').hidden = section !== 'dispatcher';
+  if (el('workshop-head')) el('workshop-head').hidden = !workshopOn();
+  el('list').hidden = preview;
+  mountPreviews();
   el('new-situation').hidden = !sit;
   if (el('new-call')) el('new-call').hidden = !callsTab;
   /* the starter calls' reload: on the CALLS tab, whenever a starter row
@@ -3627,6 +3633,7 @@ function render() {
       });
     }
   }
+  if (preview) return; // the page in the frame is the whole content
   const box = el('list');
   /* the RUNS tab is a report, not a list of rows: either the runs
    * themselves or ONE run's summary in their place, with the way back
@@ -4748,26 +4755,43 @@ const LS_TAB = 'od_scen_tab';
 const LIST_TABS = ['own', 'sheet', 'routes', 'situations', 'calls', 'runs'];
 let listTab = 'own';
 try { const t = localStorage.getItem(LS_TAB); if (LIST_TABS.includes(t)) listTab = t; } catch { /* private mode */ }
-const sitTabOn = () => listTab === 'situations' && cardView !== 'demo';
+if (listTab === 'routes') listTab = 'own'; // the route is a section now, not a tab (below)
+/* The page's doors. DRIVER and DISPATCHER show their pages as live
+ * previews and nothing else; ROUTE is the routes with the map; the
+ * WORKSHOP (the ⚙ chip in the header) is the tabs below — scenarios,
+ * situations, calls, runs. One choice per browser, like the tabs. */
+const LS_SECTION = 'od_section';
+const SECTIONS = ['driver', 'dispatcher', 'route', 'workshop'];
+let section = 'driver';
+try { const s = localStorage.getItem(LS_SECTION); if (SECTIONS.includes(s)) section = s; } catch { /* private mode */ }
+function setSection(s) {
+  section = SECTIONS.includes(s) ? s : 'driver';
+  try { localStorage.setItem(LS_SECTION, section); } catch { /* private mode */ }
+}
+const workshopOn = () => section === 'workshop';
+const sitTabOn = () => workshopOn() && listTab === 'situations' && cardView !== 'demo';
 /* CALLS is workshop chrome like SITUATIONS: the calls Otto makes, the
  * third sheet, hidden by the DEMO view the same way */
-const callsTabOn = () => listTab === 'calls' && cardView !== 'demo';
+const callsTabOn = () => workshopOn() && listTab === 'calls' && cardView !== 'demo';
 /* RUNS is workshop chrome too — a per-run report of what the simulated
  * drivers got out of Otto is the last thing a client demo wants on
  * screen, so the DEMO view hides it exactly as it hides SITUATIONS */
-const runsTabOn = () => listTab === 'runs' && cardView !== 'demo';
-/* ROUTES is not workshop chrome: which route the phones show is part
+const runsTabOn = () => workshopOn() && listTab === 'runs' && cardView !== 'demo';
+/* ROUTE is not workshop chrome: which route the phones show is part
  * of running a demo, so the DEMO view keeps it */
-const routesTabOn = () => listTab === 'routes';
-/* the scenario tabs — one or two — are what is left when no other tab is on */
-const scenTabOn = () => !sitTabOn() && !callsTabOn() && !runsTabOn() && !routesTabOn();
+const routesTabOn = () => section === 'route';
+/* the scenario tabs — one or two — are what is left of the workshop when no other tab is on */
+const scenTabOn = () => workshopOn() && !sitTabOn() && !callsTabOn() && !runsTabOn();
 const listMixed = () => scenarios.some(fromSheet) && scenarios.some(sc => !fromSheet(sc));
 const inTab = sc => scenTabOn() && (!listMixed() || ((listTab === 'sheet') === fromSheet(sc)));
-/* the DRIVER door reopens on the workshop tab that was open last */
-let lastDriverTab = listTab === 'routes' ? 'own' : listTab;
+/* the ⚙ WORKSHOP chip reopens on the tab that was open last */
+let lastWorkshopTab = listTab;
+/* 'routes' opens the ROUTE door; any workshop tab opens the workshop on it */
 function setListTab(t) {
+  if (t === 'routes') { setSection('route'); return; }
   listTab = LIST_TABS.includes(t) ? t : 'own';
-  if (listTab !== 'routes') lastDriverTab = listTab;
+  lastWorkshopTab = listTab;
+  setSection('workshop');
   /* leaving the RUNS tab closes whatever summary was open: coming back
    * should land on the list of runs, not halfway down an old report */
   if (listTab !== 'runs') { openRunId = null; runFocusSit = null; }
@@ -5164,24 +5188,47 @@ function setOpenRoute(id) {
   try { if (id) localStorage.setItem(LS_ROUTE_OPEN, id); else localStorage.removeItem(LS_ROUTE_OPEN); } catch { /* private mode */ }
 }
 
-/* the three doors: the open one lit, the line under each title fresh */
+/* the three doors and the workshop chip: the open one lit, the line
+ * under each door's title fresh */
 function renderDoors() {
-  const route = routesTabOn();
-  const dd = el('door-driver');
-  const dr = el('door-route');
-  if (!dd || !dr) return;
-  dd.classList.toggle('on', !route);
-  dr.classList.toggle('on', route);
-  dd.setAttribute('aria-pressed', route ? 'false' : 'true');
-  dr.setAttribute('aria-pressed', route ? 'true' : 'false');
+  ['driver', 'route', 'dispatcher'].forEach(k => {
+    const n = el('door-' + k);
+    if (!n) return;
+    n.classList.toggle('on', section === k);
+    n.setAttribute('aria-pressed', section === k ? 'true' : 'false');
+  });
+  const ws = el('workshop-open');
+  if (ws) ws.classList.toggle('on', workshopOn());
   const n = routesOnFile().length;
   const act = activeRoute();
-  el('door-route-live').textContent = !n ? 'NO ROUTE ON FILE YET — LOAD A DEMO ROUTE OR MAKE ONE'
-    : `${n} ROUTE${n === 1 ? '' : 'S'} ON FILE` + (act ? ` · “${String(act.name).toUpperCase()}” ON THE PHONES` : ' · NONE ON THE PHONES YET');
-  const parts = [`${scenarios.length} SCENARIO${scenarios.length === 1 ? '' : 'S'}`];
-  if (cardView !== 'demo') parts.push(`${situations.length} SITUATIONS`, `${calls.length} CALLS`, `${agentRuns.length} TEST RUNS`);
-  el('door-driver-live').textContent = parts.join(' · ');
+  if (el('door-route-live')) {
+    el('door-route-live').textContent = !n ? 'NO ROUTE ON FILE YET — LOAD A DEMO ROUTE OR MAKE ONE'
+      : `${n} ROUTE${n === 1 ? '' : 'S'} ON FILE` + (act ? ` · “${String(act.name).toUpperCase()}” ON THE PHONES` : ' · NONE ON THE PHONES YET');
+  }
+  /* what the driver's screen opens on */
+  if (el('door-driver-live')) {
+    el('door-driver-live').textContent = act ? `OPENS ON “${String(act.name).toUpperCase()}” · ${routeStops(act).length} STOPS`
+      : n ? 'OPENS ON THE ROUTE LOADED LAST' : 'NO ROUTE ON FILE YET';
+  }
 }
+
+/* The previews load only while their door is open: a phone app running
+ * in the background would poll the store and tick for nothing. The
+ * browser preview scales to its column. */
+function mountPreviews() {
+  document.querySelectorAll('.preview').forEach(sec => {
+    const f = sec.querySelector('iframe');
+    if (!f) return;
+    if (!sec.hidden && !f.getAttribute('src')) f.setAttribute('src', f.dataset.src);
+    else if (sec.hidden && f.getAttribute('src')) { f.setAttribute('src', 'about:blank'); f.removeAttribute('src'); }
+  });
+  fitPreviews();
+}
+function fitPreviews() {
+  const b = document.querySelector('#preview-dispatcher .browser-frame');
+  if (b && !b.closest('.preview').hidden && b.clientWidth) b.style.setProperty('--bs', String(Math.max(0.2, Math.min(1, b.clientWidth / 1280))));
+}
+window.addEventListener('resize', fitPreviews);
 
 function toggleRouteShown() {
   routeShown = !routeShown;
@@ -6362,9 +6409,13 @@ el('import-options').addEventListener('click', e => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 });
-/* the two doors that open on this page (the third is a link) */
-el('door-driver').onclick = () => { if (routesTabOn()) { setListTab(lastDriverTab); render(); } };
-el('door-route').onclick = () => { if (!routesTabOn()) { setListTab('routes'); render(); } };
+/* the three doors, and the workshop chip in the header — a new section
+ * starts at the top of the page, doors in view */
+const openSection = go => { go(); render(); window.scrollTo(0, 0); };
+el('door-driver').onclick = () => { if (section !== 'driver') openSection(() => setSection('driver')); };
+el('door-dispatcher').onclick = () => { if (section !== 'dispatcher') openSection(() => setSection('dispatcher')); };
+el('door-route').onclick = () => { if (!routesTabOn()) openSection(() => setListTab('routes')); };
+el('workshop-open').onclick = () => { if (!workshopOn()) openSection(() => setListTab(lastWorkshopTab)); };
 el('stop-close').onclick = () => { el('stop-sheet').hidden = true; stopFor = null; };
 /* add / delete notes straight from the stop sheet — the map's amber
  * marking and the "with notes" count follow the edit live */

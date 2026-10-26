@@ -68,22 +68,28 @@ columns, same wording:
 |---|---|---|---|---|---|---|---|---|
 
 The page opens on **three doors** — three big buttons under the title,
-one for each thing the page is about, everything else inside them:
+one for each thing the page is about:
 
-- **Driver** — the phone in the van: two links (the driver's screen,
-  the phone app), then Otto's workshop — the tabs for your scenarios,
-  the starter sheet, situations, calls and test runs, with their
-  buttons (+ NEW …, ⇩ IMPORT, ⇩ SPECS) above the list.
-- **Route** — which route the phones show and the stops on each; the
-  whole of [the routes section](#one-route-twenty-doors--the-schöneberg-demo-route)
+- **Driver** — the driver's screen itself, live, in a phone frame: a
+  preview of the page the van sees, and nothing else. One click on it
+  opens the page in a new tab.
+- **Route** — which route the phones show and the stops on each, with
+  the map on the left; the whole of
+  [the routes section](#one-route-twenty-doors--the-schöneberg-demo-route)
   lives here.
-- **Dispatcher ↗** — the dispatcher dashboard, in a new tab.
+- **Dispatcher** — the dispatcher dashboard, live, in a browser frame:
+  a preview, one click opens it in a new tab.
+
+Otto's workshop — the tabs for your scenarios, the starter sheet,
+situations, calls and test runs, with their buttons (+ NEW …, ⇩ IMPORT,
+⇩ SPECS) above the list — sits behind the **⚙ WORKSHOP** chip in the
+header, next to ↻ REFRESH. The previews load only while their door is
+open, and they are not touchable: the whole frame is the link.
 
 The map is on the left under Route only — the route's numbered pins
 with the scenario pins around them (a scenario card's *Show on map*
-goes there; a scenario pin clicked there opens its card back under
-Driver). Under Driver the list has the whole width. The header keeps
-only the map backend and ↻ REFRESH.
+goes there; a scenario pin clicked there opens its card back in the
+workshop). Elsewhere the content has the whole width.
 
 The loop:
 
@@ -1212,7 +1218,7 @@ phones read — which route is on them).
 Everything above is built for the people who test Otto. The driver who
 actually drives the route needs one screen of their own, and it is the
 **van icon** in Otto's header (or `index.html#driver`, which the
-dashboard's **DRIVER ↗** chip opens): today's deliveries, in driving
+dashboard's **Driver** door previews and opens): today's deliveries, in driving
 order, as a list and on a map. It is drawn in the PostNord app's
 design language — a PostNord-blue bar with TO DO / DONE tabs, white
 cards on a light page, a dotted timeline down the list, numbered blue
@@ -1381,7 +1387,7 @@ the phone plays and warns in the console that nothing was saved.
 
 [`parcelvox-dashboard.html`](parcelvox-dashboard.html) is the ParcelVox
 route-knowledge dashboard — dispatch's own surface, linked from the
-trigger dashboard's header as **DISPATCHER ↗**, built as a separate
+trigger dashboard's **Dispatcher** door (a live preview; one click opens it), built as a separate
 React app in [`parcelvox-dashboard/`](parcelvox-dashboard/) and
 committed as one self-contained page. Most of it is a design demo on
 fictional sample data; **its map and its notes are wired to this app's

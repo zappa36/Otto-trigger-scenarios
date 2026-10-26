@@ -151,37 +151,54 @@
     color: #7fd6ea;
   }
   .door-live:empty { display: none; }
-  /* inside DRIVER: the two phone screens */
-  .plinks { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  @media (max-width: 640px) { .plinks { grid-template-columns: 1fr; } }
-  .plinks[hidden] { display: none; }
-  .plink {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px 14px;
+  /* ---------- the previews behind DRIVER and DISPATCHER ----------
+   * The page itself, live, in a frame — a phone for the driver's
+   * screen, a browser window for the dispatcher's — scaled down and
+   * not touchable: the whole frame is one link that opens the page. */
+  .preview { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 10px 0 20px; }
+  .preview[hidden] { display: none; }
+  .preview-link { display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 100%; color: #eef2f7; text-decoration: none; }
+  .preview-link iframe { display: block; border: 0; background: #fff; pointer-events: none; transform-origin: 0 0; }
+  .preview-cap { font-family: ui-monospace, monospace; font-size: 10.5px; letter-spacing: .1em; color: #7fd6ea; text-align: center; }
+  .preview-link:hover .preview-cap { color: #cfe9f2; }
+  /* the phone: 393 × 852, scaled */
+  .phone-frame { --ps: .62; }
+  .phone-shell {
+    display: block;
+    padding: 12px;
+    border-radius: 40px;
+    background: #0b0f14;
+    border: 1px solid rgba(140,165,200,.3);
+    box-shadow: 0 20px 60px rgba(0,0,0,.5), inset 0 0 0 2px #1b2430;
+  }
+  .preview-link:hover .phone-shell { border-color: rgba(60,192,224,.6); }
+  .phone-screen {
+    display: block;
+    position: relative;
+    width: calc(393px * var(--ps));
+    height: calc(852px * var(--ps));
+    border-radius: 28px;
+    overflow: hidden;
+    background: #fff;
+  }
+  .phone-screen iframe { width: 393px; height: 852px; transform: scale(var(--ps)); }
+  /* the browser window: 1280 × 800, scaled to the column (fitPreviews sets --bs) */
+  .browser-frame { --bs: .5; width: 100%; max-width: 960px; }
+  .browser-shell {
+    display: block;
+    width: 100%;
     border-radius: 14px;
-    border: 1px solid rgba(140,165,200,.18);
-    background: rgba(9,17,26,.92);
-    color: #eef2f7;
-    text-decoration: none;
+    overflow: hidden;
+    border: 1px solid rgba(140,165,200,.3);
+    background: #0b0f14;
+    box-shadow: 0 20px 60px rgba(0,0,0,.5);
   }
-  .plink:hover { border-color: rgba(60,192,224,.5); }
-  .plink-ic {
-    flex: none;
-    width: 38px; height: 38px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 11px;
-    border: 1px solid rgba(60,192,224,.35);
-    background: rgba(60,192,224,.08);
-    color: #7fd6ea;
-  }
-  .plink-ic svg { width: 22px; height: 22px; fill: currentColor; }
-  .plink-body { flex: 1; min-width: 0; }
-  .plink-body b { display: block; font-size: 14px; }
-  .plink-body span { display: block; margin-top: 2px; font-size: 12px; line-height: 1.4; color: #94a1b2; }
+  .preview-link:hover .browser-shell { border-color: rgba(60,192,224,.6); }
+  .browser-bar { display: flex; align-items: center; gap: 6px; padding: 9px 12px; background: #141c26; border-bottom: 1px solid rgba(140,165,200,.18); }
+  .browser-bar i { width: 10px; height: 10px; border-radius: 999px; background: rgba(140,165,200,.35); }
+  .browser-url { margin-left: 8px; flex: 1; padding: 4px 10px; border-radius: 7px; background: rgba(7,13,22,.8); font-family: ui-monospace, monospace; font-size: 10px; letter-spacing: .06em; color: #94a1b2; }
+  .browser-screen { display: block; position: relative; width: 100%; height: calc(800px * var(--bs)); overflow: hidden; background: #fff; }
+  .browser-screen iframe { width: 1280px; height: 800px; transform: scale(var(--bs)); }
   /* the workshop's caption and its buttons, above the tabs */
   .workshop-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 2px 2px 0; }
   .workshop-head .addr-tag { margin: 0; }
@@ -225,6 +242,9 @@
 
   /* ---------- scenario list ---------- */
   .list { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  /* the class sets display, which outranks the browser's own [hidden]
+   * rule — under a preview door the list must really go */
+  .list[hidden] { display: none; }
 
   /* two tabs when the list is mixed: the dashboard's own rows / the starter sheet's */
   .tabs { display: flex; gap: 8px; }
@@ -1845,6 +1865,7 @@
   <div class="top-actions">
     <span class="chip plain" id="backend" title="Map backend">GRID</span>
     <button class="chip" id="refresh" type="button" title="Reload everything from the store">↻ REFRESH</button>
+    <button class="chip" id="workshop-open" type="button" title="Otto's workshop — scenarios, situations, calls and test runs: the test designer's tools">⚙ WORKSHOP</button>
   </div>
 </header>
 
@@ -1858,7 +1879,7 @@
     <span class="door-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg></span>
     <span class="door-body">
       <b>Driver</b>
-      <span class="door-sub">The phone in the van: the driver's screen, the phone app, and Otto's workshop — scenarios, situations, calls, test runs.</span>
+      <span class="door-sub">The phone in the van — the driver's screen, live. Click the preview to open it.</span>
       <span class="door-live" id="door-driver-live"></span>
     </span>
   </button>
@@ -1870,14 +1891,14 @@
       <span class="door-live" id="door-route-live"></span>
     </span>
   </button>
-  <a class="door" id="door-dispatcher" href="parcelvox-dashboard.html" target="_blank" rel="noopener" title="ParcelVox route knowledge — the dispatcher's view of tips, routes and stops">
+  <button class="door" id="door-dispatcher" type="button" data-door="dispatcher" title="ParcelVox route knowledge — the dispatcher's view of tips, routes and stops">
     <span class="door-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7V3H2v18h20V7H12zM6 19H4v-2h2v2zm0-4H4v-2h2v2zm0-4H4V9h2v2zm0-4H4V5h2v2zm4 12H8v-2h2v2zm0-4H8v-2h2v2zm0-4H8V9h2v2zm0-4H8V5h2v2zm10 12h-8v-2h2v-2h-2v-2h2v-2h-2V9h8v10zm-2-8h-2v2h2v-2zm0 4h-2v2h2v-2z"/></svg></span>
     <span class="door-body">
-      <b>Dispatcher ↗</b>
-      <span class="door-sub">Route knowledge: the tips and notes drivers left, on the dispatcher's own map. Opens in a new tab.</span>
-      <span class="door-live">OPENS THE DISPATCHER DASHBOARD</span>
+      <b>Dispatcher</b>
+      <span class="door-sub">Route knowledge: the tips and notes drivers left, on the dispatcher's own map. Click the preview to open it.</span>
+      <span class="door-live">LIVE PREVIEW · CLICK IT TO OPEN THE PAGE</span>
     </span>
-  </a>
+  </button>
 </nav>
 
 <main class="wrap">
@@ -1890,17 +1911,25 @@
     <p class="map-note">The numbered pins are the route whose card is open (else the one on the phones) — click a stop to see what is on file behind that door. The other pins are the scenarios' test addresses — click one and its scenario opens under DRIVER.</p>
   </section>
   <section class="content">
-    <!-- inside DRIVER: the two phone screens, then Otto's workshop -->
-    <div class="plinks" id="phone-links">
-      <a class="plink" href="index.html#driver" target="_blank" rel="noopener">
-        <span class="plink-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm13.5-9l1.96 2.5H17V9.5h2.5zm-1.5 9c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg></span>
-        <span class="plink-body"><b>Open the driver's screen ↗</b><span>Today's route in the van — the next stop, the list, the map, Delivered / Not delivered, Call the customer.</span></span>
+    <!-- behind DRIVER: the driver's screen itself, live, in a phone —
+         not touchable; the whole phone is one link that opens the page -->
+    <section class="preview" id="preview-driver" hidden>
+      <a class="preview-link phone-frame" href="index.html#driver" target="_blank" rel="noopener" title="Open the driver's screen in a new tab">
+        <span class="phone-shell"><span class="phone-screen"><iframe data-src="index.html#driver" title="Preview of the driver's screen" tabindex="-1" allow="geolocation 'none'; microphone 'none'; camera 'none'"></iframe></span></span>
+        <span class="preview-cap">THE DRIVER'S SCREEN · LIVE · CLICK TO OPEN ↗</span>
       </a>
-      <a class="plink" href="index.html" target="_blank" rel="noopener">
-        <span class="plink-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z"/></svg></span>
-        <span class="plink-body"><b>Open the phone app ↗</b><span>The tester's phone — Otto's screen, the map with the scenario pins, the approach readings, the REPORT button.</span></span>
+    </section>
+    <!-- behind DISPATCHER: the dispatcher dashboard, live, in a browser window -->
+    <section class="preview" id="preview-dispatcher" hidden>
+      <a class="preview-link browser-frame" href="parcelvox-dashboard.html" target="_blank" rel="noopener" title="Open the dispatcher dashboard in a new tab">
+        <span class="browser-shell">
+          <span class="browser-bar"><i></i><i></i><i></i><span class="browser-url">parcelvox-dashboard.html</span></span>
+          <span class="browser-screen"><iframe data-src="parcelvox-dashboard.html" title="Preview of the dispatcher dashboard" tabindex="-1" allow="geolocation 'none'; microphone 'none'; camera 'none'"></iframe></span>
+        </span>
+        <span class="preview-cap">THE DISPATCHER DASHBOARD · LIVE · CLICK TO OPEN ↗</span>
       </a>
-    </div>
+    </section>
+    <!-- behind the ⚙ WORKSHOP chip: Otto's workshop, its buttons above the tabs -->
     <div class="workshop-head" id="workshop-head">
       <span class="addr-tag">OTTO'S WORKSHOP — WHAT HE SAYS, ASKS AND LEARNS</span>
       <div class="top-actions" id="workshop-actions">
