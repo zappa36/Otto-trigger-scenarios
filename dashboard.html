@@ -19,6 +19,7 @@
     --pv-ink-deep: #0A1730;
     --pv-coral: #FF4D3A;
     --pv-coral-deep: #BE3E24;
+    --pv-coral-tint: #FF8A7A;   /* coral for small text on ink — reads where full coral is too dark */
     --pv-cream: #EFE9DC;
     --pv-ink: #1B2536;
     --pv-oat: #F4F1E8;
@@ -164,10 +165,10 @@
     text-decoration: none;
     cursor: pointer;
   }
-  .door:hover { border-color: rgba(244,241,232,.36); }
+  .door:hover { border-color: rgba(255,77,58,.55); }
   .door.on {
-    border-color: var(--pv-oat);
-    background: rgba(244,241,232,.1);
+    border-color: var(--pv-coral);
+    background: rgba(255,77,58,.08);
   }
   .door-ic {
     flex: none;
@@ -176,12 +177,14 @@
     align-items: center;
     justify-content: center;
     border-radius: 10px;
-    border: 1px solid rgba(244,241,232,.26);
-    background: rgba(244,241,232,.09);
-    color: var(--pv-oat);
+    border: 1px solid rgba(255,77,58,.4);
+    background: var(--pv-coral-wash);
+    color: var(--pv-coral);
   }
   .door-ic svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
-  .door.on .door-ic { background: rgba(244,241,232,.18); }
+  /* the chosen door's tile fills coral; a press darkens it to deep coral */
+  .door.on .door-ic { background: var(--pv-coral); border-color: var(--pv-coral); color: var(--pv-ink-deep); }
+  .door:active .door-ic { background: var(--pv-coral-deep); border-color: var(--pv-coral-deep); color: var(--pv-oat); }
   .door-body { flex: 1; min-width: 0; }
   .door-body b { display: block; font-family: var(--pv-font-head); font-size: 18px; font-weight: 600; letter-spacing: 0; }
   .door-sub { display: block; margin-top: 4px; font-size: 12.5px; line-height: 1.45; color: var(--pv-muted); }
@@ -191,7 +194,7 @@
     font-family: var(--pv-font-head);
     font-size: 10px;
     letter-spacing: .09em;
-    color: var(--pv-oat);
+    color: var(--pv-coral-tint);
   }
   .door-live:empty { display: none; }
   .brand h1 { cursor: pointer; }
@@ -212,6 +215,7 @@
     min-height: 280px;
     padding: 28px 26px 24px;
     border-radius: 10px;
+    border-top: 2px solid var(--pv-coral); /* a coral rule heads each door on the landing */
   }
   body.home .door-ic { width: 64px; height: 64px; border-radius: 10px; }
   body.home .door-ic svg { width: 36px; height: 36px; }

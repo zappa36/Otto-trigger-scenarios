@@ -1726,8 +1726,10 @@ Two design languages share the app, each where it belongs:
   Otto's screens on the phone (the Companion, the map, the stop card,
   the calls, the sheets): flat ink-blue grounds (`#0E2138`, deeper
   panels `#0A1730`), Oat text (`#F4F1E8`), hairlines where there were
-  shadows, and one coral hit (`#FF4D3A`) per screen — the *Vox* in the
-  wordmark, Otto's blob, the live dot on the map. Space Grotesk carries
+  shadows, and coral (`#FF4D3A`, with its tint and wash) on the things
+  that matter — the *Vox* in the wordmark, the three doors (a rule on
+  top, the icon tile, the status line; the chosen door fills its tile),
+  Otto's blob, the live dot on the map. Space Grotesk carries
   titles, labels and numbers; Source Sans 3 carries the reading text.
   Sentence case everywhere except the small uppercase kicker labels;
   stroke icons in the Lucide style, no emoji, no gradients. The shared
