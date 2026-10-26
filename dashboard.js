@@ -145,7 +145,7 @@ const uiBusy = () => !!proposalBusy
   || (runsTabOn() && !!openRunId)
   || (cardView !== 'demo' && !!(tune || fbRec || proposal || msgEdit || gradeBusy() || sitDirty() || callDirty()))
   || !el('form-sheet').hidden || !el('stop-sheet').hidden || notesEditing()
-  /* a route or a stop half-typed on the ROUTES tab, or one being written */
+  /* a route or a stop half-typed on the ROUTE door, or one being written */
   || !!stopForm || !!routeForm || routeBusy;
 
 const persistLocal = () => {
@@ -733,7 +733,7 @@ async function loadAll() {
     } catch (e) { warn(e); }
     /* the routes table — which route the phones show — rides its own
      * request: a store from before the table still has its stops, and
-     * the ROUTES tab says what to run */
+     * the ROUTE door says what to run */
     try {
       routes = (await Backend.listRoutes()) || [];
       routesMissing = false;
@@ -3567,11 +3567,6 @@ function renderRunSummary(run) {
  * it is the first thing done on it. */
 function renderTabs() {
   const own = scenarios.filter(sc => !fromSheet(sc)).length;
-  /* ROUTES stays in both views: which route the phones show is part of
-   * running a demo, not workshop chrome */
-  const routesTab = `
-      <button class="tab${routesTabOn() ? ' on' : ''}" type="button" data-tab="routes"
-        title="The delivery routes: which one the phones show, and the stops on each — add, remove, move">ROUTES · ${routesOnFile().length}</button>`;
   const sit = cardView === 'demo' ? '' : `
       <button class="tab${sitTabOn() ? ' on' : ''}" type="button" data-tab="situations"
         title="What a driver reports when they press REPORT — the pilot's other sheet, tested by the agent suite in four voices">SITUATIONS · ${situations.length}</button>
@@ -3586,19 +3581,22 @@ function renderTabs() {
         title="Rows made on this dashboard">YOUR SCENARIOS · ${own}</button>
       <button class="tab${scenTabOn() && listTab === 'sheet' ? ' on' : ''}" type="button" data-tab="sheet"
         title="Rows loaded from the shipped starter sheet — rename one and it moves to your tab">⇩ STARTER SHEET · ${scenarios.length - own}</button>`;
-  return `
-    <div class="tabs">${scen}${routesTab}${sit}</div>`;
+  return !scen && !sit ? '' : `
+    <div class="tabs">${scen}${sit}</div>`;
 }
 
 function render() {
   renderStats();
-  renderRouteChip();
-  /* the top bar follows the tab: a situation has no pin to import, no
-   * spec to export and no Excel sheet behind it */
+  renderDoors();
+  /* the workshop's buttons follow the tab: a situation has no pin to
+   * import, no spec to export and no Excel sheet behind it — and the
+   * ROUTE door has none of the workshop at all */
   const sit = sitTabOn();
   const callsTab = callsTabOn();
   const runs = runsTabOn();
   const routesTab = routesTabOn();
+  if (el('phone-links')) el('phone-links').hidden = routesTab;
+  if (el('workshop-head')) el('workshop-head').hidden = routesTab;
   el('new-situation').hidden = !sit;
   if (el('new-call')) el('new-call').hidden = !callsTab;
   /* the starter calls' reload: on the CALLS tab, whenever a starter row
@@ -3647,10 +3645,10 @@ function render() {
     }
     return;
   }
-  /* the ROUTES tab: the routes on file, the one on the phones, the
-   * stops of the open one */
+  /* the ROUTE door: the routes on file, the one on the phones, the
+   * stops of the open one — nothing else, so no tabs */
   if (routesTab) {
-    box.innerHTML = renderTabs() + renderRoutesTab();
+    box.innerHTML = renderRoutesTab();
     return;
   }
   if (sit) {
@@ -3672,7 +3670,7 @@ function render() {
           <button class="chip primary" type="button" data-empty="new">+ NEW SCENARIO</button>
           <button class="chip" type="button" data-empty="import">⇩ IMPORT</button>
           ${SHEET ? `<button class="chip" type="button" data-empty="sheet">⇩ LOAD THE STARTER SHEET · ${SHEET.scenarios.length}</button>` : ''}
-          ${!routesOnFile().length ? '<button class="chip" type="button" data-empty="route">⇪ ROUTES — LOAD A DEMO ROUTE</button>' : ''}
+          ${!routesOnFile().length ? '<button class="chip" type="button" data-empty="route">⇪ ROUTE — LOAD A DEMO ROUTE</button>' : ''}
         </div>
       </div>`;
     return;
@@ -4622,7 +4620,7 @@ function rowsToScenarios(text) {
  * Three doors in, each a card with one button: the starter sheet, with
  * its state (none loaded, some missing, all in); rows copied from
  * Excel — the paste box, folded away until asked for, since most
- * sessions never open it; and the way to the ROUTES tab, where the
+ * sessions never open it; and the way to the ROUTE door, where the
  * routes went. No links, no box on display that nobody uses. */
 let importMode = 'pick'; // pick | paste
 function renderImportSheet() {
@@ -4661,10 +4659,10 @@ function renderImportSheet() {
         <div class="imp-ic">⇪</div>
         <div class="imp-body">
           <b>Routes</b>
-          <span>The delivery routes live on the ROUTES tab: load a demo route, make a new one, add and move stops, pick the one the phones show.</span>
+          <span>The delivery routes live behind the ROUTE door above: load a demo route, make a new one, add and move stops, pick the one the phones show.</span>
           ${on.length ? `<span class="imp-status">${on.length} ROUTE${on.length === 1 ? '' : 'S'} ON FILE${act ? ` · “${esc(String(act.name).toUpperCase())}” ON THE PHONES` : ''}</span>` : ''}
         </div>
-        <button class="sheet-btn" type="button" data-imp="routes">Open the ROUTES tab</button>
+        <button class="sheet-btn" type="button" data-imp="routes">Open Route</button>
       </div>`);
   box.innerHTML = cards.join('');
   box.hidden = importMode === 'paste';
@@ -4764,8 +4762,11 @@ const routesTabOn = () => listTab === 'routes';
 const scenTabOn = () => !sitTabOn() && !callsTabOn() && !runsTabOn() && !routesTabOn();
 const listMixed = () => scenarios.some(fromSheet) && scenarios.some(sc => !fromSheet(sc));
 const inTab = sc => scenTabOn() && (!listMixed() || ((listTab === 'sheet') === fromSheet(sc)));
+/* the DRIVER door reopens on the workshop tab that was open last */
+let lastDriverTab = listTab === 'routes' ? 'own' : listTab;
 function setListTab(t) {
   listTab = LIST_TABS.includes(t) ? t : 'own';
+  if (listTab !== 'routes') lastDriverTab = listTab;
   /* leaving the RUNS tab closes whatever summary was open: coming back
    * should land on the list of runs, not halfway down an old report */
   if (listTab !== 'runs') { openRunId = null; runFocusSit = null; }
@@ -5108,7 +5109,7 @@ function scrollToCall(id) {
  * address: one front door, several parcels). The route itself is a
  * row of the routes table: its name, whether it is walked or driven,
  * and the one flag the phones read — `active`, THE route on the
- * phones. The dashboard keeps one row active; the ROUTES tab is where
+ * phones. The dashboard keeps one row active; the ROUTE door is where
  * it is chosen, and where routes and stops are added and removed.
  * route-schoeneberg.js and route-kollwitz.js ship two demo routes to
  * load whole; a new route starts empty and grows stop by stop. */
@@ -5152,7 +5153,7 @@ const activeRoute = () => routes.filter(r => r.active)
 const LS_ROUTE_SHOW = 'od_route_show';
 const LS_ROUTE_OPEN = 'od_route_open';
 let routeShown = true;
-let openRouteId = null;  // the card unfolded on the ROUTES tab — its stops listed, and drawn
+let openRouteId = null;  // the card unfolded on the ROUTE door — its stops listed, and drawn
 try { routeShown = localStorage.getItem(LS_ROUTE_SHOW) !== '0'; } catch { /* private mode */ }
 try { openRouteId = localStorage.getItem(LS_ROUTE_OPEN) || null; } catch { /* private mode */ }
 const mapRoute = () => (openRouteId && routeOnFileById(openRouteId)) || activeRoute() || null;
@@ -5162,18 +5163,23 @@ function setOpenRoute(id) {
   try { if (id) localStorage.setItem(LS_ROUTE_OPEN, id); else localStorage.removeItem(LS_ROUTE_OPEN); } catch { /* private mode */ }
 }
 
-/* the header chip: how many routes are on file, and the way to the tab */
-function renderRouteChip() {
-  const chip = el('route-chip');
-  if (!chip) return;
+/* the three doors: the open one lit, the line under each title fresh */
+function renderDoors() {
+  const route = routesTabOn();
+  const dd = el('door-driver');
+  const dr = el('door-route');
+  if (!dd || !dr) return;
+  dd.classList.toggle('on', !route);
+  dr.classList.toggle('on', route);
+  dd.setAttribute('aria-pressed', route ? 'false' : 'true');
+  dr.setAttribute('aria-pressed', route ? 'true' : 'false');
   const n = routesOnFile().length;
   const act = activeRoute();
-  chip.hidden = false;
-  chip.classList.toggle('on', routesTabOn());
-  chip.textContent = n ? `ROUTES · ${n}` : '⇪ ROUTES';
-  chip.title = act ? `The routes on file — “${act.name}” is on the phones. Open the tab to switch, or to add and remove routes and stops.`
-    : n ? 'The routes on file — none is marked for the phones yet. Open the tab to pick one.'
-    : 'No route on file yet — open the tab to load a demo route or make a new one.';
+  el('door-route-live').textContent = !n ? 'NO ROUTE ON FILE YET — LOAD A DEMO ROUTE OR MAKE ONE'
+    : `${n} ROUTE${n === 1 ? '' : 'S'} ON FILE` + (act ? ` · “${String(act.name).toUpperCase()}” ON THE PHONES` : ' · NONE ON THE PHONES YET');
+  const parts = [`${scenarios.length} SCENARIO${scenarios.length === 1 ? '' : 'S'}`];
+  if (cardView !== 'demo') parts.push(`${situations.length} SITUATIONS`, `${calls.length} CALLS`, `${agentRuns.length} TEST RUNS`);
+  el('door-driver-live').textContent = parts.join(' · ');
 }
 
 function toggleRouteShown() {
@@ -5711,7 +5717,7 @@ async function removeStop(d) {
   await saveStopNumbers(changed);
 }
 
-/* ---- the ROUTES tab ---- */
+/* ---- the ROUTE door ---- */
 const floorWord = f => { f = String(f == null ? '' : f).trim(); return !f ? '' : /^\d+$/.test(f) ? 'floor ' + f : f; };
 /* name · entrance · floor — the stop's one line, as the driver's screen says it */
 const stopWho = d => [String(d.consignee || '').trim(), String(d.entrance || '').trim(), floorWord(d.floor)].filter(Boolean).join(' · ');
@@ -6221,7 +6227,7 @@ el('list').addEventListener('click', e => {
 /* sliders, the feedback textarea and the proposal edits all live inside
  * the list — one delegated input handler, no re-render mid-typing */
 el('list').addEventListener('input', e => {
-  /* the ROUTES tab's two forms, then the situation card's fields —
+  /* the ROUTE door's two forms, then the situation card's fields —
    * all write straight into their drafts, no repaint, so a cursor
    * mid-word stays where it is */
   if (onRouteFormInput(e)) return;
@@ -6354,8 +6360,9 @@ el('import-options').addEventListener('click', e => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 });
-/* the header chip is the way to the ROUTES tab from anywhere */
-el('route-chip').onclick = () => { setListTab('routes'); render(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+/* the two doors that open on this page (the third is a link) */
+el('door-driver').onclick = () => { if (routesTabOn()) { setListTab(lastDriverTab); render(); } };
+el('door-route').onclick = () => { if (!routesTabOn()) { setListTab('routes'); render(); } };
 el('stop-close').onclick = () => { el('stop-sheet').hidden = true; stopFor = null; };
 /* add / delete notes straight from the stop sheet — the map's amber
  * marking and the "with notes" count follow the edit live */

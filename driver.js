@@ -508,7 +508,7 @@ window.DriverScreen = (() => {
     if (!routeId) {
       if (!loaded) { box.appendChild(emptyEl('refresh', 'Loading today\'s route…', 'One moment — the stops are on their way from the store.')); return; }
       const e = emptyEl('route', 'No route on file',
-        'Load today\'s route on the dashboard — the ROUTES tab — and its stops show up here, in driving order.');
+        'Load today\'s route on the dashboard — the ROUTE button — and its stops show up here, in driving order.');
       const r = withIcon(h('button', 'dv-btn outline', 'Check again'), 'refresh');
       r.type = 'button';
       r.onclick = reload;
@@ -521,7 +521,7 @@ window.DriverScreen = (() => {
       /* the route on the phones has no stops yet — a new one, still being built on the dashboard */
       if (!loaded) { box.appendChild(emptyEl('refresh', 'Loading today\'s route…', 'One moment — the stops are on their way from the store.')); return; }
       const e = emptyEl('route', 'No stops on this route yet',
-        'Add them on the dashboard — the ROUTES tab, “+ Add a stop” — and they show up here, in driving order.');
+        'Add them on the dashboard — the ROUTE button, “+ Add a stop” — and they show up here, in driving order.');
       const r = withIcon(h('button', 'dv-btn outline', 'Check again'), 'refresh');
       r.type = 'button';
       r.onclick = reload;
