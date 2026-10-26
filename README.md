@@ -67,18 +67,21 @@ columns, same wording:
 | # | Trigger scenario | Trigger rule (testable) | Activity Recognition states | Other signals needed | Timing to talk | Otto says | What Otto learns (tip type) | How to test it |
 |---|---|---|---|---|---|---|---|---|
 
-The page opens on **three doors** — three big buttons under the title,
-one for each thing the page is about:
+The page opens on **three doors** — three big buttons filling the
+screen under the title, nothing chosen yet, one for each thing the
+page is about. Choosing one shrinks the doors to a row at the top with
+that section below; the title brings the landing back, and every
+load starts there:
 
 - **Driver** — the driver's screen itself, live, in a phone frame: a
   preview of the page the van sees, and nothing else. One click on it
   opens the page in a new tab.
+- **Dispatcher** — the dispatcher dashboard, live, in a browser frame:
+  a preview, one click opens it in a new tab.
 - **Route** — which route the phones show and the stops on each, with
   the map on the left; the whole of
   [the routes section](#one-route-twenty-doors--the-schöneberg-demo-route)
   lives here.
-- **Dispatcher** — the dispatcher dashboard, live, in a browser frame:
-  a preview, one click opens it in a new tab.
 
 Otto's workshop — the tabs for your scenarios, the starter sheet,
 situations, calls and test runs, with their buttons (+ NEW …, ⇩ IMPORT,
@@ -1731,7 +1734,7 @@ The composition happens entirely through the kits' public seams:
 | `darts.js/.css` | The dart game after a report: the card, the flick, the rings, one throw per stop, only while still, the depot's best today |
 | `otto-agent.js` | Otto as a live ElevenLabs agent conversation — the kit's mount seams over a WebSocket, with the scenario as its context |
 | `otto-stream.js` | The reading voice's player: an ElevenLabs mp3 played from its first chunk while the rest is still being made (Media Source Extensions), whole where the browser cannot stream mp3 — `test/` holds its node tests, run by `agent-suite.yml` |
-| `dashboard.html` | Desktop shell: the three doors (Driver, Route, Dispatcher), map, scenario list, form / address / import / stop sheets, the routes' look |
+| `dashboard.html` | Desktop shell: the three doors (Driver, Dispatcher, Route), map, scenario list, form / address / import / stop sheets, the routes' look |
 | `dashboard.js` | Behind the Driver door — trigger scenarios, situations and calls (each their own tab): CRUD, describe→draft, tunable-value sliders, voice feedback → proposed versions, history, spec export, Excel paste-import, address pinning, compare + verdict, loading the starter sheets. Behind the Route door — which route the phones show, routes and stops added, moved and removed, the demo routes loaded whole |
 | `situations-starter.js` | The starter situations: twenty things a driver reports after pressing REPORT — the driver's first words, what they know if asked, what a fitting follow-up covers, what is off topic, the tip to confirm; loadable in one tap into the dashboard's SITUATIONS tab |
 | `calls-starter.js` | The starter calls: ten calls Otto makes from the back office — a home check for a fresh-food box, the call that tells the driver, a late notice, a stop to skip, a wrong number — who is rung, why, what they say, what the call must establish, the outcome, and the call that follows; loadable in one tap into the dashboard's CALLS tab, and the phone's fallback list for ⚙ → TAKE A CALL |
