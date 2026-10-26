@@ -151,6 +151,36 @@
     color: #7fd6ea;
   }
   .door-live:empty { display: none; }
+  .brand h1 { cursor: pointer; }
+  /* the landing: nothing chosen yet — the three doors alone, filling the
+   * screen under the header; choosing one shrinks them to the row above */
+  body.home .wrap { display: none; }
+  body.home .doors {
+    min-height: calc(100vh - 120px);
+    align-content: center;
+    max-width: 1240px;
+    padding: 24px 18px 40px;
+    gap: 20px;
+  }
+  body.home .door {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+    min-height: 280px;
+    padding: 28px 26px 24px;
+    border-radius: 24px;
+  }
+  body.home .door-ic { width: 64px; height: 64px; border-radius: 18px; }
+  body.home .door-ic svg { width: 36px; height: 36px; }
+  body.home .door-body { display: flex; flex-direction: column; flex: 1; width: 100%; }
+  body.home .door-body b { font-size: 28px; margin-top: 16px; }
+  body.home .door-sub { font-size: 14.5px; line-height: 1.5; margin-top: 8px; }
+  body.home .door-live { margin-top: auto; padding-top: 16px; font-size: 11px; }
+  @media (max-width: 760px) {
+    body.home .doors { min-height: 0; padding-top: 16px; gap: 12px; }
+    body.home .door { min-height: 0; padding: 20px 20px 18px; }
+    body.home .door-body b { font-size: 22px; margin-top: 12px; }
+  }
   /* ---------- the previews behind DRIVER and DISPATCHER ----------
    * The page itself, live, in a frame — a phone for the driver's
    * screen, a browser window for the dispatcher's — scaled down and
@@ -1859,7 +1889,7 @@
 
 <header class="top">
   <div class="brand">
-    <h1>OTTO · TRIGGER SCENARIOS</h1>
+    <h1 id="brand-home" title="Back to the three doors">OTTO · TRIGGER SCENARIOS</h1>
     <span class="stats" id="stats">Loading…</span>
   </div>
   <div class="top-actions">

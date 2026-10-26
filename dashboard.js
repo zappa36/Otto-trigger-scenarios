@@ -3597,7 +3597,7 @@ function render() {
   const routesTab = routesTabOn();
   /* DRIVER and DISPATCHER are a preview and nothing else; the workshop's
    * chips and tabs show only behind the ⚙ WORKSHOP chip */
-  const preview = section === 'driver' || section === 'dispatcher';
+  const preview = section === 'driver' || section === 'dispatcher' || section === 'home';
   if (el('preview-driver')) el('preview-driver').hidden = section !== 'driver';
   if (el('preview-dispatcher')) el('preview-dispatcher').hidden = section !== 'dispatcher';
   if (el('workshop-head')) el('workshop-head').hidden = !workshopOn();
@@ -3633,7 +3633,7 @@ function render() {
       });
     }
   }
-  if (preview) return; // the page in the frame is the whole content
+  if (preview) return; // the landing, or the page in the frame, is the whole content
   const box = el('list');
   /* the RUNS tab is a report, not a list of rows: either the runs
    * themselves or ONE run's summary in their place, with the way back
@@ -4756,18 +4756,16 @@ const LIST_TABS = ['own', 'sheet', 'routes', 'situations', 'calls', 'runs'];
 let listTab = 'own';
 try { const t = localStorage.getItem(LS_TAB); if (LIST_TABS.includes(t)) listTab = t; } catch { /* private mode */ }
 if (listTab === 'routes') listTab = 'own'; // the route is a section now, not a tab (below)
-/* The page's doors. DRIVER and DISPATCHER show their pages as live
- * previews and nothing else; ROUTE is the routes with the map; the
- * WORKSHOP (the ⚙ chip in the header) is the tabs below — scenarios,
- * situations, calls, runs. One choice per browser, like the tabs. */
-const LS_SECTION = 'od_section';
-const SECTIONS = ['driver', 'dispatcher', 'route', 'workshop'];
-let section = 'driver';
-try { const s = localStorage.getItem(LS_SECTION); if (SECTIONS.includes(s)) section = s; } catch { /* private mode */ }
-function setSection(s) {
-  section = SECTIONS.includes(s) ? s : 'driver';
-  try { localStorage.setItem(LS_SECTION, section); } catch { /* private mode */ }
-}
+/* The page's doors. The page opens on HOME: the three doors alone,
+ * full screen, nothing chosen. DRIVER and DISPATCHER show their pages
+ * as live previews and nothing else; ROUTE is the routes with the map;
+ * the WORKSHOP (the ⚙ chip in the header) is the tabs below —
+ * scenarios, situations, calls, runs. Choosing one shrinks the doors
+ * to a row at the top; the title brings the landing back. Every load
+ * starts on the landing. */
+const SECTIONS = ['home', 'driver', 'dispatcher', 'route', 'workshop'];
+let section = 'home';
+function setSection(s) { section = SECTIONS.includes(s) ? s : 'home'; }
 const workshopOn = () => section === 'workshop';
 const sitTabOn = () => workshopOn() && listTab === 'situations' && cardView !== 'demo';
 /* CALLS is workshop chrome like SITUATIONS: the calls Otto makes, the
@@ -5191,6 +5189,7 @@ function setOpenRoute(id) {
 /* the three doors and the workshop chip: the open one lit, the line
  * under each door's title fresh */
 function renderDoors() {
+  document.body.classList.toggle('home', section === 'home');
   ['driver', 'route', 'dispatcher'].forEach(k => {
     const n = el('door-' + k);
     if (!n) return;
@@ -6412,6 +6411,7 @@ el('import-options').addEventListener('click', e => {
 /* the three doors, and the workshop chip in the header — a new section
  * starts at the top of the page, doors in view */
 const openSection = go => { go(); render(); window.scrollTo(0, 0); };
+el('brand-home').onclick = () => { if (section !== 'home') openSection(() => setSection('home')); };
 el('door-driver').onclick = () => { if (section !== 'driver') openSection(() => setSection('driver')); };
 el('door-dispatcher').onclick = () => { if (section !== 'dispatcher') openSection(() => setSection('dispatcher')); };
 el('door-route').onclick = () => { if (!routesTabOn()) openSection(() => setListTab('routes')); };

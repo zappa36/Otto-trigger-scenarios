@@ -67,8 +67,11 @@ columns, same wording:
 | # | Trigger scenario | Trigger rule (testable) | Activity Recognition states | Other signals needed | Timing to talk | Otto says | What Otto learns (tip type) | How to test it |
 |---|---|---|---|---|---|---|---|---|
 
-The page opens on **three doors** — three big buttons under the title,
-one for each thing the page is about:
+The page opens on **three doors** — three big buttons filling the
+screen under the title, nothing chosen yet, one for each thing the
+page is about. Choosing one shrinks the doors to a row at the top with
+that section below; the title brings the landing back, and every
+load starts there:
 
 - **Driver** — the driver's screen itself, live, in a phone frame: a
   preview of the page the van sees, and nothing else. One click on it
