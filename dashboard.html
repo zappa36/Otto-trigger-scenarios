@@ -177,14 +177,12 @@
     align-items: center;
     justify-content: center;
     border-radius: 10px;
-    border: 1px solid rgba(255,77,58,.4);
-    background: var(--pv-coral-wash);
-    color: var(--pv-coral);
+    border: 1px solid rgba(244,241,232,.26);
+    background: rgba(244,241,232,.09);
+    color: var(--pv-oat); /* the icons stay oat — the coral is in the rule, the border and the status line */
   }
   .door-ic svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
-  /* the chosen door's tile fills coral; a press darkens it to deep coral */
-  .door.on .door-ic { background: var(--pv-coral); border-color: var(--pv-coral); color: var(--pv-ink-deep); }
-  .door:active .door-ic { background: var(--pv-coral-deep); border-color: var(--pv-coral-deep); color: var(--pv-oat); }
+  .door.on .door-ic { background: rgba(244,241,232,.18); }
   .door-body { flex: 1; min-width: 0; }
   .door-body b { display: block; font-family: var(--pv-font-head); font-size: 18px; font-weight: 600; letter-spacing: 0; }
   .door-sub { display: block; margin-top: 4px; font-size: 12.5px; line-height: 1.45; color: var(--pv-muted); }
