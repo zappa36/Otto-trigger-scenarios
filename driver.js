@@ -42,7 +42,6 @@ window.DriverScreen = (() => {
   if (!root || typeof destinations === 'undefined' || typeof markVisit !== 'function'
     || typeof FieldMap === 'undefined' || typeof LiveGeo === 'undefined') return stub;
 
-  const LS_ROUTE = 'od_driver_route'; // the route picked on this phone
   const LS_VIEW = 'od_driver_view';   // split | map | list
   const DIR_URL = d => `https://www.google.com/maps/dir/?api=1&destination=${d.lat},${d.lng}&travelmode=driving`;
 
@@ -84,6 +83,7 @@ window.DriverScreen = (() => {
     list: 'M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z',
     pin: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z',
     chevron: 'M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z',
+    expand: 'M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z',
     pencil: 'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.41-1.83z',
     route: 'M19 15.18V7c0-2.21-1.79-4-4-4s-4 1.79-4 4v10c0 1.1-.9 2-2 2s-2-.9-2-2V8.82C8.16 8.4 9 7.3 9 6c0-1.66-1.34-3-3-3S3 4.34 3 6c0 1.3.84 2.4 2 2.82V17c0 2.21 1.79 4 4 4s4-1.79 4-4V7c0-1.1.9-2 2-2s2 .9 2 2v8.18c-1.16.42-2 1.52-2 2.82 0 1.66 1.34 3 3 3s3-1.34 3-3c0-1.3-.84-2.4-2-2.82z',
     flag: 'M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6z',
@@ -109,17 +109,17 @@ window.DriverScreen = (() => {
    * show up here without a seam. */
   const byStop = (a, b) => ((a.stop == null ? 1e9 : a.stop) - (b.stop == null ? 1e9 : b.stop))
     || String(a.created_at || '').localeCompare(String(b.created_at || ''));
-  /* the routes on this phone: the one the dashboard put on the phones
-   * when it marked one (its ROUTES tab; activeRouteId in app.js), else
-   * every route the rows name — a store from before the dashboard
-   * could choose, where the title's picker still does the choosing */
+  /* every route on file — the title's selector lists them all; which
+   * one the van is on is app.js's call (phoneRouteId), weighing the
+   * dashboard's "Show on the phones" against the pick made here */
   const routesOnFile = () => {
-    const act = typeof activeRouteId === 'function' ? activeRouteId() : null;
-    if (act) return [act];
+    if (typeof routesOnPhone === 'function') return routesOnPhone();
     const seen = [];
     destinations.forEach(d => { if (d.route && !seen.includes(d.route)) seen.push(d.route); });
     return seen;
   };
+  /* the route the dashboard marked for the phones, if any */
+  const dashboardRoute = () => (typeof activeRouteId === 'function' ? activeRouteId() : null);
   /* no route picked means no stops: a plain pin's route is null on a
    * live row, and null === null would adopt every tester pin */
   const stops = r => { const id = r || routeId; return id ? destinations.filter(d => d.route === id).sort(byStop) : []; };
@@ -137,19 +137,25 @@ window.DriverScreen = (() => {
     if (sc && sc.title) { const t = String(sc.title).split(/\s+route\b/i)[0].trim(); if (t) return t; }
     return String(id).replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   };
-  /* which route the van is on: the one picked on this phone if it is
-   * still on file, else the most recently loaded */
+  /* which route the van is on — asked again at every render, so a
+   * dispatcher's switch on the dashboard lands while the screen is up;
+   * a change of route closes an open stop and frames the next stop anew */
   function pickRoute() {
     const on = routesOnFile();
-    if (!on.length) { routeId = null; return; }
-    if (routeId && on.includes(routeId)) return;
-    let want = null;
-    try { want = localStorage.getItem(LS_ROUTE); } catch { /* private mode */ }
-    routeId = want && on.includes(want) ? want : on[on.length - 1];
+    const want = !on.length ? null
+      : typeof phoneRouteId === 'function' ? phoneRouteId()
+      : routeId && on.includes(routeId) ? routeId : on[on.length - 1];
+    if (want === routeId) return;
+    routeId = want;
+    selected = null;
+    needFit = true;
+    tab = 'todo';
+    if (!$('dv-sheet').hidden) closeSheet();
   }
+  /* the driver picked a route in the title's selector */
   function setRoute(id) {
+    if (typeof setPhoneRoute === 'function') setPhoneRoute(id); // kept by app.js, with its time
     routeId = id;
-    try { localStorage.setItem(LS_ROUTE, id); } catch { /* private mode */ }
     selected = null;
     needFit = true;
     tab = 'todo';
@@ -364,7 +370,8 @@ window.DriverScreen = (() => {
     const failed = list.filter(d => stateOf(d) === 'failed').length;
     const many = routesOnFile().length > 1;
     const day = new Date().toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
-    $('dv-route-name').innerHTML = routeId ? esc(routeNameOf(routeId)) + (many ? '<span class="dv-caret">▾</span>' : '') : 'Deliveries';
+    $('dv-route-name').innerHTML = routeId ? esc(routeNameOf(routeId)) + (many ? '<span class="dv-caret" aria-hidden="true">' + svgIcon('expand') + '</span>' : '') : 'Deliveries';
+    $('dv-title').title = many ? 'Which route — tap to pick another' : 'Which route — tap to pick when more than one is on file';
     $('dv-route-sub').textContent = !routeId ? day + ' · no route on file'
       : day + ' · ' + (done ? `${done} of ${list.length} done` : `${list.length} stop${list.length === 1 ? '' : 's'}`)
         + (failed ? ` · ${failed} not delivered` : '');
@@ -798,22 +805,27 @@ window.DriverScreen = (() => {
   function renderRoutes() {
     const box = $('dv-routes-body');
     box.innerHTML = '';
+    const dash = dashboardRoute();
     routesOnFile().forEach(id => {
       const list = stops(id);
       const done = list.filter(d => stateOf(d) !== 'open').length;
-      const row = h('button', 'dv-kv dv-route-row');
+      const row = h('button', 'dv-kv dv-route-row' + (id === routeId ? ' on' : ''));
       row.type = 'button';
+      row.setAttribute('aria-pressed', id === routeId ? 'true' : 'false');
       const ic = h('span', 'dv-ic' + (id === routeId ? ' navy' : ''));
       ic.innerHTML = svgIcon('route');
       row.appendChild(ic);
       const b = h('span', 'dv-body');
       b.appendChild(h('b', 'dv-t', routeNameOf(id)));
-      b.appendChild(h('span', 'dv-s', `${list.length} stop${list.length === 1 ? '' : 's'}` + (done ? ` · ${done} done` : '')));
+      b.appendChild(h('span', 'dv-s', `${list.length} stop${list.length === 1 ? '' : 's'}`
+        + (done ? ` · ${done} done` : '')
+        + (id === dash ? ' · set on the dashboard' : '')));
       row.appendChild(b);
       if (id === routeId) { const c = h('span', 'dv-check'); c.innerHTML = svgIcon('check'); row.appendChild(c); }
       row.onclick = () => { $('dv-routes').hidden = true; if (id !== routeId) setRoute(id); };
       box.appendChild(row);
     });
+    if (dash) box.appendChild(h('p', 'dv-route-hint', 'The dashboard picks the route for the phones. A route picked here stays on this phone until the dashboard picks again.'));
   }
 
   /* ---------- the map's share of the screen ---------- */

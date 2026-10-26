@@ -110,7 +110,20 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.dv-title h1 .dv-caret { font-size: 12px; opacity: .8; margin-left: 4px; }
+/* the route is a selection when more than one is on file: a chevron in a
+ * small pill after the name says so, PostNord's dropdown look */
+.dv-title h1 .dv-caret {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .2);
+  vertical-align: -4px;
+}
+.dv-title h1 .dv-caret svg { width: 18px; height: 18px; fill: currentColor; }
 .dv-title small {
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -766,6 +779,8 @@ button.dv-kv:active { background: #f7f9fb; }
 
 /* the route pick: one row per route on file */
 .dv-route-row .dv-s { color: var(--pn-muted); }
+.dv-route-row.on { background: var(--pn-blue-soft, rgba(0, 93, 146, .08)); }
+.dv-route-hint { margin: 12px 4px 4px; font-size: 13px; line-height: 1.4; color: var(--pn-muted); }
 .dv-route-row .dv-check { flex: none; align-self: center; color: var(--pn-blue); }
 .dv-route-row .dv-check svg { width: 24px; height: 24px; fill: currentColor; }
 

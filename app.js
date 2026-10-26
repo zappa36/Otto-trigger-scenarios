@@ -1360,31 +1360,62 @@ const panoUrl = d => `https://www.google.com/maps/@?api=1&map_action=pano&viewpo
 const LS_ROUTE_ON = 'od_route_on';
 let routeOn = true;
 try { routeOn = localStorage.getItem(LS_ROUTE_ON) !== '0'; } catch { /* private mode */ }
-/* The routes table, read for ONE thing: which route the dashboard put
- * on the phones (its ROUTES tab marks one row active). With a route
- * marked, the other routes' stops leave this phone altogether — the
- * map, the approach readings, the driver's screen alike. With none
- * marked (a store from before the table, a dashboard that never
- * chose) every route on file shows, as before. */
+/* The routes table, read for the route this phone is on. The dashboard's
+ * ROUTES tab marks one row active ("Show on the phones"); the driver
+ * can pick another from the title of the driver's screen. Both choices
+ * are kept with their time and the newer decision wins: a dispatcher
+ * reassigning the van later still lands, and a driver who switched
+ * after that stays switched. Only that route's stops are on this phone
+ * — the map, the approach readings, the driver's screen alike. */
 const LS_ROUTES = 'od_routes';
 let routesMeta = [];
-const activeRouteId = () => {
-  const a = (Array.isArray(routesMeta) ? routesMeta : []).filter(r => r && r.active)
-    .sort((x, y) => String(y.active_at || '').localeCompare(String(x.active_at || '')))[0];
-  return a ? a.id : null;
+const activeRouteRow = () => (Array.isArray(routesMeta) ? routesMeta : []).filter(r => r && r.active)
+  .sort((x, y) => String(y.active_at || '').localeCompare(String(x.active_at || '')))[0] || null;
+const activeRouteId = () => { const a = activeRouteRow(); return a ? a.id : null; };
+/* the driver's own pick on this phone: { id, at } */
+const LS_DRIVER_ROUTE = 'od_driver_route';
+let phonePick = null;
+try {
+  const raw = localStorage.getItem(LS_DRIVER_ROUTE);
+  if (raw) phonePick = raw[0] === '{' ? JSON.parse(raw) : { id: raw, at: 0 }; // an older phone kept just the id
+} catch { /* private mode */ }
+/* every route this phone knows: the table's rows in their order, then any route only the stops name */
+const routesOnPhone = () => {
+  const ids = [];
+  (Array.isArray(routesMeta) ? routesMeta : []).forEach(r => { if (r && r.id && !ids.includes(r.id)) ids.push(r.id); });
+  destinations.forEach(d => { if (d.route && !ids.includes(d.route)) ids.push(d.route); });
+  return ids;
 };
-/* the route stops this phone works with: the active route's, else every route's */
-const phoneRouteStops = () => {
-  const act = activeRouteId();
-  return destinations.filter(d => d.route && (!act || d.route === act));
-};
+/* the route this phone is on — the newer of the dashboard's choice and
+ * the driver's pick; with neither, the route that came on file last */
+function phoneRouteId() {
+  const on = routesOnPhone();
+  if (!on.length) return null;
+  const act = activeRouteRow();
+  const actOk = !!(act && on.includes(act.id));
+  const pick = phonePick && phonePick.id && on.includes(phonePick.id) ? phonePick : null;
+  if (actOk && pick) return (+pick.at || 0) > (Date.parse(act.active_at || '') || 0) ? pick.id : act.id;
+  if (actOk) return act.id;
+  if (pick) return pick.id;
+  return on[on.length - 1];
+}
+/* the driver picked a route on this phone (the driver's screen's title) */
+function setPhoneRoute(id) {
+  phonePick = { id, at: Date.now() };
+  try { localStorage.setItem(LS_DRIVER_ROUTE, JSON.stringify(phonePick)); } catch { /* private mode */ }
+  renderRouteChip();
+  renderEmpty();
+  map.refresh();
+}
+/* the route stops this phone works with */
+const phoneRouteStops = () => { const id = phoneRouteId(); return id ? destinations.filter(d => d.route === id) : []; };
 function visibleDestinations() {
   /* the driver's screen shows the route whatever the tester's chip says
    * — while it is up, the approach readings, the arrival ring and the
    * nearest-stop lookup see the route too */
   const driver = !!(window.DriverScreen && DriverScreen.opened);
-  const act = activeRouteId();
-  const list = act ? destinations.filter(d => !d.route || d.route === act) : destinations;
+  const id = phoneRouteId();
+  const list = id ? destinations.filter(d => !d.route || d.route === id) : destinations;
   return routeOn || driver ? list : list.filter(d => !d.route);
 }
 function renderRouteChip() {

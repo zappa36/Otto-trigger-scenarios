@@ -1103,8 +1103,10 @@ phones* on a card and that route is the one the driver's screen opens
 on. The card wears ON THE PHONES, the other routes' stops leave the
 phones altogether (map, approach readings, driver's screen), and the
 choice reaches every phone — live through the `routes` table, keyless
-through the storage event. The first route on file goes to the phones
-by itself; a second one is a choice, made on its card. **Adding and
+through the storage event. A driver can still switch routes from the
+title of the driver's screen; the newer decision wins. The first
+route on file goes to the phones by itself; a second one is a choice,
+made on its card. **Adding and
 removing routes:** *⇪ LOAD "…"* loads a demo route whole from its
 file; *+ NEW ROUTE* makes an empty one (a name, an area, by van or on
 foot) and opens the stop form straight away; *Remove route* takes a
@@ -1203,15 +1205,19 @@ driver already holds. The files are [`driver.js`](driver.js) and
 Otto's screen and the tester's map keep their own.
 
 The route is the one the dashboard's **ROUTES tab** put on the
-phones: its stops (a route id and a stop number on each destination
-row) are the stops here, and no other route's. So **the route is
-built on the dashboard and driven on the phone** — nothing is typed
-in the van; a stop added while the screen is up shows up at the next
-↻ (keyless, the dashboard in the next tab shows up by itself), and
-switching the route on the dashboard switches the van. A store from
-before the dashboard could choose (no `routes` table yet) shows every
-route on file, and then the title opens a picker; that choice sticks
-per phone.
+phones — unless the driver picks another. With more than one route on
+file the **title is a selector**: tap the name and every route on
+file is listed, with its stop count, the one on the van ticked and
+the dashboard's choice marked "set on the dashboard"; a pick holds on
+this phone until the dashboard picks again (the newer decision wins,
+so a dispatcher reassigning the van later still lands). Only the
+chosen route's stops are on the phone — its stops (a route id and a
+stop number on each destination row) are the stops here, and no other
+route's. So **the route is built on the dashboard and driven on the
+phone** — nothing is typed in the van; a stop added while the screen
+is up shows up at the next ↻ (keyless, the dashboard in the next tab
+shows up by itself), and switching the route on the dashboard
+switches the van.
 
 What the driver sees:
 
