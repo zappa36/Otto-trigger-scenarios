@@ -79,8 +79,11 @@ one for each thing the page is about, everything else inside them:
   lives here.
 - **Dispatcher ↗** — the dispatcher dashboard, in a new tab.
 
-The map stays on the left under Driver and Route alike; the header
-keeps only the map backend and ↻ REFRESH.
+The map is on the left under Route only — the route's numbered pins
+with the scenario pins around them (a scenario card's *Show on map*
+goes there; a scenario pin clicked there opens its card back under
+Driver). Under Driver the list has the whole width. The header keeps
+only the map backend and ↻ REFRESH.
 
 The loop:
 

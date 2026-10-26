@@ -90,10 +90,10 @@
     margin: 0 auto;
   }
   .map-panel { position: sticky; top: 78px; height: calc(100vh - 120px); min-height: 380px; }
-  /* the RUNS tab: a report, not a map — the map column goes and the
-   * report takes the whole width (render() sets the class) */
-  .wrap.report { grid-template-columns: minmax(0, 1fr); }
-  .wrap.report .map-panel { display: none; }
+  /* the map belongs to the ROUTE door: under DRIVER the map column goes
+   * and the content takes the whole width (render() sets the class) */
+  .wrap.nomap { grid-template-columns: minmax(0, 1fr); }
+  .wrap.nomap .map-panel { display: none; }
   .content { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 
   /* ---------- the three doors ---------- */
@@ -1887,7 +1887,7 @@
       <button class="zoom-btn" id="zoom-in" type="button" aria-label="Zoom in">+</button>
       <button class="zoom-btn" id="zoom-out" type="button" aria-label="Zoom out">−</button>
     </div>
-    <p class="map-note">Pins are the scenarios' test addresses — click one to open its scenario. The numbered pins are the route open under ROUTE (else the one on the phones) — click a stop to see what is on file behind that door.</p>
+    <p class="map-note">The numbered pins are the route whose card is open (else the one on the phones) — click a stop to see what is on file behind that door. The other pins are the scenarios' test addresses — click one and its scenario opens under DRIVER.</p>
   </section>
   <section class="content">
     <!-- inside DRIVER: the two phone screens, then Otto's workshop -->

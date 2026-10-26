@@ -3611,13 +3611,14 @@ function render() {
   el('new-open').hidden = sit || callsTab || runs || routesTab;
   el('import-open').hidden = sit || callsTab || runs || routesTab;
   el('spec-all').hidden = sit || callsTab || runs || routesTab;
-  /* the RUNS tab is a report with no pins to show: the map column goes
-   * away and the report takes the full width. Leaving the tab brings
-   * the map back and tells it its box changed size. */
+  /* the map belongs to the ROUTE door: the route's pins, the scenario
+   * pins around them. Under DRIVER the content takes the full width;
+   * coming back to ROUTE brings the map back and tells it its box
+   * changed size. */
   const wrap = document.querySelector('main.wrap');
-  if (wrap && wrap.classList.contains('report') !== runs) {
-    wrap.classList.toggle('report', runs);
-    if (!runs) {
+  if (wrap && wrap.classList.contains('nomap') !== !routesTab) {
+    wrap.classList.toggle('nomap', !routesTab);
+    if (routesTab) {
       requestAnimationFrame(() => {
         try {
           if (map.map && window.google && google.maps && google.maps.event) google.maps.event.trigger(map.map, 'resize');
@@ -6194,8 +6195,9 @@ el('list').addEventListener('click', e => {
     else if (a === 'edit') openForm(sc);
     else if (a === 'del') deleteScenario(sc);
     else if (a === 'center') {
+      /* the map lives behind the ROUTE door — go there, then centre */
       const d = sc.destination_id && destById(sc.destination_id);
-      if (d) centerOn(d.lat, d.lng);
+      if (d) { setListTab('routes'); render(); centerOn(d.lat, d.lng); }
     }
     else if (a === 'tune-save') saveTuning(sc);
     else if (a === 'tune-reset') { tune = null; render(); }
