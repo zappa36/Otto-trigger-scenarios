@@ -67,6 +67,14 @@ columns, same wording:
 | # | Trigger scenario | Trigger rule (testable) | Activity Recognition states | Other signals needed | Timing to talk | Otto says | What Otto learns (tip type) | How to test it |
 |---|---|---|---|---|---|---|---|---|
 
+The page wears the **ParcelVox design system** — flat ink-blue grounds,
+Oat text, hairlines instead of shadows, one coral accent (the *Vox* in
+the wordmark), Space Grotesk for titles and labels, Source Sans 3 for
+reading, sentence case everywhere but the small uppercase kicker
+labels. Otto's screens on the phone wear the same; the driver's screen
+and the dispatcher dashboard keep PostNord's look on purpose (see
+*The looks* below).
+
 The page opens on **three doors** — three big buttons filling the
 screen under the title, nothing chosen yet, one for each thing the
 page is about. Choosing one shrinks the doors to a row at the top with
@@ -128,7 +136,7 @@ The loop:
    `supabase/schema.sql` once.)
 
 Statuses roll up in the header and colour the pins: *needs address* →
-*awaiting test* (red, like the phone) → *debriefed · n* (cyan) → verdict
+*awaiting test* (red, like the phone) → *debriefed · n* (oat) → verdict
 (green / amber / orange).
 
 ### DEMO / TESTING — the card's two faces
@@ -1392,8 +1400,10 @@ the phone plays and warns in the console that nothing was saved.
 route-knowledge dashboard — dispatch's own surface, linked from the
 trigger dashboard's **Dispatcher** door (a live preview; one click opens it), built as a separate
 React app in [`parcelvox-dashboard/`](parcelvox-dashboard/) and
-committed as one self-contained page. Most of it is a design demo on
-fictional sample data; **its map and its notes are wired to this app's
+committed as one self-contained page, in the PostNord look — PostNord
+blue for the navigation and the actions, the light grey page, white
+cards, the system sans (see *The looks* below). Most of it is a design
+demo on fictional sample data; **its map and its notes are wired to this app's
 real store.** With stops on file, its Map view frames itself on the
 data and shows the same destinations as every other surface — route
 lines in driving order, amber pins where pre-arrival notes wait, green
@@ -1669,12 +1679,14 @@ loop's reader; `lib/sheet.mjs` imports the pair from there). To move:
 
 ## How it composes
 
-The two extracted kits arrived as byte-identical copies. `field-map-kit`
-still is one; `voice-notes-kit` has since grown one field-driven
-extension here: **hands-free stop** — the recording watches its own
-level and a clear pause after speech sends the clip (say "stop" and
-fall quiet, or just pause; the function strips the trailing control
-word). Everything else is the kit as extracted:
+The two extracted kits arrived as byte-identical copies. Both have since
+been touched here, lightly. `field-map-kit`'s code is the kit's, but its
+default colours are retinted to the ParcelVox look (see *The looks*).
+`voice-notes-kit` has grown one field-driven extension: **hands-free
+stop** — the recording watches its own level and a clear pause after
+speech sends the clip (say "stop" and fall quiet, or just pause; the
+function strips the trailing control word). Everything else is the kit
+as extracted:
 
 | From | Files | Provides |
 |---|---|---|
@@ -1706,6 +1718,38 @@ The composition happens entirely through the kits' public seams:
   a global `Backend` with its own methods) plus the
   `destinations`/`messages` tables.
 
+## The looks — ParcelVox and PostNord
+
+Two design languages share the app, each where it belongs:
+
+- **ParcelVox** on the trigger dashboard (`dashboard.html`) and on
+  Otto's screens on the phone (the Companion, the map, the stop card,
+  the calls, the sheets): flat ink-blue grounds (`#0E2138`, deeper
+  panels `#0A1730`), Oat text (`#F4F1E8`), hairlines where there were
+  shadows, and coral (`#FF4D3A`, with its tint and wash) on the things
+  that matter — the *Vox* in the wordmark, the three doors (a rule on
+  top, the status line, the chosen door's border; the icons stay oat),
+  Otto's blob, the live dot on the map. Space Grotesk carries
+  titles, labels and numbers; Source Sans 3 carries the reading text.
+  Sentence case everywhere except the small uppercase kicker labels;
+  stroke icons in the Lucide style, no emoji, no gradients. The shared
+  map module (`field-map.css`, `field-map.js`) uses these as its
+  defaults: a Deep Ink Blue ground with a hairline grid when there is
+  no key, Google's tiles tinted the same way when there is one, flat
+  pins — oat for a plain stop, amber where notes wait.
+- **PostNord** on the driver's screen (`driver.css`, scoped to
+  `#driver`, which also re-tints the map module there) and on the
+  dispatcher dashboard (`parcelvox-dashboard/src/styles/tokens.css`;
+  the committed bundle carries the same values): PostNord blue
+  (`#005d92`) for the bar and the actions, the light grey page
+  (`#f3f5f8`), white cards, the system sans — the look of the PostNord
+  app the drivers already know.
+
+To change a colour, change its token: the tokens sit at the top of each
+file (`:root` in `dashboard.html` and `index.html`, `.fm` in
+`field-map.css`, `#driver` in `driver.css`, `:root` in `tokens.css`),
+and everything else refers to them.
+
 ## Things worth knowing
 
 - **Demo messages are flagged.** A debrief completed in scripted mode
@@ -1727,19 +1771,19 @@ The composition happens entirely through the kits' public seams:
 
 | File | Purpose |
 |---|---|
-| `index.html` | Phone shell: Otto's screen (the Companion — Otto as the report button, the tally, the header), the map screen with its HUD, card and controls, the driver's screen (the route in the van), the settings and reports sheets, the conversation screen, the incoming-call screen (pins come from the dashboard) |
+| `index.html` | Phone shell: Otto's screen (the Companion — Otto as the report button, the tally, the header), the map screen with its HUD, card and controls, the driver's screen (the route in the van), the settings and reports sheets, the conversation screen, the incoming-call screen (pins come from the dashboard) — Otto's screens in the ParcelVox design system, the driver's in PostNord's |
 | `app.js` | Destinations, messages, the card (incl. the Delivered tap on route stops), the report flow (pressing Otto), the two screens (and the seams the driver's screen hangs on), the per-phone report tally, Otto wiring, the ⚙ settings sheet — and the calls Otto makes: TAKE A CALL on the sheet, the ring, Answer / Decline, the chain to the next call |
 | `driver.js` | The driver's screen: the loaded route as today's deliveries — the next-stop card, the TO DO / DONE timeline, the daylight map with numbered pins and the route line, the stop sheet (notes, the other parcels at the door, Navigate, Delivered / Not delivered, Report to Otto, Hear the briefing), the route picker, the wake lock, the `#driver` link — built on app.js's own seams |
 | `driver.css` | Its look: the PostNord app's design language, scoped to the screen, plus the daylight palette for the kit's map there |
 | `darts.js/.css` | The dart game after a report: the card, the flick, the rings, one throw per stop, only while still, the depot's best today |
 | `otto-agent.js` | Otto as a live ElevenLabs agent conversation — the kit's mount seams over a WebSocket, with the scenario as its context |
 | `otto-stream.js` | The reading voice's player: an ElevenLabs mp3 played from its first chunk while the rest is still being made (Media Source Extensions), whole where the browser cannot stream mp3 — `test/` holds its node tests, run by `agent-suite.yml` |
-| `dashboard.html` | Desktop shell: the three doors (Driver, Dispatcher, Route), map, scenario list, form / address / import / stop sheets, the routes' look |
+| `dashboard.html` | Desktop shell: the three doors (Driver, Dispatcher, Route), map, scenario list, form / address / import / stop sheets, the routes' look — all in the ParcelVox design system |
 | `dashboard.js` | Behind the Driver door — trigger scenarios, situations and calls (each their own tab): CRUD, describe→draft, tunable-value sliders, voice feedback → proposed versions, history, spec export, Excel paste-import, address pinning, compare + verdict, loading the starter sheets. Behind the Route door — which route the phones show, routes and stops added, moved and removed, the demo routes loaded whole |
 | `situations-starter.js` | The starter situations: twenty things a driver reports after pressing REPORT — the driver's first words, what they know if asked, what a fitting follow-up covers, what is off topic, the tip to confirm; loadable in one tap into the dashboard's SITUATIONS tab |
 | `calls-starter.js` | The starter calls: ten calls Otto makes from the back office — a home check for a fresh-food box, the call that tells the driver, a late notice, a stop to skip, a wrong number — who is rung, why, what they say, what the call must establish, the outcome, and the call that follows; loadable in one tap into the dashboard's CALLS tab, and the phone's fallback list for ⚙ → TAKE A CALL |
 | `trigger-scenarios.js` | The starter sheet: ten finished "Otto triggers" rows — the deck's worked example, eight more situations, the clean-run control — loadable in one tap, idempotent by title |
-| `parcelvox-dashboard.html`, `parcelvox-dashboard/` | The ParcelVox dispatcher dashboard — map and pre-arrival notes wired to the same shared store (localStorage or Supabase), report counts and hotspots from the analytics API; the rest labelled sample data |
+| `parcelvox-dashboard.html`, `parcelvox-dashboard/` | The dispatcher dashboard, in the PostNord look — map and pre-arrival notes wired to the same shared store (localStorage or Supabase), report counts and hotspots from the analytics API; the rest labelled sample data |
 | `mock-api/` | A mock of the Parcelvox Analytics API contract: the store's real rows reshaped into places, reports, guidance, tours and outreach, plus invented history; no dependencies, `node server.mjs` |
 | `elevenlabs/` | The agent loop — the tuning loop for Otto's ElevenLabs prompt; Node >= 20, no dependencies, `npm test`; its own [`README.md`](elevenlabs/README.md), `personas.json`, `lib/` (the `agentVars()` mirror, the API client, the Supabase reader), `test/` (an in-process mock of the three services). Guarded and driven by `.github/workflows/agent-suite.yml`: node tests + generator drift on every change, and every stage of the loop as a button in the Actions tab (the baseline on Mondays too) once the key secret exists |
 | `elevenlabs/loop.mjs` | `configure` · `push-tests` · `run` · `publish` · `pull` · `score` · `cut` · `propose` · `branch` · `compare` · `promote` — the REST API called directly, `--dry-run` prints every request and sends nothing; results, field pulls and proposals land in gitignored folders next to it |
@@ -1754,6 +1798,6 @@ The composition happens entirely through the kits' public seams:
 | `vercel.json`, `scripts/vercel-build.sh` | Deploy-time injection of `GMAPS_BROWSER_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY` (the last two only to override the default project), `ANALYTICS_URL` / `ANALYTICS_KEY` for the dispatcher dashboard |
 | `scripts/migrate_supabase.py` | Moves the rows to another Supabase project, ids intact (`schema.sql` does the tables) |
 | `voice-note.js/.css` | from voice-notes-kit + hands-free pause-to-send |
-| `geolocate.js`, `field-map.js/.css` | verbatim from field-map-kit |
+| `geolocate.js`, `field-map.js/.css` | from field-map-kit; the map's defaults since retinted to the ParcelVox look — the tokens at the top of `field-map.css`, the dark tile styles and the flat default pin in `field-map.js` (the driver's screen overrides them in `driver.css`) |
 | `supabase/schema.sql` | `destinations` (incl. pre-arrival notes: consignee / floor / entrance / kind / notes, and route / stop) + `messages` (incl. the agent conversation, its ElevenLabs `conversation_id` and the dashboard's `grade` of it) + `scenarios` (incl. params / versions / feedback) + `situations` + `calls` (the calls Otto makes: who is rung, why, what they say, the outcome, the call that follows) + `runs` + `visits` (the Delivered tap) + `routes` (one row per route: name, on foot or by van, and `active` — the route the phones show) + `dart_throws` (one row per dart thrown after a report) + `agent_runs` (one row per suite run the agent loop published) + `accepted_findings`, RLS |
 | `supabase/functions/` | `voice-note` (kit + trailing-"stop" strip + a text path for agent conversations) + `geocode` (verbatim) + `scenario-ai` (draft, revise & the 🇮🇹 question translation) + `elevenlabs-token` (signed URLs for a private agent) + `elevenlabs-tts` (the pre-arrival notes read in Otto's real voice, streamed as they are made) |

@@ -115,13 +115,13 @@ const schemaHint = e => {
    * in the schema cache") is not a missing table, and used to be read
    * as one because of the words "schema cache" */
   if (/PGRST204|could not find the '[^']+' column/i.test(msg)) {
-    schemaMsg = 'Save failed — a table is missing newer columns. Re-run supabase/schema.sql, then ↻ REFRESH.';
+    schemaMsg = 'Save failed — a table is missing newer columns. Re-run supabase/schema.sql, then Refresh.';
   } else if (/\bcalls\b/i.test(msg) && /\b404\b|PGRST205|42P01|schema cache/i.test(msg)) {
-    schemaMsg = 'That row could not be saved — the backend has no calls table yet. Re-run supabase/schema.sql once, then ↻ REFRESH. Until then rows stay in this browser only.';
+    schemaMsg = 'That row could not be saved — the backend has no calls table yet. Re-run supabase/schema.sql once, then Refresh. Until then rows stay in this browser only.';
   } else if (/situations/i.test(msg) || /PGRST205|42P01|schema cache/i.test(msg)) {
-    schemaMsg = 'That row could not be saved — the backend has no situations table yet. Re-run supabase/schema.sql once, then ↻ REFRESH. Until then rows stay in this browser only.';
+    schemaMsg = 'That row could not be saved — the backend has no situations table yet. Re-run supabase/schema.sql once, then Refresh. Until then rows stay in this browser only.';
   } else if (/column|schema|400/i.test(msg)) {
-    schemaMsg = 'Save failed — a table is missing newer columns. Re-run supabase/schema.sql, then ↻ REFRESH.';
+    schemaMsg = 'Save failed — a table is missing newer columns. Re-run supabase/schema.sql, then Refresh.';
   } else { return; }
   el('stats').textContent = schemaMsg;
 };
@@ -141,7 +141,7 @@ const notesEditing = () => {
 const uiBusy = () => !!proposalBusy
   /* a run summary being read is as good as an open editor: the 30 s
    * poll would rebuild the page and fold every expanded conversation
-   * back up under the reader — ↻ REFRESH is there when they are done */
+   * back up under the reader — Refresh is there when they are done */
   || (runsTabOn() && !!openRunId)
   || (cardView !== 'demo' && !!(tune || fbRec || proposal || msgEdit || gradeBusy() || sitDirty() || callDirty()))
   || !el('form-sheet').hidden || !el('stop-sheet').hidden || notesEditing()
@@ -352,7 +352,7 @@ const persistMessagesLocal = () => {
  * an empty representation is the failure to report. */
 const msgPolicyHint = rows => {
   if (!Array.isArray(rows) || rows.length) return;
-  el('stats').textContent = 'The change did not reach the messages table — it lacks the update/delete policies. Re-run supabase/schema.sql, then ↻ REFRESH.';
+  el('stats').textContent = 'The change did not reach the messages table — it lacks the update/delete policies. Re-run supabase/schema.sql, then Refresh.';
 };
 
 function deleteMessage(sc, i) {
@@ -462,7 +462,7 @@ function toggleGradeCheck(sc, i, key, value) {
 const gradeHint = e => {
   warn(e);
   if (Backend.enabled && /grade|column/i.test(String(e && e.message))) {
-    el('stats').textContent = 'The grade did not reach the messages table — it has no grade column yet. Re-run supabase/schema.sql, then ↻ REFRESH.';
+    el('stats').textContent = 'The grade did not reach the messages table — it has no grade column yet. Re-run supabase/schema.sql, then Refresh.';
   }
 };
 function saveMessageGrade(sc, i) {
@@ -624,7 +624,7 @@ function statusOf(sc) {
     if (runs.length) return { key: 'ready', label: `RAN ${runs.length}× · NO FIRE`, rgb: '255,107,107', labelColor: '#ff9b9b', icon: '▲' };
     return { key: 'ready', label: 'AWAITING TEST', rgb: '255,107,107', labelColor: '#ff9b9b', icon: '▲' };
   }
-  return { key: 'debriefed', label: 'DEBRIEFED · ' + n, rgb: '60,192,224', labelColor: '#7fd6ea', icon: '●' };
+  return { key: 'debriefed', label: 'DEBRIEFED · ' + n, rgb: '244,241,232', labelColor: '#F4F1E8', icon: '●' };
 }
 
 /* Does Otto's category line up with the expected tip type? Soft match:
@@ -644,7 +644,7 @@ const map = FieldMap.mount({
   showMe: false,
   markers: () => [
     /* the demo route's stops ride under the scenario pins — small,
-     * numbered, blue; AMBER where notes are on file, so the map says
+     * numbered, oat; AMBER where notes are on file, so the map says
      * at a glance where Otto will speak. Stops sharing an address
      * stack exactly; the header ROUTE chip hides the layer (a view
      * choice, not a delete). Label priority: scenarios first, then
@@ -655,8 +655,8 @@ const map = FieldMap.mount({
       return {
         id: 'route-' + d.id, lat: d.lat, lng: d.lng,
         label: (d.stop == null ? '' : d.stop + ' · ') + String(d.title || '').toUpperCase().slice(0, 18),
-        color: noted ? '255,217,94' : '96,165,250',
-        labelColor: noted ? '#ffd95e' : '#9ec5f2',
+        color: noted ? '255,217,94' : '244,241,232',
+        labelColor: noted ? '#ffd95e' : '#F4F1E8',
         icon: d.stop == null ? '·' : String(d.stop),
         size: 26,
         priority: noted ? 3 : 4,
@@ -1107,7 +1107,7 @@ function renderTune(sc, params, ver) {
       params.some(p => DETECTOR_KEYS.includes(p.key) && !NOTES_KEYS.includes(p.key)) ? 'the trigger detector on the next test run' : '',
       params.some(p => NOTES_KEYS.includes(p.key)) ? 'the pre-arrival reading ring as soon as they are saved' : '',
     ].filter(Boolean).join('; ')}.</p>`
-    : `<p class="tune-note warn">⚠ None of these keys (${esc(params.map(p => p.key).join(', '))}) is a detector knob — the phone runs on its built-in defaults and these sliders only change the rule text. Rename them to detector keys (${esc(DETECTOR_KEYS.slice(0, 4).join(', '))}, …) to make them live.</p>`}
+    : `<p class="tune-note warn">None of these keys (${esc(params.map(p => p.key).join(', '))}) is a detector knob — the phone runs on its built-in defaults and these sliders only change the rule text. Rename them to detector keys (${esc(DETECTOR_KEYS.slice(0, 4).join(', '))}, …) to make them live.</p>`}
     </div>`;
 }
 
@@ -1186,18 +1186,18 @@ function renderFeedbackBlock(sc, ver) {
       <div class="fb-head">
         <span class="addr-tag">TEST FEEDBACK → NEW VERSION</span>
         <span class="fb-actions">
-          ${rec ? '' : '<button class="mini-btn accent" type="button" data-act="fb-open">🎙 Record test feedback</button>'}
-          ${openFb.length && !busy && !prop ? `<button class="mini-btn" type="button" data-act="propose">✨ Propose v${ver + 1} from ${openFb.length} note${openFb.length > 1 ? 's' : ''}</button>` : ''}
+          ${rec ? '' : '<button class="mini-btn accent" type="button" data-act="fb-open">Record test feedback</button>'}
+          ${openFb.length && !busy && !prop ? `<button class="mini-btn" type="button" data-act="propose">Propose v${ver + 1} from ${openFb.length} note${openFb.length > 1 ? 's' : ''}</button>` : ''}
         </span>
       </div>
       ${rec ? renderRecorder() : ''}
-      ${busy ? '<p class="fb-busy">✨ Reading your feedback and drafting a revision…</p>' : ''}
+      ${busy ? '<p class="fb-busy">Reading your feedback and drafting a revision…</p>' : ''}
       ${prop ? renderProposal(sc, prop) : ''}
       ${list.length ? list.map(f => `
         <div class="fb-item">
           <div class="fb-meta">
             <span class="fb-chip${f.status === 'applied' ? ' ok' : ''}">${f.status === 'applied' ? 'APPLIED IN v' + esc(f.applied_version || '?') : 'OPEN'}</span>
-            <span class="fb-chip plain">ON v${esc(f.version || 1)}${f.via === 'voice' ? ' · 🎙' : ''}</span>
+            <span class="fb-chip plain">ON v${esc(f.version || 1)}${f.via === 'voice' ? ' · VOICE' : ''}</span>
             <span class="msg-time">${esc(fmtTime(f.at))}</span>
           </div>
           <p class="fb-text">&ldquo;${esc(f.text)}&rdquo;</p>
@@ -1230,8 +1230,8 @@ function runVerdictChip(r) {
   const byVerdict = {
     on_time: ['ok', '✓ RIGHT TIMING'],
     quiet_right: ['ok', '✓ RIGHT CALL'],
-    early: ['warn', '⏱ TOO EARLY'],
-    late: ['warn', '⏱ TOO LATE'],
+    early: ['warn', 'TOO EARLY'],
+    late: ['warn', 'TOO LATE'],
     false_alarm: ['bad', '✗ FALSE ALARM'],
     missed: ['bad', '✗ SHOULD HAVE SPOKEN'],
   }[r.verdict];
@@ -1286,10 +1286,10 @@ function suiteStateNote(situ) {
     return 'The suite runs from GitHub Actions (Actions → agent-suite → baseline) and publishes into the shared backend — keyless, this dashboard has nothing to read it from. Point config.js at the Supabase project and its results show here.';
   }
   if (agentRunsMissing) {
-    return 'No agent_runs table yet — re-run supabase/schema.sql once, then ↻ REFRESH. The suite\'s runs land there from Actions → agent-suite.';
+    return 'No agent_runs table yet — re-run supabase/schema.sql once, then Refresh. The suite\'s runs land there from Actions → agent-suite.';
   }
   if (agentRunsError) {
-    return `Could not read the suite\'s runs — ${esc(agentRunsError)}. ↻ REFRESH to try again.`;
+    return `Could not read the suite\'s runs — ${esc(agentRunsError)}. Refresh to try again.`;
   }
   if (!agentRuns.length) {
     return situ === 'call'
@@ -1542,7 +1542,7 @@ function renderDemoBody(sc, d) {
   return `
       <div class="demo-step reads">
         <span class="addr-tag">1 · ON APPROACH — OTTO READS ALOUD, ~${fmtVal(radius)} M BEFORE THE DOOR</span>
-        ${spoken.length ? sayLine('🔊', head, 'APPROACH') + spoken.map(l => sayLine('🔊', l.text, l.by)).join('')
+        ${spoken.length ? sayLine('→', head, 'APPROACH') + spoken.map(l => sayLine('→', l.text, l.by)).join('')
     : `<p class="demo-empty">${d
       ? 'Nothing on file at this address yet — the consignee, dispatch notes and earlier drivers’ tips would be read here, hands-free.'
       : 'No test address pinned yet — set one in the TESTING tab and the briefing on file appears here.'}</p>`}
@@ -1562,7 +1562,7 @@ function renderDemoBody(sc, d) {
       ${answers.length ? `
       <div class="demo-step heard">
         <span class="addr-tag">4 · WHAT CAME BACK — THE DRIVER'S ANSWER${answers.length > 1 ? 'S' : ''}</span>
-        ${answers.map(m => sayLine('🎙', m.transcript || m.title,
+        ${answers.map(m => sayLine('←', m.transcript || m.title,
     (m.demo ? 'SIMULATED · ' : '') + (m.category || 'other') + ' · ' + fmtTime(m.created_at))).join('')}
       </div>` : ''}
       ${d ? `
@@ -1581,9 +1581,9 @@ function renderScenario(sc) {
   /* the missing-pin warning is workshop copy — in DEMO the body's
    * step 1 tells that story once, without the header shouting it */
   const addrLine = d
-    ? `<div class="sc-addr-line">📍 ${esc(d.addr || `${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}`)}</div>`
+    ? `<div class="sc-addr-line">${esc(d.addr || `${d.lat.toFixed(5)}, ${d.lng.toFixed(5)}`)}</div>`
     : demo ? ''
-    : `<div class="sc-addr-line warn">⚠ No test address yet — set one so the scenario lands on the map</div>`;
+    : `<div class="sc-addr-line warn">No test address yet — set one so the scenario lands on the map</div>`;
 
   const addrBlock = d ? `
     <div class="addr-block">
@@ -1650,7 +1650,7 @@ function renderScenario(sc) {
       <p class="notes-hint">Read out on the phone as the driver comes within ~${fmtVal(radius)} m of this pin — consignee and floor first, then these notes, then the latest driver debriefs from &ldquo;What Otto understood&rdquo;.
       ${rp
         ? `Tune &ldquo;${esc(rp.label || 'notes_radius')}&rdquo; under TUNABLE VALUES.`
-        : `<button class="link-btn" type="button" data-act="notes-radius">⊕ make the read distance tunable</button>`}</p>
+        : `<button class="link-btn" type="button" data-act="notes-radius">Make the read distance tunable</button>`}</p>
     </div>`;
   })();
 
@@ -1661,9 +1661,9 @@ function renderScenario(sc) {
   const viewTabs = `
       <div class="tabs sc-tabs">
         <button class="tab${demo ? '' : ' on'}" type="button" data-cardview="test"
-          title="The full loop — address, notes, sliders, feedback, versions, verdict">⚙ TESTING</button>
+          title="The full loop — address, notes, sliders, feedback, versions, verdict">Testing</button>
         <button class="tab${demo ? ' on' : ''}" type="button" data-cardview="demo"
-          title="The client view — what Otto reads on approach and what he says when this scenario fires; every edit control hidden">▶ DEMO</button>
+          title="The client view — what Otto reads on approach and what he says when this scenario fires; every edit control hidden">Demo</button>
       </div>`;
 
   const body = !open ? '' : demo ? `
@@ -1705,7 +1705,7 @@ function renderScenario(sc) {
         <button class="v-btn${sc.verdict === 'partial' ? ' on-partial' : ''}" type="button" data-verdict="partial">~ PARTIAL</button>
         <button class="v-btn${sc.verdict === 'fail' ? ' on-fail' : ''}" type="button" data-verdict="fail">✗ FAIL</button>
         <span class="row-links">
-          <button class="row-link" type="button" data-act="spec" title="Download this scenario as a JSON spec — tuned values, versions, feedback, results">Spec JSON ⇩</button>
+          <button class="row-link" type="button" data-act="spec" title="Download this scenario as a JSON spec — tuned values, versions, feedback, results">Spec JSON</button>
           <button class="row-link" type="button" data-act="edit">Edit scenario</button>
           <button class="row-link danger" type="button" data-act="del">Delete</button>
         </span>
@@ -1724,7 +1724,7 @@ function renderScenario(sc) {
           <h3>${esc(sc.title)}</h3>
           ${addrLine}
         </div>
-        ${!demo && fromSheet(sc) ? '<span class="origin" title="From the shipped starter sheet (trigger-scenarios.js). Rows without this tag were made on this dashboard — rename a starter row and it becomes yours too.">⇩ STARTER</span>' : ''}
+        ${!demo && fromSheet(sc) ? '<span class="origin" title="From the shipped starter sheet (trigger-scenarios.js). Rows without this tag were made on this dashboard — rename a starter row and it becomes yours too.">STARTER</span>' : ''}
         ${demo ? '' : `<span class="ver" title="${esc(sc.version_note || 'version')}">v${ver}</span>`}
         ${showBadge ? `<span class="badge badge-${st.key}">${esc(st.label)}</span>` : ''}
         ${demo ? '' : '<button class="sc-del" type="button" data-act="del" title="Delete scenario" aria-label="Delete scenario">×</button>'}
@@ -1900,7 +1900,7 @@ function renderSituation(s) {
         <span class="sc-num">${s.num != null && s.num !== '' ? '#' + esc(s.num) : '·'}</span>
         <div class="sc-head">
           <h3>${esc(s.title || 'Untitled situation')}</h3>
-          ${says ? `<div class="sc-addr-line sit-says">&ldquo;${esc(says)}&rdquo;</div>` : '<div class="sc-addr-line warn">⚠ Nothing for the driver to say yet — open the row and write the first line</div>'}
+          ${says ? `<div class="sc-addr-line sit-says">&ldquo;${esc(says)}&rdquo;</div>` : '<div class="sc-addr-line warn">Nothing for the driver to say yet — open the row and write the first line</div>'}
         </div>
         <span class="tip-chip" title="What the tip that comes out of this is about">${esc(sitCat(s.category))}</span>
         ${dirty ? '<span class="badge badge-nopin" title="Edited but not saved">UNSAVED</span>' : ''}
@@ -1917,10 +1917,10 @@ function renderSituationsEmpty() {
       <div class="empty">
         <b>No situations yet</b>
         <p>A situation is one thing a driver reports when they press REPORT on the phone — what they say first, what they know if Otto asks, what would be off topic, and the tip Otto should end up confirming. The suite acts each one out in four voices.</p>
-        ${situationsMissing ? '<p class="cmp-empty">No situations table in the backend yet — re-run supabase/schema.sql once, then ↻ REFRESH.</p>' : ''}
+        ${situationsMissing ? '<p class="cmp-empty">No situations table in the backend yet — re-run supabase/schema.sql once, then Refresh.</p>' : ''}
         <div class="top-actions">
           <button class="chip primary" type="button" data-sit-empty="new">+ NEW SITUATION</button>
-          ${n ? `<button class="chip" type="button" data-sit-empty="sheet">⇩ LOAD THE STARTER SITUATIONS · ${n}</button>` : ''}
+          ${n ? `<button class="chip" type="button" data-sit-empty="sheet">Load the starter situations · ${n}</button>` : ''}
         </div>
       </div>`;
 }
@@ -2156,7 +2156,7 @@ function renderCall(c) {
       </div>
       ${ringHref ? `
       <div class="call-ring">
-        <a href="${esc(ringHref)}" target="_blank" rel="noopener">📞 Ring this call on the phone ↗</a>
+        <a href="${esc(ringHref)}" target="_blank" rel="noopener">Ring this call on the phone ↗</a>
         <span>Opens the phone page with this call ringing. Answer as ${esc(calleeWord(c))}${next ? `; when it ends, Otto rings ${esc(calleeWord(next))} with call #${esc(next.num)}` : ''}. Or on the phone itself: TEST CALL under Otto, or ⚙ → TAKE A CALL.</span>
       </div>` : ''}
       ${renderCallField(c)}
@@ -2187,10 +2187,10 @@ function renderCallsEmpty() {
       <div class="empty">
         <b>No calls yet</b>
         <p>A call is one Otto makes from the back office: he rings the customer about a fresh-food box — will somebody be home — or the driver about a stop, and the person says what they say. The suite acts each one out in four voices; on the phone you take the call yourself (⚙ → TAKE A CALL).</p>
-        ${callsMissing ? '<p class="cmp-empty">No calls table in the backend yet — re-run supabase/schema.sql once, then ↻ REFRESH.</p>' : ''}
+        ${callsMissing ? '<p class="cmp-empty">No calls table in the backend yet — re-run supabase/schema.sql once, then Refresh.</p>' : ''}
         <div class="top-actions">
           <button class="chip primary" type="button" data-call-empty="new">+ NEW CALL</button>
-          ${n ? `<button class="chip" type="button" data-call-empty="sheet">⇩ LOAD THE STARTER CALLS · ${n}</button>` : ''}
+          ${n ? `<button class="chip" type="button" data-call-empty="sheet">Load the starter calls · ${n}</button>` : ''}
         </div>
       </div>`;
 }
@@ -2971,8 +2971,8 @@ const runWhat = r => (r.label === 'model' ? 'MODEL TRIAL' : r.label === 'branch'
 function renderRunViews() {
   return `
       <div class="rl-views">
-        <button class="mini-btn${runsView === 'models' ? '' : ' on'}" type="button" data-runs-view="reports" title="One report per run">REPORTS · ${agentRuns.length}</button>
-        <button class="mini-btn${runsView === 'models' ? ' on' : ''}" type="button" data-runs-view="models" title="Every run on one line: the model Otto ran on, how fast he answered, what a call cost">MODELS</button>
+        <button class="mini-btn${runsView === 'models' ? '' : ' on'}" type="button" data-runs-view="reports" title="One report per run">Reports · ${agentRuns.length}</button>
+        <button class="mini-btn${runsView === 'models' ? ' on' : ''}" type="button" data-runs-view="models" title="Every run on one line: the model Otto ran on, how fast he answered, what a call cost">Models</button>
       </div>`;
 }
 
@@ -3253,7 +3253,7 @@ function renderRunBar(name, rate, val, cls, attrs, title) {
  * pattern's fixed id — never a count or a position — so it holds
  * across reloads and runs; a suggestion shares its pattern's key, so
  * marking either hides both. The rows-at-0% card has its own key. */
-const ACCEPTED_HINT = 'The NOT A PROBLEM list needs a new table. Paste the accepted_findings block from supabase/schema.sql into Supabase → SQL editor once, then ↻ REFRESH.';
+const ACCEPTED_HINT = 'The NOT A PROBLEM list needs a new table. Paste the accepted_findings block from supabase/schema.sql into Supabase → SQL editor once, then Refresh.';
 const ROWS_KEY = 'rows-at-zero';
 const ROWS_NAME = 'Situations that fail with every driver type';
 const acceptedMissingErr = e => /\b404\b|PGRST205|42P01|schema cache/i.test(String((e && e.message) || ''));
@@ -3278,7 +3278,7 @@ function acceptFinding(key, title) {
   }).catch(e => {
     warn(e);
     if (acceptedMissingErr(e)) { acceptedMissing = true; acceptedHint(); return; }
-    el('stats').textContent = `The mark did not reach the backend — ${String((e && e.message) || '').slice(0, 80)}. It is kept in this browser until ↻ REFRESH.`;
+    el('stats').textContent = `The mark did not reach the backend — ${String((e && e.message) || '').slice(0, 80)}. It is kept in this browser until Refresh.`;
   });
 }
 function unacceptFinding(key) {
@@ -3291,7 +3291,7 @@ function unacceptFinding(key) {
   });
 }
 const renderNapBtn = (key, title) => `<button class="mini-btn rs-nap" type="button" data-nap="${esc(key)}" data-nap-title="${esc(title)}"
-            title="Mark this as fine by design. It leaves every run report and the suggestions; UNDO is at the end of the report.">NOT A PROBLEM</button>`;
+            title="Mark this as fine by design. It leaves every run report and the suggestions; Undo is at the end of the report.">Not a problem</button>`;
 
 /* ---------- the report ---------- */
 function renderRunSummary(run) {
@@ -3428,7 +3428,7 @@ function renderRunSummary(run) {
           <p class="rs-sug-p"><b>Add this to the prompt</b></p>
           <pre class="rs-pre" id="rs-fix-${i}">${esc(s.text)}</pre>` : ''}
           <div class="rs-sug-foot">
-            ${s.text ? `<button class="mini-btn" type="button" data-copy="rs-fix-${i}">⎘ copy this text</button>
+            ${s.text ? `<button class="mini-btn" type="button" data-copy="rs-fix-${i}">Copy this text</button>
             <span class="fb-hint">Nothing is applied until you paste it into the prompt yourself.</span>` : ''}
             ${renderNapBtn(s.id, s.name)}
           </div>
@@ -3503,7 +3503,7 @@ function renderRunSummary(run) {
             <li data-accepted="${esc(r.key)}">
               <span class="rs-nap-t"><b>${esc(r.title)}</b>${r.note ? `<span class="rs-nap-note">&ldquo;${esc(r.note)}&rdquo;</span>` : ''}</span>
               <span class="rs-nap-when" title="${esc(r.decided_at || '')}">${esc(fmtTime(r.decided_at) || '—')}</span>
-              <button class="mini-btn" type="button" data-unap="${esc(r.key)}" title="Take this off the list — it shows in the reports again">UNDO</button>
+              <button class="mini-btn" type="button" data-unap="${esc(r.key)}" title="Take this off the list — it shows in the reports again">Undo</button>
             </li>`).join('')}
           </ul>
           <p class="rs-how">Marked findings still count in the pass rate — the suite&rsquo;s rules decide that; this only keeps them out of the report and out of prompt suggestions.</p>
@@ -3569,18 +3569,18 @@ function renderTabs() {
   const own = scenarios.filter(sc => !fromSheet(sc)).length;
   const sit = cardView === 'demo' ? '' : `
       <button class="tab${sitTabOn() ? ' on' : ''}" type="button" data-tab="situations"
-        title="What a driver reports when they press REPORT — the pilot's other sheet, tested by the agent suite in four voices">SITUATIONS · ${situations.length}</button>
+        title="What a driver reports when they press REPORT — the pilot's other sheet, tested by the agent suite in four voices">Situations · ${situations.length}</button>
       <button class="tab${callsTabOn() ? ' on' : ''}" type="button" data-tab="calls"
-        title="The calls Otto makes — the office ringing the customer about a fresh-food box, or the driver about a stop; tested by the agent suite in four voices, and taken on the phone by you">CALLS · ${calls.length}</button>
+        title="The calls Otto makes — the office ringing the customer about a fresh-food box, or the driver about a stop; tested by the agent suite in four voices, and taken on the phone by you">Calls · ${calls.length}</button>
       <button class="tab${runsTabOn() ? ' on' : ''}" type="button" data-tab="runs"
-        title="Every test run, newest first — one report each: what went well, what went wrong, and what to change. Reading only; nothing on it changes the agent.">RUNS · ${agentRuns.length}</button>`;
+        title="Every test run, newest first — one report each: what went well, what went wrong, and what to change. Reading only; nothing on it changes the agent.">Runs · ${agentRuns.length}</button>`;
   const scen = !scenarios.length ? '' : !listMixed()
     ? `<button class="tab${scenTabOn() ? ' on' : ''}" type="button" data-tab="${scenarios.every(fromSheet) ? 'sheet' : 'own'}"
-        title="The trigger scenarios — when Otto speaks, and what he asks">${scenarios.every(fromSheet) ? '⇩ STARTER SHEET' : 'YOUR SCENARIOS'} · ${scenarios.length}</button>`
+        title="The trigger scenarios — when Otto speaks, and what he asks">${scenarios.every(fromSheet) ? 'Starter sheet' : 'Your scenarios'} · ${scenarios.length}</button>`
     : `<button class="tab${scenTabOn() && listTab !== 'sheet' ? ' on' : ''}" type="button" data-tab="own"
-        title="Rows made on this dashboard">YOUR SCENARIOS · ${own}</button>
+        title="Rows made on this dashboard">Your scenarios · ${own}</button>
       <button class="tab${scenTabOn() && listTab === 'sheet' ? ' on' : ''}" type="button" data-tab="sheet"
-        title="Rows loaded from the shipped starter sheet — rename one and it moves to your tab">⇩ STARTER SHEET · ${scenarios.length - own}</button>`;
+        title="Rows loaded from the shipped starter sheet — rename one and it moves to your tab">Starter sheet · ${scenarios.length - own}</button>`;
   return !scen && !sit ? '' : `
     <div class="tabs">${scen}${sit}</div>`;
 }
@@ -3611,7 +3611,7 @@ function render() {
     const have = callsTab && CALL_SHEET ? CALL_SHEET.calls.length - callSheetMissing().length : 0;
     const stale = have ? callSheetStale().length : 0;
     el('reload-calls').hidden = !callsTab || !have;
-    el('reload-calls').textContent = stale ? `⇩ RELOAD STARTER CALLS · ${stale} CHANGED IN THE FILE` : '⇩ RELOAD STARTER CALLS';
+    el('reload-calls').textContent = stale ? `Reload the starter calls · ${stale} changed in the file` : 'Reload the starter calls';
     el('reload-calls').classList.toggle('primary', !!stale);
   }
   el('new-open').hidden = sit || callsTab || runs || routesTab;
@@ -3675,10 +3675,10 @@ function render() {
         <b>No trigger scenarios yet</b>
         <p>Define what the tester should act out and what Otto should understand — then pin each scenario to a real address.</p>
         <div class="top-actions">
-          <button class="chip primary" type="button" data-empty="new">+ NEW SCENARIO</button>
-          <button class="chip" type="button" data-empty="import">⇩ IMPORT</button>
-          ${SHEET ? `<button class="chip" type="button" data-empty="sheet">⇩ LOAD THE STARTER SHEET · ${SHEET.scenarios.length}</button>` : ''}
-          ${!routesOnFile().length ? '<button class="chip" type="button" data-empty="route">⇪ ROUTE — LOAD A DEMO ROUTE</button>' : ''}
+          <button class="chip primary" type="button" data-empty="new">+ New scenario</button>
+          <button class="chip" type="button" data-empty="import">Import</button>
+          ${SHEET ? `<button class="chip" type="button" data-empty="sheet">Load the starter sheet · ${SHEET.scenarios.length}</button>` : ''}
+          ${!routesOnFile().length ? '<button class="chip" type="button" data-empty="route">Route — load a demo route</button>' : ''}
         </div>
       </div>`;
     return;
@@ -3762,7 +3762,7 @@ function setFormAddr(c, dirty) {
   formAddr = c ? { label: c.label, lat: c.lat, lng: c.lng, pin: !!c.pin, dirty: !!dirty } : null;
   const cur = el('f-addr-current');
   cur.hidden = !formAddr;
-  cur.textContent = formAddr ? '📍 ' + formAddr.label : '';
+  cur.textContent = formAddr ? formAddr.label : '';
   el('f-addr-results').innerHTML = '';
   if (formAddr) el('f-addr-input').value = '';
 }
@@ -3842,7 +3842,7 @@ async function runDraft() {
   if (!desc) { el('form-hint').textContent = 'Describe the scenario first — one or two sentences are enough.'; return; }
   const btn = el('f-draft');
   btn.disabled = true;
-  btn.textContent = '✨ Drafting…';
+  btn.textContent = 'Drafting…';
   let out = null;
   let demo = !Backend.enabled;
   if (Backend.enabled) {
@@ -3851,7 +3851,7 @@ async function runDraft() {
   }
   if (!out) out = demoDraft(desc);
   btn.disabled = false;
-  btn.textContent = '✨ Draft the fields from this';
+  btn.textContent = 'Draft the fields from this';
   const f = (out && out.fields) || {};
   const put = (id, v) => { if (typeof v === 'string' && v.trim()) el(id).value = v.trim(); };
   put('f-title', f.title);
@@ -3882,7 +3882,7 @@ async function runDraft() {
 
 async function submitForm() {
   const title = el('f-title').value.trim();
-  if (!title) { el('form-hint').textContent = 'The scenario needs a name — describe it above and hit ✨ Draft, or type one.'; return; }
+  if (!title) { el('form-hint').textContent = 'The scenario needs a name — describe it above and press Draft, or type one.'; return; }
   const numRaw = el('f-num').value.trim();
   const params = cleanParams(formParams) || [];
   const fields = {
@@ -4642,7 +4642,7 @@ function renderImportSheet() {
       : `<span class="imp-status ok">ALL ${total} ARE IN THE LIST</span>`;
     cards.push(`
       <div class="imp-opt">
-        <div class="imp-ic">⇩</div>
+        <div class="imp-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></div>
         <div class="imp-body">
           <b>The starter sheet · ${total} scenarios</b>
           <span>The deck's “${esc(SHEET.name)}” sheet — the ${total} scenarios the pilot started from, every column filled in.</span>
@@ -4653,7 +4653,7 @@ function renderImportSheet() {
   }
   cards.push(`
       <div class="imp-opt">
-        <div class="imp-ic">⎘</div>
+        <div class="imp-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg></div>
         <div class="imp-body">
           <b>Rows copied from Excel</b>
           <span>Your own scenarios: copy the rows in the sheet and paste them here. Each still needs its test address afterwards.</span>
@@ -4664,7 +4664,7 @@ function renderImportSheet() {
   const act = activeRoute();
   cards.push(`
       <div class="imp-opt">
-        <div class="imp-ic">⇪</div>
+        <div class="imp-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></svg></div>
         <div class="imp-body">
           <b>Routes</b>
           <span>The delivery routes live behind the ROUTE door above: load a demo route, make a new one, add and move stops, pick the one the phones show.</span>
@@ -5263,7 +5263,7 @@ function failText(subject, e, what, table) {
     fix = 'Paste supabase/schema.sql into the Supabase project\'s SQL editor and run it once (it is safe to re-run), then try again.';
   } else if (/PGRST205|42P01|Could not find the table/i.test(said)) {
     why = 'The store is missing a table this needs.';
-    fix = 'Paste supabase/schema.sql into the Supabase project\'s SQL editor and run it once (it is safe to re-run), then press ↻ REFRESH and try again.';
+    fix = 'Paste supabase/schema.sql into the Supabase project\'s SQL editor and run it once (it is safe to re-run), then press Refresh and try again.';
   } else if (/column|PGRST204|schema cache/i.test(said)) {
     const col = (said.match(/'([^']+)' column/) || [])[1];
     why = `A table in the store is missing a column this needs${col ? ' (' + col + ')' : ''}.`;
@@ -5310,7 +5310,7 @@ async function ensureRouteRows() {
 async function setActiveRoute(r, quiet) {
   if (!r || routeBusy) return false;
   if (routesMissing) {
-    routeMsg('The phones cannot be told which route to show until the store has its routes table — paste supabase/schema.sql into the Supabase SQL editor and run it once, then press ↻ REFRESH.');
+    routeMsg('The phones cannot be told which route to show until the store has its routes table — paste supabase/schema.sql into the Supabase SQL editor and run it once, then press Refresh.');
     if (!quiet) render();
     return false;
   }
@@ -5481,7 +5481,7 @@ async function createRoute() {
   const name = String(routeForm.name || '').trim();
   if (!name) return;
   if (routesMissing) {
-    routeMsg('A new route needs the routes table in the store — paste supabase/schema.sql into the Supabase SQL editor and run it once, then press ↻ REFRESH.');
+    routeMsg('A new route needs the routes table in the store — paste supabase/schema.sql into the Supabase SQL editor and run it once, then press Refresh.');
     render();
     return;
   }
@@ -5590,7 +5590,7 @@ function onStopAddrInput(q) {
 function stopCandsHtml() {
   const f = stopForm;
   if (!f) return '';
-  if (f.cand) return `<div class="rt-picked">📍 ${esc(f.cand.label)}<button class="link-btn" type="button" data-rt="unpick">change</button></div>`;
+  if (f.cand) return `<div class="rt-picked">${esc(f.cand.label)}<button class="link-btn" type="button" data-rt="unpick">Change</button></div>`;
   return f.cands.map((c, i) => `<button class="cand" type="button" data-rt="pick" data-i="${i}">${esc(c.label)}</button>`).join('');
 }
 /* only the candidates and the hint repaint while typing — the field keeps its cursor */
@@ -5658,7 +5658,7 @@ async function saveStopNumbers(changed) {
       return true;
     } catch (e2) {
       schemaHint(e2);
-      routeMsg(`The stop numbers could not all be saved — the store said: ${String((e2 && e2.message) || e2).replace(/^supabase\s*/i, '')}. Press ↻ REFRESH to see what landed.`);
+      routeMsg(`The stop numbers could not all be saved — the store said: ${String((e2 && e2.message) || e2).replace(/^supabase\s*/i, '')}. Press Refresh to see what landed.`);
       return false;
     }
   }
@@ -5775,7 +5775,7 @@ function renderRoutesTab() {
   const act = activeRoute();
   const demos = DEMO_ROUTES.filter(r => !on.some(x => x.id === r.id));
   const phones = !on.length ? ''
-    : routesMissing ? '<p class="rt-phones warn">The store has no <b>routes</b> table yet, so the phones cannot be told which route to show — they show every route on file. Paste supabase/schema.sql into the Supabase SQL editor and run it once (it is safe to re-run), then press ↻ REFRESH.</p>'
+    : routesMissing ? '<p class="rt-phones warn">The store has no <b>routes</b> table yet, so the phones cannot be told which route to show — they show every route on file. Paste supabase/schema.sql into the Supabase SQL editor and run it once (it is safe to re-run), then press Refresh.</p>'
     : act ? `<p class="rt-phones">The phones open on <b>${esc(act.name)}</b>${routeStops(act).length ? '' : ' — it has no stops yet'}.</p>`
     : '<p class="rt-phones warn">No route is marked for the phones yet — they show every route on file. Press <b>Show on the phones</b> on the one the driver should see.</p>';
   const note = routeNote
@@ -5791,9 +5791,9 @@ function renderRoutesTab() {
         ${note}
       </div>
       <div class="top-actions rt-actions">
-        <button class="chip primary" type="button" data-rt="new"${routesMissing ? ' disabled title="Needs the routes table in the store — see above"' : dis}>+ NEW ROUTE</button>
-        ${demos.map(r => `<button class="chip" type="button" data-rt="load" data-route="${esc(r.id)}"${dis} title="${esc(`${r.stops.length} ${r.area} stops to ${r.walking ? 'walk' : 'drive'} — delivery and driver notes on file`)}">⇪ LOAD “${esc(String(r.name).toUpperCase())}” · ${r.stops.length} STOPS</button>`).join('')}
-        ${on.length ? `<button class="chip${routeShown ? '' : ' off'}" type="button" data-rt="pins" title="${routeShown ? 'Hide the route\'s pins on this map — a view choice for this browser; the phones keep theirs' : 'Show the route\'s pins on this map again'}">${routeShown ? 'PINS ON THE MAP' : 'PINS OFF'}</button>` : ''}
+        <button class="chip primary" type="button" data-rt="new"${routesMissing ? ' disabled title="Needs the routes table in the store — see above"' : dis}>+ New route</button>
+        ${demos.map(r => `<button class="chip" type="button" data-rt="load" data-route="${esc(r.id)}"${dis} title="${esc(`${r.stops.length} ${r.area} stops to ${r.walking ? 'walk' : 'drive'} — delivery and driver notes on file`)}">Load “${esc(r.name)}” · ${r.stops.length} stops</button>`).join('')}
+        ${on.length ? `<button class="chip${routeShown ? '' : ' off'}" type="button" data-rt="pins" title="${routeShown ? 'Hide the route\'s pins on this map — a view choice for this browser; the phones keep theirs' : 'Show the route\'s pins on this map again'}">${routeShown ? 'Pins on the map' : 'Pins off'}</button>` : ''}
       </div>
       ${routeForm ? renderRouteForm() : ''}
     </div>
@@ -6498,7 +6498,7 @@ document.addEventListener('keydown', e => {
     /* a dashboard left open while testers are out in the field: poll for
      * fresh debriefs (REST only — no realtime channel in this kit).
      * uiBusy: never repaint over a slider drag, a recording or an open
-     * proposal — ↻ REFRESH is there when it matters. */
+     * proposal — Refresh is there when it matters. */
     setInterval(async () => {
       if (document.hidden || uiBusy()) return;
       await loadAll();

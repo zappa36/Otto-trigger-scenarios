@@ -40,11 +40,10 @@ const safe = (source) => source.replaceAll('</script', '<\\/script');
 
 /** The ParcelVox pin, inline so the page pulls in no files of its own. */
 const FAVICON =
-  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2312A06B'/%3E%3Cg transform='translate(6 6)' fill='none' stroke='%23fff' stroke-linejoin='round'%3E%3Cpath d='M10 17.5s-5.5-4.6-5.5-8.7A5.5 5.5 0 0 1 15.5 8.8C15.5 12.9 10 17.5 10 17.5Z' stroke-width='1.7'/%3E%3Cpath d='M8 8.8h.01M10 8.8h.01M12 8.8h.01' stroke-width='2.1' stroke-linecap='round'/%3E%3C/g%3E%3C/svg%3E";
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23005d92'/%3E%3Cg transform='translate(6 6)' fill='none' stroke='%23fff' stroke-linejoin='round'%3E%3Cpath d='M10 17.5s-5.5-4.6-5.5-8.7A5.5 5.5 0 0 1 15.5 8.8C15.5 12.9 10 17.5 10 17.5Z' stroke-width='1.7'/%3E%3Cpath d='M8 8.8h.01M10 8.8h.01M12 8.8h.01' stroke-width='2.1' stroke-linecap='round'/%3E%3C/g%3E%3C/svg%3E";
 
-const FONTS = `<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">`;
+/* The PostNord look is typeset in the system sans — nothing to fetch. */
+const FONTS = '';
 
 const STYLE = `<style>
 html, body { height: 100%; margin: 0; }

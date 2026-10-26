@@ -8,13 +8,18 @@
  * ============================================================ */
 
 .fm {
-  --fm-accent: #3cc0e0;
-  --fm-ink: #eef2f7;
-  --fm-dim: #94a1b2;
-  --fm-land: #0e1b17;
-  --fm-line: rgba(107, 143, 133, .16);
-  --fm-font: system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --fm-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  /* ParcelVox defaults: a Deep Ink Blue ground, Oat ink, hairlines, and
+   * coral spent on one thing only — the device dot. A host that wants
+   * another look sets these itself (the driver's screen does, in PostNord
+   * blue; see driver.css). --fm-mono keeps its name for those hosts but
+   * now carries the structural face, Space Grotesk. */
+  --fm-accent: #FF4D3A;
+  --fm-ink: #F4F1E8;
+  --fm-dim: rgba(244, 241, 232, .64);
+  --fm-land: #0A1730;
+  --fm-line: rgba(244, 241, 232, .10);
+  --fm-font: 'Source Sans 3', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --fm-mono: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif;
 
   position: relative;
   overflow: hidden;
@@ -35,7 +40,7 @@
   background:
     linear-gradient(var(--fm-line) 1px, transparent 1px) 0 0 / 48px 48px,
     linear-gradient(90deg, var(--fm-line) 1px, transparent 1px) 0 0 / 48px 48px,
-    radial-gradient(120% 80% at 50% 0%, #12241f 0%, var(--fm-land) 70%);
+    var(--fm-land); /* a hairline grid on a flat ground — no wash */
 }
 
 .fm-static {
@@ -70,13 +75,13 @@
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  border-radius: 7px;
-  background: rgba(8, 18, 16, .85);
-  border: 1px solid rgba(60, 192, 224, .55);
-  box-shadow: 0 3px 9px rgba(0, 0, 0, .4);
+  border-radius: 6px;
+  background: rgba(10, 23, 48, .92);
+  border: 1px solid rgba(244, 241, 232, .16);
   font-family: var(--fm-mono);
-  font-size: 8px;
-  letter-spacing: .04em;
+  font-weight: 500;
+  font-size: 9px;
+  letter-spacing: .06em;
   white-space: nowrap;
   max-width: 180px;
   overflow: hidden;
@@ -84,22 +89,18 @@
 }
 
 .fm-icon {
-  border-radius: 12px;
-  border: 2px solid rgba(255, 255, 255, .5);
+  border-radius: 10px;
+  border: 2px solid rgba(244, 241, 232, .55);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  font-size: 18px;
+  color: #0A1730; /* the fills are light, so the glyph is ink */
+  font-family: var(--fm-mono);
+  font-weight: 600;
+  font-size: 16px;
   line-height: 1;
 }
-
-.fm-glow {
-  margin: 3px auto 0;
-  width: 34px;
-  height: 11px;
-  border-radius: 50%;
-}
+.fm-icon svg { width: 55%; height: 55%; display: block; }
 
 /* ---------- the device ---------- */
 .fm-me {
@@ -120,8 +121,7 @@
   width: 16px;
   height: 16px;
   background: var(--fm-accent);
-  border: 2.5px solid #fff;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, .55);
+  border: 2.5px solid var(--fm-ink);
 }
 .fm-me-halo {
   width: 46px;
@@ -137,7 +137,7 @@
 /* ---------- veil ---------- */
 .fm-veil {
   inset: 0;
-  background: rgba(7, 13, 22, .72);
+  background: rgba(10, 23, 48, .78);
   backdrop-filter: blur(3px);
   display: flex;
   align-items: center;
@@ -147,8 +147,9 @@
 .fm-veil[hidden] { display: none; }
 .fm-veil-text {
   font-family: var(--fm-mono);
-  font-size: 11px;
-  letter-spacing: .18em;
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: .09em;
   text-transform: uppercase;
   color: var(--fm-dim);
   animation: fm-pulse 1.8s ease-in-out infinite;
@@ -170,17 +171,16 @@
   height: 42px;
   padding: 0;
   border-radius: 50%;
-  border: 1px solid rgba(60, 192, 224, .45);
-  background: rgba(8, 18, 16, .74);
+  border: 1px solid rgba(244, 241, 232, .16);
+  background: rgba(10, 23, 48, .88);
   backdrop-filter: blur(6px);
-  box-shadow: 0 3px 12px rgba(0, 0, 0, .45);
-  color: var(--fm-accent);
+  color: var(--fm-ink);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   animation: fm-ctl-in .16s ease-out;
 }
 .fm-recenter svg { width: 21px; height: 21px; display: block; }
-.fm-recenter:hover { background: rgba(12, 26, 24, .88); }
+.fm-recenter:hover { background: rgba(22, 40, 74, .92); }
 .fm-recenter:active { transform: scale(.94); }
 .fm-recenter:focus-visible { outline: 2px solid var(--fm-accent); outline-offset: 2px; }
 .fm-recenter[hidden] { display: none; }

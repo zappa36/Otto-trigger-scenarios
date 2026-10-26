@@ -1,67 +1,69 @@
-/* ParcelVox design tokens — lifted from the Claude Design handoff (project/ParcelVox Dashboard.dc.html) */
+/* The dispatcher dashboard in the PostNord look — the palette of the driver's screen (driver.css):
+   brand blue for the accent and the primary action, navy for depth, soft sky tints, system sans.
+   The token names are the original design's; the values are PostNord's. */
 
 :root {
   /* Ink + text */
-  --pv-ink: #21262b;
-  --pv-ink-2: #3d464b;
-  --pv-ink-3: #4a545a;
-  --pv-muted: #5b6660;
-  --pv-muted-2: #78838a;
-  --pv-muted-3: #93a09a;
+  --pv-ink: #1c2430;
+  --pv-ink-2: #2b3747;
+  --pv-ink-3: #3a4757;
+  --pv-muted: #66717f;
+  --pv-muted-2: #7b8795;
+  --pv-muted-3: #97a2ae;
 
-  /* Primary green */
-  --pv-green: #12a06b;
-  --pv-green-dark: #0e8a5c;
-  --pv-green-deep: #1f5b41;
+  /* Primary — PostNord blue (the names say green; the values say blue) */
+  --pv-green: #005d92;
+  --pv-green-dark: #004b77;
+  --pv-green-deep: #122c5a;
 
-  /* Mint tints */
-  --pv-mint: #e9f7f0;
-  --pv-mint-border: #cbe9da;
-  --pv-mint-hover: #d8f0e4;
-  --pv-mint-dot: #cbdfd3;
+  /* Sky tints */
+  --pv-mint: #e3f1fb;
+  --pv-mint-border: #c7dff1;
+  --pv-mint-hover: #d4e8f7;
+  --pv-mint-dot: #b6d3e9;
 
-  /* Honey — the only accent (pending / alerts) */
-  --pv-honey: #f2a33c;
-  --pv-honey-soft: #f5be74;
-  --pv-honey-text: #b97514;
-  --pv-honey-bg: #fdf3e3;
-  --pv-honey-border: #f4ddb8;
-  --pv-honey-panel: #fdf8ef;
+  /* Amber — pending / alerts */
+  --pv-honey: #e39b1b;
+  --pv-honey-soft: #f1c173;
+  --pv-honey-text: #a35500;
+  --pv-honey-bg: #fff1dc;
+  --pv-honey-border: #f3dcb6;
+  --pv-honey-panel: #fff8ee;
 
   /* Surfaces */
-  --pv-page: #f7f9f8;
+  --pv-page: #f3f5f8;
   --pv-surface: #ffffff;
-  --pv-surface-2: #fafbfa;
-  --pv-surface-3: #f1f4f2;
-  --pv-nav-hover: #f1f6f2;
-  --pv-row-hi: #fdfcf8;
-  --pv-row-hi-hover: #faf7ee;
+  --pv-surface-2: #f8fafc;
+  --pv-surface-3: #eef2f6;
+  --pv-nav-hover: #e9f1f8;
+  --pv-row-hi: #f6f9fc;
+  --pv-row-hi-hover: #edf4fa;
 
   /* Lines + tracks */
-  --pv-line: #e3e8e4;
-  --pv-line-soft: #eef2ef;
-  --pv-line-strong: #d6ded9;
-  --pv-line-hover: #b9c6be;
-  --pv-track: #edf1ee;
+  --pv-line: #e4e8ee;
+  --pv-line-soft: #eef1f5;
+  --pv-line-strong: #d3dae3;
+  --pv-line-hover: #b7c3d1;
+  --pv-track: #e9eef4;
 
   /* Neutrals used by charts and the map */
-  --pv-grey-dot: #c4ccc8;
-  --pv-route-grey: #a9bbb0;
-  --pv-map-top: #dce7df;
-  --pv-map-bottom: #edf3ee;
-  --pv-map-land: #edf3ee;
-  --pv-map-land-edge: #f7faf8;
-  --pv-map-outline: #c9d6cd;
-  --pv-map-label: #9aa8a0;
+  --pv-grey-dot: #c3ccd6;
+  --pv-route-grey: #a9b7c6;
+  --pv-map-top: #dde6ef;
+  --pv-map-bottom: #eaf0f6;
+  --pv-map-land: #eaf0f6;
+  --pv-map-land-edge: #f6f9fc;
+  --pv-map-outline: #c9d4df;
+  --pv-map-label: #94a3b3;
 
   /* Type */
-  --pv-font-head: Manrope, Inter, system-ui, sans-serif;
-  --pv-font-body: Inter, system-ui, sans-serif;
+  --pv-font-head: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  --pv-font-body: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
 
   /* Elevation */
-  --pv-shadow-sm: 0 1px 3px rgba(33, 38, 43, 0.08);
-  --pv-shadow-card: 0 2px 8px rgba(33, 38, 43, 0.06);
-  --pv-shadow-bar: 0 2px 8px rgba(33, 38, 43, 0.05);
+  --pv-shadow-sm: 0 1px 3px rgba(18, 44, 90, 0.08);
+  --pv-shadow-card: 0 2px 8px rgba(18, 44, 90, 0.08);
+  --pv-shadow-bar: 0 2px 8px rgba(18, 44, 90, 0.06);
 }
 
 * {
@@ -108,11 +110,11 @@ button {
 
 @keyframes vxpulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(18, 160, 107, 0.35);
+    box-shadow: 0 0 0 0 rgba(0, 93, 146, 0.35);
   }
   70%,
   100% {
-    box-shadow: 0 0 0 13px rgba(18, 160, 107, 0);
+    box-shadow: 0 0 0 13px rgba(0, 93, 146, 0);
   }
 }
 
