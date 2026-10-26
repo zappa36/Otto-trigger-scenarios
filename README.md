@@ -1136,8 +1136,9 @@ foot or by van — and three things happen there and nowhere else. **Which route
 phones* on a card and that route is the one the driver's screen opens
 on. The card wears ON THE PHONES, the other routes' stops leave the
 phones altogether (map, approach readings, driver's screen), and the
-choice reaches every phone — live through the `routes` table, keyless
-through the storage event. A driver can still switch routes from the
+choice reaches every phone — live through the `routes` table, which a
+phone already open re-reads every 30 s, keyless through the storage
+event. A driver can still switch routes from the
 title of the driver's screen; the newer decision wins. The first
 route on file goes to the phones by itself; a second one is a choice,
 made on its card. **Adding and
@@ -1170,7 +1171,11 @@ rings (`notes_radius` / `notes_rearm`), which the phone applies to
 **every stop of the route**. A route loaded before that row existed
 heals itself at the next dashboard open, and removing the route
 removes its scenario row with it. On a live backend, phones already
-open pick the new stops up with their ↻ chip. Every stop becomes a
+open pick the new stops up by themselves within 30 s — the phone
+re-reads the routes, the stops and the visits while it is on screen
+and nobody is talking to Otto, and repaints only when something
+changed; scenarios and debriefs still wait for the ↻ chip, so a tester
+mid-run keeps the definition they started with. Every stop becomes a
 destination row
 stamped with its route id and stop number, so the phone shows
 numbered pins ("7 · GOLTZSTRASSE 13"), the card opens as "Stop 7 ·
@@ -1408,12 +1413,25 @@ real store.** With stops on file, its Map view frames itself on the
 data and shows the same destinations as every other surface — route
 lines in driving order, amber pins where pre-arrival notes wait, green
 where a driver has debriefed — and clicking a stop opens the stop
-panel: every parcel behind that door, consignee and floor (editable),
-the dispatch notes [Otto reads aloud on
+panel: every parcel behind that door, consignee, entrance, floor and
+kind of delivery (editable — the same four fields the driver's screen
+shows and the Route door's stop sheet edits), the dispatch notes [Otto
+reads aloud on
 approach](#pre-arrival-notes--otto-reads-before-you-arrive), added and
 removed right there, and the latest real driver debriefs. A note added
 on the dispatcher dashboard is read out on the driver's phone on its
 next approach, and `dashboard.html` sees it live.
+
+It reads the two tables that say how the day is going, too. The
+**route on the phones** — the one the Route door's *Show on the
+phones* chose — is drawn in PostNord blue and named in the legend
+("Schöneberg 01 — on the phones"); any other route on file steps back
+in grey, so the dispatcher sees the same route the van does. The
+driver's **✓ Delivered / ✕ Not delivered taps** reach the map the
+same way: a finished door turns green, a missed one amber, the legend
+counts them, the stop panel says "Delivered · 10:42" on each stop, and
+the finder tags the stops done. Ask Otto "how far is the route?" and
+the answer comes from the same taps.
 
 The connection follows the kit's storage philosophy: keyless, all
 three pages share the browser's localStorage and keep each other fresh
@@ -1772,7 +1790,7 @@ and everything else refers to them.
 | File | Purpose |
 |---|---|
 | `index.html` | Phone shell: Otto's screen (the Companion — Otto as the report button, the tally, the header), the map screen with its HUD, card and controls, the driver's screen (the route in the van), the settings and reports sheets, the conversation screen, the incoming-call screen (pins come from the dashboard) — Otto's screens in the ParcelVox design system, the driver's in PostNord's |
-| `app.js` | Destinations, messages, the card (incl. the Delivered tap on route stops), the report flow (pressing Otto), the two screens (and the seams the driver's screen hangs on), the per-phone report tally, Otto wiring, the ⚙ settings sheet — and the calls Otto makes: TAKE A CALL on the sheet, the ring, Answer / Decline, the chain to the next call |
+| `app.js` | Destinations, messages, the card (incl. the Delivered tap on route stops), the report flow (pressing Otto), the two screens (and the seams the driver's screen hangs on), the per-phone report tally, Otto wiring, the ⚙ settings sheet, the 30 s store check that keeps a live phone on the route the dashboard chose — and the calls Otto makes: TAKE A CALL on the sheet, the ring, Answer / Decline, the chain to the next call |
 | `driver.js` | The driver's screen: the loaded route as today's deliveries — the next-stop card, the TO DO / DONE timeline, the daylight map with numbered pins and the route line, the stop sheet (notes, the other parcels at the door, Navigate, Delivered / Not delivered, Report to Otto, Hear the briefing), the route picker, the wake lock, the `#driver` link — built on app.js's own seams |
 | `driver.css` | Its look: the PostNord app's design language, scoped to the screen, plus the daylight palette for the kit's map there |
 | `darts.js/.css` | The dart game after a report: the card, the flick, the rings, one throw per stop, only while still, the depot's best today |
@@ -1783,7 +1801,7 @@ and everything else refers to them.
 | `situations-starter.js` | The starter situations: twenty things a driver reports after pressing REPORT — the driver's first words, what they know if asked, what a fitting follow-up covers, what is off topic, the tip to confirm; loadable in one tap into the dashboard's SITUATIONS tab |
 | `calls-starter.js` | The starter calls: ten calls Otto makes from the back office — a home check for a fresh-food box, the call that tells the driver, a late notice, a stop to skip, a wrong number — who is rung, why, what they say, what the call must establish, the outcome, and the call that follows; loadable in one tap into the dashboard's CALLS tab, and the phone's fallback list for ⚙ → TAKE A CALL |
 | `trigger-scenarios.js` | The starter sheet: ten finished "Otto triggers" rows — the deck's worked example, eight more situations, the clean-run control — loadable in one tap, idempotent by title |
-| `parcelvox-dashboard.html`, `parcelvox-dashboard/` | The dispatcher dashboard, in the PostNord look — map and pre-arrival notes wired to the same shared store (localStorage or Supabase), report counts and hotspots from the analytics API; the rest labelled sample data |
+| `parcelvox-dashboard.html`, `parcelvox-dashboard/` | The dispatcher dashboard, in the PostNord look — map, pre-arrival notes, the route on the phones and the driver's Delivered / Not delivered taps wired to the same shared store (localStorage or Supabase), report counts and hotspots from the analytics API; the rest labelled sample data |
 | `mock-api/` | A mock of the Parcelvox Analytics API contract: the store's real rows reshaped into places, reports, guidance, tours and outreach, plus invented history; no dependencies, `node server.mjs` |
 | `elevenlabs/` | The agent loop — the tuning loop for Otto's ElevenLabs prompt; Node >= 20, no dependencies, `npm test`; its own [`README.md`](elevenlabs/README.md), `personas.json`, `lib/` (the `agentVars()` mirror, the API client, the Supabase reader), `test/` (an in-process mock of the three services). Guarded and driven by `.github/workflows/agent-suite.yml`: node tests + generator drift on every change, and every stage of the loop as a button in the Actions tab (the baseline on Mondays too) once the key secret exists |
 | `elevenlabs/loop.mjs` | `configure` · `push-tests` · `run` · `publish` · `pull` · `score` · `cut` · `propose` · `branch` · `compare` · `promote` — the REST API called directly, `--dry-run` prints every request and sends nothing; results, field pulls and proposals land in gitignored folders next to it |

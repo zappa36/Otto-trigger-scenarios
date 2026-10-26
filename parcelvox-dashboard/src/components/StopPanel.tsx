@@ -6,6 +6,7 @@ import {
   setStopField,
   type DepotDebrief,
   type DepotStop,
+  type DepotVisit,
 } from '../otto/depot';
 import { doorLabel, type DepotDoor } from '../otto/doors';
 import type { Range } from '../otto/analytics';
@@ -16,9 +17,11 @@ import styles from './StopPanel.module.css';
  * What is on file behind one door — the dispatcher's side of the
  * pre-arrival loop, the same view the trigger dashboard's stop sheet
  * gives: every stop at this address (stacked pins are one building,
- * several parcels), its consignee, the notes Otto reads aloud on
- * approach — added and removed right here — and the latest real driver
- * debriefs, read-only.
+ * several parcels), its consignee, entrance, floor and kind of delivery
+ * (the four things Otto reads before the door, edited in place like the
+ * stop sheet does), the notes Otto reads aloud on approach — added and
+ * removed right here — the driver's Delivered / Not delivered tap on
+ * each stop, read-only, and the latest real driver debriefs, read-only.
  */
 
 const fmtTime = (iso?: string) => {
@@ -27,6 +30,12 @@ const fmtTime = (iso?: string) => {
     ? ''
     : t.toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 };
+const fmtClock = (iso?: string) => {
+  const t = new Date(iso || 0);
+  return isNaN(t.getTime()) ? '' : t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+/* the kind pick-list's value: a parcel is the default, kept as null like everywhere else */
+const kindValue = (k?: string | null) => (k === 'bulky' || k === 'food' ? k : '');
 
 /* Keyless Google Maps URLs — same links as the trigger dashboard. */
 const gmapUrl = (d: DepotStop) => `https://www.google.com/maps/search/?api=1&query=${d.lat},${d.lng}`;
@@ -37,9 +46,10 @@ const blurOnEnter = (e: KeyboardEvent<HTMLInputElement>) => {
   if (e.key === 'Enter') e.currentTarget.blur();
 };
 
-function StopSection({ row, filed }: { row: DepotStop; filed: DepotDebrief[] }) {
+function StopSection({ row, filed, visit }: { row: DepotStop; filed: DepotDebrief[]; visit?: DepotVisit }) {
   const [draft, setDraft] = useState('');
   const notes = notesOf(row);
+  const tapAt = visit ? fmtClock(visit.delivered_at || visit.created_at) : '';
 
   const submit = () => {
     if (!draft.trim()) return;
@@ -49,7 +59,19 @@ function StopSection({ row, filed }: { row: DepotStop; filed: DepotDebrief[] }) 
 
   return (
     <section className={styles.section}>
-      <div className={styles.stopTag}>{row.stop != null ? `Stop ${row.stop}` : 'Scenario pin'}</div>
+      <div className={styles.stopTag}>
+        {row.stop != null ? `Stop ${row.stop}` : 'Scenario pin'}
+        {visit && (
+          /* the driver's tap on this stop — the scan moment, as the driver's screen shows it */
+          <span
+            className={`${styles.visit} ${visit.outcome === 'failed' ? styles.visitFailed : ''}`}
+            title="The driver's tap on the phone — Delivered or Not delivered"
+          >
+            {visit.outcome === 'failed' ? '✕ Not delivered' : '✓ Delivered'}
+            {tapAt ? ` · ${tapAt}` : ''}
+          </span>
+        )}
+      </div>
 
       <div className={styles.fields}>
         <label className={styles.field}>
@@ -63,6 +85,16 @@ function StopSection({ row, filed }: { row: DepotStop; filed: DepotDebrief[] }) 
           />
         </label>
         <label className={styles.field}>
+          <span>Entrance</span>
+          <input
+            key={`e:${row.entrance ?? ''}`}
+            defaultValue={row.entrance ?? ''}
+            placeholder="Which door — “rear building, staircase B”"
+            onBlur={(e) => setStopField(row, 'entrance', e.currentTarget.value)}
+            onKeyDown={blurOnEnter}
+          />
+        </label>
+        <label className={styles.field}>
           <span>Floor / unit</span>
           <input
             key={`f:${row.floor ?? ''}`}
@@ -72,13 +104,26 @@ function StopSection({ row, filed }: { row: DepotStop; filed: DepotDebrief[] }) 
             onKeyDown={blurOnEnter}
           />
         </label>
+        <label className={styles.field}>
+          <span>Kind of delivery</span>
+          <select
+            key={`k:${kindValue(row.kind)}`}
+            defaultValue={kindValue(row.kind)}
+            onChange={(e) => setStopField(row, 'kind', e.currentTarget.value)}
+          >
+            <option value="">Parcel</option>
+            <option value="bulky">Bulky — furniture or large electronics</option>
+            <option value="food">Fresh food</option>
+          </select>
+        </label>
       </div>
 
       {notes.map((note, i) => (
         <div key={note.id || `${i}:${note.text}`} className={styles.note}>
           <div className={styles.noteText}>{note.text}</div>
           <div className={styles.noteMeta}>
-            {String(note.by || 'dispatch').toUpperCase()}
+            {/* CUSTOMER: what Otto agreed on a call from the driver's screen — tagged the same there */}
+            {(note.call ? 'customer' : String(note.by || 'dispatch')).toUpperCase()}
             {note.at ? ` · ${fmtTime(note.at)}` : ''}
           </div>
           <button
@@ -103,7 +148,7 @@ function StopSection({ row, filed }: { row: DepotStop; filed: DepotDebrief[] }) 
       ))}
 
       {!notes.length && !filed.length && (
-        <p className={styles.empty}>Nothing on file yet — Otto reads only the consignee here.</p>
+        <p className={styles.empty}>Nothing on file yet — Otto reads only the consignee, the entrance and the floor here.</p>
       )}
 
       <div className={styles.add}>
@@ -129,12 +174,14 @@ function StopSection({ row, filed }: { row: DepotStop; filed: DepotDebrief[] }) 
 interface StopPanelProps {
   door: DepotDoor;
   debriefs: Record<string, DepotDebrief[]>;
+  /** The driver's newest Delivered / Not delivered tap per stop. */
+  visits: Record<string, DepotVisit>;
   onClose: () => void;
   /** The analytics API's range, when one is configured — the numbers section fetches over it. */
   analyticsRange?: Range | null;
 }
 
-export function StopPanel({ door, debriefs, onClose, analyticsRange }: StopPanelProps) {
+export function StopPanel({ door, debriefs, visits, onClose, analyticsRange }: StopPanelProps) {
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -172,13 +219,14 @@ export function StopPanel({ door, debriefs, onClose, analyticsRange }: StopPanel
           <PlaceAnalytics placeId={door.analytics ? door.analytics.placeId : null} range={analyticsRange} />
         )}
         {door.rows.map((row) => (
-          <StopSection key={row.id} row={row} filed={debriefs[row.id] || []} />
+          <StopSection key={row.id} row={row} filed={debriefs[row.id] || []} visit={visits[row.id]} />
         ))}
       </div>
 
       <p className={styles.hint}>
-        Otto reads these aloud on the driver's phone on approach — consignee and floor first, then
-        the notes, newest first, then the latest driver debriefs.
+        Otto reads these aloud on the driver's phone on approach — consignee, entrance and floor
+        first, a word for a bulky or fresh-food delivery, then the notes, newest first, then the
+        latest driver debriefs. Delivered and Not delivered are the driver's taps on the phone.
       </p>
     </aside>
   );

@@ -81,8 +81,8 @@ export function Sidebar({ view, onNavigate, pendingCount, live, analytics }: Sid
         <div className={styles.demoChip}>
           {live
             ? analytics
-              ? 'Live: map + notes + analytics API · rest is sample'
-              : 'Live: map + notes · rest is sample'
+              ? 'Live: map, notes, route, deliveries + analytics API · rest is sample'
+              : 'Live: map, notes, route, deliveries · rest is sample'
             : 'Demo — all stops fictional'}
         </div>
       </div>

@@ -203,6 +203,16 @@
   background: var(--pv-ink);
 }
 
+/* a noted door the driver has finished: the pin stays (the notes are
+ * still on file) in the driver's screen's green or amber */
+.pinHeadDone {
+  background: var(--pv-done);
+}
+
+.pinHeadFailed {
+  background: var(--pv-fail);
+}
+
 .pinSelected .pinHead,
 .livePin:hover .pinHead,
 .livePin:focus-visible .pinHead {

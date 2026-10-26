@@ -16,6 +16,7 @@ import {
   type MapFilter,
 } from '../data/map';
 import { analyticsIsMock, type Bbox } from '../otto/analytics';
+import { activeRoute, visitState } from '../otto/depot';
 import { attachAnalytics, groupDoors, routeLines } from '../otto/doors';
 import { usePlacesAnalytics } from '../otto/useAnalytics';
 import { useDepot } from '../otto/useDepot';
@@ -67,8 +68,16 @@ export function MapView({ onAskOtto }: MapViewProps) {
    * Keyless, the sample stays until the shared store has something. */
   const live = depot.mode === 'supabase' || depot.stops.length > 0;
 
-  const storeDoors = useMemo(() => groupDoors(depot.stops, depot.debriefs), [depot.stops, depot.debriefs]);
-  const lines = useMemo(() => routeLines(depot.stops), [depot.stops]);
+  const storeDoors = useMemo(
+    () => groupDoors(depot.stops, depot.debriefs, depot.visits),
+    [depot.stops, depot.debriefs, depot.visits],
+  );
+  const lines = useMemo(() => routeLines(depot.stops, depot.routes), [depot.stops, depot.routes]);
+  /* the route the ROUTE door put on the phones — the one the driver's screen opens on */
+  const onPhones = useMemo(() => activeRoute(depot.routes), [depot.routes]);
+  /* the driver's taps, counted the way the driver's screen counts them: per stop */
+  const delivered = depot.stops.filter((s) => visitState(s, depot.visits) === 'done').length;
+  const failed = depot.stops.filter((s) => visitState(s, depot.visits) === 'failed').length;
 
   /* The analytics API's view of the same doors — report counts and the hotspot
    * ranking over its range — fetched for the doors' bounding box and matched
@@ -179,8 +188,10 @@ export function MapView({ onAskOtto }: MapViewProps) {
       ? 'Connecting to the depot store…'
       : depot.stops.length === 0
         ? `Nothing on file yet — pin scenarios or load the demo route on the trigger-scenarios dashboard (${store})`
-        : `${depot.stops.length} stops · ${doors.length} addresses on file — live from ${store} · ` +
-          `click a stop to read and edit what Otto says on approach · drag or scroll to move the map` +
+        : `${depot.stops.length} stops · ${doors.length} addresses on file — live from ${store}` +
+          (onPhones ? ` · “${onPhones.name}” on the phones` : '') +
+          (delivered + failed > 0 ? ` · ${delivered} delivered${failed ? `, ${failed} not delivered` : ''}` : '') +
+          ` · click a stop to read and edit what Otto says on approach · drag or scroll to move the map` +
           (analytics.status === 'ready' ? ` · report counts from the analytics ${analyticsIsMock ? 'mock' : 'API'}` : '') +
           (depot.offline ? ' · connection lost, retrying' : '');
 
@@ -255,6 +266,20 @@ export function MapView({ onAskOtto }: MapViewProps) {
                 <span>Debriefed by a driver</span>
                 <span className={styles.legendCount}>{debriefed}</span>
               </div>
+              {delivered + failed > 0 && (
+                <div className={styles.legendRow}>
+                  <span className={styles.legendDotDone} />
+                  <span>Delivered — the driver's tap</span>
+                  <span className={styles.legendCount}>{delivered}</span>
+                </div>
+              )}
+              {failed > 0 && (
+                <div className={styles.legendRow}>
+                  <span className={styles.legendDotFailed} />
+                  <span>Not delivered</span>
+                  <span className={styles.legendCount}>{failed}</span>
+                </div>
+              )}
               <div className={styles.legendRow}>
                 <span className={styles.legendDotPlain} />
                 <span>Stop on file</span>
@@ -280,12 +305,32 @@ export function MapView({ onAskOtto }: MapViewProps) {
               )}
               {lines.length > 0 && (
                 <div className={styles.legendSplit}>
-                  <div className={styles.legendRow}>
-                    <span className={styles.legendLineHi} />
-                    <span>
-                      {lines.map((l) => l.id).join(' · ')} — driving order
-                    </span>
-                  </div>
+                  {lines.some((l) => l.active) ? (
+                    <>
+                      <div className={styles.legendRow}>
+                        <span className={styles.legendLineHi} />
+                        <span>
+                          {lines.filter((l) => l.active).map((l) => l.name).join(' · ')} — on the phones, driving order
+                        </span>
+                      </div>
+                      {lines.some((l) => !l.active) && (
+                        <div className={styles.legendRow}>
+                          <span className={styles.legendLine} />
+                          <span>
+                            Other routes on file — {lines.filter((l) => !l.active).map((l) => l.name).join(' · ')}
+                          </span>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className={styles.legendRow}>
+                      <span className={styles.legendLineHi} />
+                      <span>
+                        {lines.map((l) => l.name).join(' · ')} — driving order
+                        {onPhones ? '' : ' · no route marked for the phones yet'}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -316,6 +361,7 @@ export function MapView({ onAskOtto }: MapViewProps) {
             <StopPanel
               door={selectedDoor}
               debriefs={depot.debriefs}
+              visits={depot.visits}
               onClose={() => setSelectedKey(null)}
               analyticsRange={analytics.status === 'off' ? null : analytics.range}
             />

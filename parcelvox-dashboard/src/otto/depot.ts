@@ -1,7 +1,11 @@
 /*
  * The wire to the real app around this dashboard — the destination pins
  * and pre-arrival notes that the phone (index.html) and the
- * trigger-scenarios dashboard (dashboard.html) already share.
+ * trigger-scenarios dashboard (dashboard.html) already share, plus the
+ * two tables that say how the day is going: `routes` (which route the
+ * ROUTE door put on the phones) and `visits` (the driver's Delivered /
+ * Not delivered taps). The same rows, read the same way, so this page
+ * never shows a different route or a different state than the van.
  *
  * Same storage philosophy as the rest of the kit, decided once at load
  * (mirroring backend.js):
@@ -36,6 +40,8 @@ export interface DepotNote {
   at?: string;
   /** Who left it — 'dispatch' or 'driver'; Otto names the voice when reading. */
   by?: string;
+  /** Written by Otto after a customer call from the driver's screen — tagged CUSTOMER there and here. */
+  call?: boolean;
 }
 
 /** One destinations row — a route stop (route + stop set) or a scenario pin. */
@@ -47,6 +53,10 @@ export interface DepotStop {
   lng: number;
   consignee?: string | null;
   floor?: string | null;
+  /** Which door — "rear building, staircase B", "courtyard gate" — read aloud with the name and the floor. */
+  entrance?: string | null;
+  /** What kind of delivery: 'parcel' (also null) | 'bulky' | 'food'. Otto says a word for the last two. */
+  kind?: string | null;
   /** jsonb from Supabase, plain array from localStorage, string if hand-fed. */
   notes?: DepotNote[] | string | null;
   route?: string | null;
@@ -65,6 +75,30 @@ export interface DepotDebrief {
   created_at?: string;
 }
 
+/** One `routes` row — the route's name, on foot or by van, and the one flag the phones read: active. */
+export interface DepotRoute {
+  id: string;
+  name: string;
+  area?: string | null;
+  walking?: boolean;
+  /** The route on the phones — the driver's screen opens on it. One row at a time. */
+  active?: boolean;
+  active_at?: string | null;
+  created_at?: string;
+}
+
+/** One `visits` row — the driver's Delivered / Not delivered tap on a route stop. */
+export interface DepotVisit {
+  id?: string;
+  destination_id: string;
+  route?: string | null;
+  stop?: number | null;
+  /** 'delivered' | 'failed' */
+  outcome?: string;
+  delivered_at?: string;
+  created_at?: string;
+}
+
 export interface DepotSnapshot {
   mode: 'supabase' | 'local';
   /** First load finished. localStorage is synchronous, so local mode is ready at once. */
@@ -74,10 +108,16 @@ export interface DepotSnapshot {
   stops: DepotStop[];
   /** Real debriefs by destination id, newest first. */
   debriefs: Record<string, DepotDebrief[]>;
+  /** The routes table, oldest first — [] on a store from before it (the phones then show every route). */
+  routes: DepotRoute[];
+  /** The newest visit per destination id — the same rule as the phone (a re-tap after undo replaces). */
+  visits: Record<string, DepotVisit>;
 }
 
 const LS_DEST = 'od_destinations';
 const LS_MSGS = 'od_messages';
+const LS_ROUTES = 'od_routes';
+const LS_VISITS = 'od_visits';
 
 const url = String(window.SUPABASE_URL || '').replace(/\/+$/, '');
 const key = String(window.SUPABASE_ANON_KEY || '');
@@ -101,6 +141,31 @@ export function notesOf(stop: DepotStop | null | undefined): DepotNote[] {
   return (n as DepotNote[]).filter((x) => x && String(x.text || '').trim());
 }
 
+/* ---------- what the rows say ---------- */
+
+/** The route on the phones — the active row, the newest should two ever be (mirrors app.js / dashboard.js). */
+export const activeRoute = (routes: DepotRoute[]): DepotRoute | null =>
+  routes
+    .filter((r) => r && r.active)
+    .sort((a, b) => String(b.active_at || '').localeCompare(String(a.active_at || '')))[0] || null;
+
+/** 'open' until the driver taps; then 'done' (delivered) or 'failed' (not delivered). */
+export const visitState = (stop: DepotStop, visits: Record<string, DepotVisit>): 'open' | 'done' | 'failed' => {
+  const v = visits[stop.id];
+  return !v ? 'open' : v.outcome === 'failed' ? 'failed' : 'done';
+};
+
+/** The newest tap per stop out of a visits list — exactly what the phone keeps. */
+export function newestVisits(rows: DepotVisit[]): Record<string, DepotVisit> {
+  const by: Record<string, DepotVisit> = {};
+  for (const v of rows) {
+    if (!v || !v.destination_id) continue;
+    const had = by[v.destination_id];
+    if (!had || String(v.created_at || '') >= String(had.created_at || '')) by[v.destination_id] = v;
+  }
+  return by;
+}
+
 /* ---------- Supabase REST (the slice of backend.js this page needs) ---------- */
 
 async function rest(path: string, opts: RequestInit = {}): Promise<unknown> {
@@ -119,6 +184,10 @@ async function rest(path: string, opts: RequestInit = {}): Promise<unknown> {
 
 const listDestinations = () => rest('/rest/v1/destinations?select=*&order=created_at.asc');
 const listMessages = () => rest(`/rest/v1/${msgTable}?select=*&order=created_at.desc&limit=500`);
+/* the two newer tables ride their own requests: a store from before
+ * them (schema.sql behind this build) still has its stops and notes */
+const listRoutes = () => rest('/rest/v1/routes?select=*&order=created_at.asc');
+const listVisits = () => rest('/rest/v1/visits?select=*&order=created_at.desc&limit=1000');
 const patchDestination = (id: string, patch: Partial<DepotStop>) =>
   rest('/rest/v1/destinations?id=eq.' + encodeURIComponent(id), {
     method: 'PATCH',
@@ -128,18 +197,24 @@ const patchDestination = (id: string, patch: Partial<DepotStop>) =>
 
 /* ---------- the store ---------- */
 
-let snapshot: DepotSnapshot = { mode, ready: mode === 'local', offline: false, stops: [], debriefs: {} };
+let snapshot: DepotSnapshot = { mode, ready: mode === 'local', offline: false, stops: [], debriefs: {}, routes: [], visits: {} };
 /** Cheap change guard so a quiet 30 s poll does not repaint the map. */
 let dataStamp = '';
 
 const listeners = new Set<() => void>();
 const notify = () => listeners.forEach((fn) => fn());
 
-function setData(stops: DepotStop[], debriefs: Record<string, DepotDebrief[]>, offline: boolean) {
-  const stamp = JSON.stringify([stops, debriefs, offline]);
+function setData(
+  stops: DepotStop[],
+  debriefs: Record<string, DepotDebrief[]>,
+  routes: DepotRoute[],
+  visits: Record<string, DepotVisit>,
+  offline: boolean,
+) {
+  const stamp = JSON.stringify([stops, debriefs, routes, visits, offline]);
   if (snapshot.ready && stamp === dataStamp) return;
   dataStamp = stamp;
-  snapshot = { mode, ready: true, offline, stops, debriefs };
+  snapshot = { mode, ready: true, offline, stops, debriefs, routes, visits };
   notify();
 }
 
@@ -155,40 +230,62 @@ function groupDebriefs(rows: DepotDebrief[]): Record<string, DepotDebrief[]> {
   return by;
 }
 
-function readLocal(): { stops: DepotStop[]; debriefs: Record<string, DepotDebrief[]> } {
-  let stops: DepotStop[] = [];
-  let msgs: DepotDebrief[] = [];
+function readLocalList<T>(key: string): T[] {
+  let list: unknown = [];
   try {
-    stops = JSON.parse(localStorage.getItem(LS_DEST) || '[]');
+    list = JSON.parse(localStorage.getItem(key) || '[]');
   } catch {
     /* private mode */
   }
-  try {
-    msgs = JSON.parse(localStorage.getItem(LS_MSGS) || '[]');
-  } catch {
-    /* private mode */
-  }
-  if (!Array.isArray(stops)) stops = [];
-  if (!Array.isArray(msgs)) msgs = [];
-  return { stops: stops.filter((s) => s && s.id != null), debriefs: groupDebriefs(msgs) };
+  return Array.isArray(list) ? (list as T[]) : [];
+}
+
+function readLocal(): {
+  stops: DepotStop[];
+  debriefs: Record<string, DepotDebrief[]>;
+  routes: DepotRoute[];
+  visits: Record<string, DepotVisit>;
+} {
+  const stops = readLocalList<DepotStop>(LS_DEST);
+  const msgs = readLocalList<DepotDebrief>(LS_MSGS);
+  /* the same keys the phone and the trigger dashboard write: the routes
+   * as the dashboard keeps them, the visits as the phone keeps them */
+  const routes = readLocalList<DepotRoute>(LS_ROUTES).filter((r) => r && r.id);
+  const visits = newestVisits(readLocalList<DepotVisit>(LS_VISITS));
+  return { stops: stops.filter((s) => s && s.id != null), debriefs: groupDebriefs(msgs), routes, visits };
 }
 
 async function refresh(): Promise<void> {
   if (mode === 'local') {
-    const { stops, debriefs } = readLocal();
-    setData(stops, debriefs, false);
+    const { stops, debriefs, routes, visits } = readLocal();
+    setData(stops, debriefs, routes, visits, false);
     return;
   }
   try {
-    const [stops, msgs] = await Promise.all([listDestinations(), listMessages()]);
+    const [stops, msgs, routes, visits] = await Promise.all([
+      listDestinations(),
+      listMessages(),
+      /* a missing table (or a slow answer) costs the stops nothing: the
+       * last routes and visits stay on screen, the next poll tries again */
+      listRoutes().catch((e) => {
+        warn(e);
+        return snapshot.routes;
+      }),
+      listVisits().catch((e) => {
+        warn(e);
+        return Object.values(snapshot.visits);
+      }),
+    ]);
     setData(
       (Array.isArray(stops) ? (stops as DepotStop[]) : []).filter((s) => s && s.id != null),
       groupDebriefs(Array.isArray(msgs) ? (msgs as DepotDebrief[]) : []),
+      (Array.isArray(routes) ? (routes as DepotRoute[]) : []).filter((r) => r && r.id),
+      newestVisits(Array.isArray(visits) ? (visits as DepotVisit[]) : []),
       false,
     );
   } catch (e) {
     warn(e);
-    setData(snapshot.stops, snapshot.debriefs, true);
+    setData(snapshot.stops, snapshot.debriefs, snapshot.routes, snapshot.visits, true);
   }
 }
 
@@ -200,7 +297,7 @@ function start() {
   void refresh();
   if (mode === 'local') {
     onStorage = (e) => {
-      if (e.key && ![LS_DEST, LS_MSGS].includes(e.key)) return;
+      if (e.key && ![LS_DEST, LS_MSGS, LS_ROUTES, LS_VISITS].includes(e.key)) return;
       void refresh();
     };
     window.addEventListener('storage', onStorage);
@@ -254,11 +351,13 @@ function saveStopPatch(id: string, patch: Partial<DepotStop>): void {
   setData(
     snapshot.stops.map((s) => (s.id === id ? { ...s, ...patch } : s)),
     snapshot.debriefs,
+    snapshot.routes,
+    snapshot.visits,
     snapshot.offline,
   );
   patchDestination(id, patch).catch((e) => {
     warn(e);
-    setData(snapshot.stops, snapshot.debriefs, true);
+    setData(snapshot.stops, snapshot.debriefs, snapshot.routes, snapshot.visits, true);
   });
 }
 
@@ -280,7 +379,12 @@ export function deleteNote(stop: DepotStop, idx: number): void {
   saveStopPatch(cur.id, { notes });
 }
 
-export function setStopField(stop: DepotStop, field: 'consignee' | 'floor', value: string): void {
+/** The four things Otto reads before the door — the same fields the driver's
+ * screen shows and the trigger dashboard's stop sheet edits. A blank kind
+ * is a parcel (null), as everywhere else. */
+export type StopField = 'consignee' | 'floor' | 'entrance' | 'kind';
+
+export function setStopField(stop: DepotStop, field: StopField, value: string): void {
   const cur = freshest(stop);
   const v = value.trim() || null;
   if ((cur[field] ?? null) === v) return;

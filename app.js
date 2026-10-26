@@ -3040,6 +3040,60 @@ if (!Backend.enabled) {
   });
 }
 
+/* Live mode: the two dashboards poll the store every 30 s, and the phone
+ * did not — "Show on the phones" on the ROUTE door, a stop added there,
+ * a note written on the dispatcher dashboard reached a phone already
+ * open only at its ↻. Now the phone checks the same way: the routes
+ * table, the stops and the visits — three small reads, only while the
+ * page is on screen and nobody is talking to Otto — and repaints only
+ * when something changed, exactly as the storage event does keyless.
+ * Scenarios, debriefs and the calls stay with the ↻ chip: a tester
+ * mid-run keeps the definition they started with. */
+if (Backend.enabled) {
+  let liveStamp = '';
+  const syncLive = async () => {
+    if (document.hidden) return;
+    /* a debrief or a call on the screen, or ↻ already at it: next time */
+    if (!el('otto-screen').hidden || calling || el('reload').dataset.busy) return;
+    let de, rt, vs;
+    try {
+      [de, rt, vs] = await Promise.all([
+        Backend.listDestinations(),
+        Backend.listRoutes().catch(() => null),   // no routes table yet: what is there stays
+        Backend.listVisits(1000).catch(() => null),
+      ]);
+    } catch (e) { console.warn('store check skipped', e.message); return; }
+    if (!Array.isArray(de)) return;
+    /* the same order boot() keeps: a route's rows share a created_at,
+     * the stop number breaks the tie */
+    de.sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || ''))
+      || ((a.stop == null ? 1e9 : a.stop) - (b.stop == null ? 1e9 : b.stop)));
+    const stamp = JSON.stringify([de, rt, vs]);
+    if (stamp === liveStamp) return;
+    liveStamp = stamp;
+    destinations = de;
+    if (Array.isArray(rt)) routesMeta = rt;
+    /* taps from another phone on the route; the newest per stop wins,
+     * a tap filed here a moment ago included */
+    if (Array.isArray(vs)) vs.forEach(recordVisit);
+    rebuildScenarioIndex();
+    renderRouteChip();
+    renderEmpty();
+    map.refresh();
+    if (window.DriverScreen) DriverScreen.refresh();
+    /* an open card follows its stop onto the fresh row — or closes when
+     * the stop was taken off the route */
+    if (current) {
+      const d = destinations.find(x => x.id === current.id);
+      if (d) { current = d; if (!el('card').hidden) openCard(d); }
+      else { el('card').hidden = true; current = null; }
+    }
+  };
+  setInterval(syncLive, 30000);
+  /* back from the pocket or another app: what changed meanwhile, now */
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncLive(); });
+}
+
 boot();
 
 /* GPS is the only position source — no simulated fallback. The map

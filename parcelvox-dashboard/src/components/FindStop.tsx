@@ -66,12 +66,12 @@ export function FindStop({ doors, debriefs, total, onOpen, onAskOtto, hotspots, 
       <div className={styles.head}>
         <h2 className={styles.title}>Find a stop</h2>
         <div className={styles.sub}>
-          Search the {total} stops on file — street, consignee, note, stop number
+          Search the {total} stops on file — street, consignee, entrance, note, stop number
         </div>
         <input
           className={styles.search}
           value={query}
-          placeholder="Street, consignee, note, stop number…"
+          placeholder="Street, consignee, entrance, note, stop number…"
           onChange={(e) => setQuery(e.target.value)}
           aria-label="Search stops"
         />
@@ -109,10 +109,20 @@ export function FindStop({ doors, debriefs, total, onOpen, onAskOtto, hotspots, 
             onClick={() => onOpen(e.door.key)}
           >
             <span className={styles.rowTitle}>{doorLabel(e.door)}</span>
-            {e.consignees.length > 0 && (
-              <span className={styles.rowMeta}>{e.consignees.join(' · ')}</span>
+            {(e.consignees.length > 0 || e.entrances.length > 0) && (
+              <span className={styles.rowMeta}>{[...e.consignees, ...e.entrances].join(' · ')}</span>
             )}
             <span className={styles.chips}>
+              {/* the driver's tap — the day's state, as the driver's screen shows it */}
+              {e.door.state === 'done' && <span className={`${styles.chip} ${styles.chipDone}`}>delivered</span>}
+              {e.door.state === 'failed' && (
+                <span className={`${styles.chip} ${styles.chipFailed}`}>not delivered</span>
+              )}
+              {e.door.state === 'open' && e.door.delivered + e.door.failed > 0 && (
+                <span className={`${styles.chip} ${styles.chipDone}`}>
+                  {e.door.delivered + e.door.failed} of {e.door.rows.length} done
+                </span>
+              )}
               {e.notes.length > 0 && (
                 <span className={`${styles.chip} ${styles.chipNotes}`}>
                   {e.notes.length} note{e.notes.length === 1 ? '' : 's'}

@@ -1,6 +1,14 @@
 import type { LngLat } from '../data/map';
 import type { ApiHotspot, ApiPlace } from './analytics';
-import { notesOf, type DepotDebrief, type DepotStop } from './depot';
+import {
+  activeRoute,
+  notesOf,
+  visitState,
+  type DepotDebrief,
+  type DepotRoute,
+  type DepotStop,
+  type DepotVisit,
+} from './depot';
 
 /*
  * Grouping the flat destinations list into what the map draws.
@@ -9,7 +17,10 @@ import { notesOf, type DepotDebrief, type DepotStop } from './depot';
  * are one building, several parcels, exactly the grouping the trigger
  * dashboard's stop sheet uses. A route line is a route's rows in driving
  * order (the stop column), consecutive duplicates collapsed where several
- * parcels share a door.
+ * parcels share a door; it knows its name from the routes table and
+ * whether it is the route on the phones. The driver's Delivered / Not
+ * delivered taps (visits) give every door its state, by the phone's own
+ * rule: the newest tap per stop.
  */
 
 export interface DepotDoor {
@@ -24,6 +35,11 @@ export interface DepotDoor {
   hasNotes: boolean;
   /** A real (non-demo) Otto debrief is on file for at least one row. */
   debriefed: boolean;
+  /** Stops behind this door the driver tapped Delivered on, and Not delivered on. */
+  delivered: number;
+  failed: number;
+  /** 'open' while any stop here still waits; then 'done', or 'failed' when one was not delivered. */
+  state: 'open' | 'done' | 'failed';
   /** What the analytics API knows about this door, when one is configured. */
   analytics?: DoorAnalytics;
 }
@@ -77,8 +93,23 @@ export function attachAnalytics(doors: DepotDoor[], places: ApiPlace[], hotspots
 
 export interface DepotRouteLine {
   id: string;
+  /** The routes table's name — else the id made readable, as the trigger dashboard does. */
+  name: string;
+  /** The route the ROUTE door put on the phones: the driver's screen opens on it. */
+  active: boolean;
   points: LngLat[];
 }
+
+/** 'schoeneberg-01' → 'Schoeneberg 01' — for a route the table does not know (a store from before it). */
+export const prettyRouteId = (id: string): string =>
+  String(id)
+    .replace(/[-_]+/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+
+export const routeName = (id: string, routes: DepotRoute[]): string => {
+  const row = routes.find((r) => r.id === id);
+  return (row && row.name) || prettyRouteId(id);
+};
 
 const stopOrder = (a: DepotStop, b: DepotStop) =>
   ((a.stop == null ? 1e9 : a.stop) - (b.stop == null ? 1e9 : b.stop)) ||
@@ -87,6 +118,7 @@ const stopOrder = (a: DepotStop, b: DepotStop) =>
 export function groupDoors(
   stops: DepotStop[],
   debriefs: Record<string, DepotDebrief[]>,
+  visits: Record<string, DepotVisit> = {},
 ): DepotDoor[] {
   const byKey = new Map<string, DepotStop[]>();
   for (const s of stops) {
@@ -99,6 +131,9 @@ export function groupDoors(
   return [...byKey.entries()].map(([key, rows]) => {
     rows.sort(stopOrder);
     const first = rows[0];
+    const states = rows.map((r) => visitState(r, visits));
+    const delivered = states.filter((s) => s === 'done').length;
+    const failed = states.filter((s) => s === 'failed').length;
     return {
       key,
       at: [first.lng, first.lat] as LngLat,
@@ -107,6 +142,9 @@ export function groupDoors(
       stopNos: rows.map((r) => r.stop).filter((n): n is number => n != null),
       hasNotes: rows.some((r) => notesOf(r).length > 0),
       debriefed: rows.some((r) => (debriefs[r.id] || []).length > 0),
+      delivered,
+      failed,
+      state: states.some((s) => s === 'open') ? 'open' : failed ? 'failed' : 'done',
     };
   });
 }
@@ -119,7 +157,8 @@ export const doorLabel = (door: DepotDoor): string =>
       ? `Stop ${door.stopNos[0]} · ${door.title}`
       : door.title;
 
-export function routeLines(stops: DepotStop[]): DepotRouteLine[] {
+export function routeLines(stops: DepotStop[], routes: DepotRoute[] = []): DepotRouteLine[] {
+  const act = activeRoute(routes);
   const byRoute = new Map<string, DepotStop[]>();
   for (const s of stops) {
     if (!s.route || !Number.isFinite(s.lat) || !Number.isFinite(s.lng)) continue;
@@ -135,7 +174,7 @@ export function routeLines(stops: DepotStop[]): DepotRouteLine[] {
         const last = points[points.length - 1];
         if (!last || last[0] !== r.lng || last[1] !== r.lat) points.push([r.lng, r.lat]);
       }
-      return { id, points };
+      return { id, name: routeName(id, routes), active: !!act && act.id === id, points };
     })
     .filter((line) => line.points.length > 1);
 }
